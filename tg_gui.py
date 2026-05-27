@@ -10,6 +10,7 @@ import uuid
 import hashlib
 from datetime import datetime
 import shutil
+import asyncio
 from pyrogram import Client
 from pyrogram.errors import FloodWait, UserDeactivated, PhoneNumberBanned, SessionPasswordNeeded, AuthKeyDuplicated
 
@@ -31,7 +32,7 @@ class TelegramFullGUI:
         self.groups = ["默认分组"]
         self.running_tasks = {}
         
-        # Pyrogram API配置（与猎鹰TG群发器兼容）
+        # Pyrogram API配置
         self.api_id = 34256693
         self.api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
         
@@ -396,7 +397,6 @@ class TelegramFullGUI:
             self.show_centered_yesno("确认", f"确定删除分组「{group_name}」？账号将移至默认分组", do_delete)
     
     def import_accounts_folder(self):
-        """导入账号文件夹 - 直接导入Pyrogram格式的session文件"""
         if not self.groups:
             self.groups = ["默认分组"]
         
@@ -422,14 +422,12 @@ class TelegramFullGUI:
         ttk.Button(group_dialog, text="确定", command=confirm_import).pack(pady=15)
     
     def do_import_accounts(self, target_group):
-        """执行导入账号 - 递归扫描所有.session文件"""
         folder = filedialog.askdirectory(title="选择账号文件夹（包含.session文件的目录）")
         if not folder:
             return
         
         self.log(f"开始扫描账号文件夹: {folder}")
         
-        # 查找所有.session文件
         session_files = []
         for root_dir, dirs, files in os.walk(folder):
             for file in files:
@@ -439,7 +437,7 @@ class TelegramFullGUI:
         
         if not session_files:
             self.log("未找到任何.session文件")
-            self.show_centered_warning("导入失败", "未找到任何.session文件\n\n请选择包含.session文件的文件夹")
+            self.show_centered_warning("导入失败", "未找到任何.session文件")
             return
         
         count = 0
@@ -447,7 +445,6 @@ class TelegramFullGUI:
             filename = os.path.basename(session_path)
             phone = filename.replace(".session", "")
             
-            # 检查是否已存在
             exists = False
             for acc in self.accounts:
                 if acc.get('phone') == phone:
@@ -473,10 +470,9 @@ class TelegramFullGUI:
         self.refresh_account_list()
         self.log(f"导入 {count} 个账号到分组「{target_group}」")
         if count > 0:
-            self.show_centered_info("导入完成", f"成功导入 {count} 个账号\n\n请点击「一键登录所有账号」")
+            self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
     
     def login_all_accounts(self):
-        """一键登录所有账号 - 使用Pyrogram直接读取session文件"""
         accounts_to_login = []
         for i, acc in enumerate(self.accounts):
             status = acc.get('status', '')
@@ -490,74 +486,69 @@ class TelegramFullGUI:
         
         self.log(f"开始批量登录 {len(accounts_to_login)} 个账号...")
         
-        def do_login():
-            success_count = 0
-            for idx, (i, acc) in enumerate(accounts_to_login, 1):
-                phone = acc.get('phone', '')
-                session_path = acc.get('session_path', '')
-                
-                self.log(f"[{idx}/{len(accounts_to_login)}] 正在登录账号: {phone}")
-                
-                if not session_path or not os.path.exists(session_path):
-                    self.log(f"❌ {phone}: session文件不存在")
-                    acc['status'] = '文件不存在'
-                    self.root.after(0, self.refresh_account_list)
-                    continue
-                
-                try:
-                    # 使用Pyrogram创建客户端
-                    app = Client(
-                        name=session_path.replace('.session', ''),
-                        api_id=self.api_id,
-                        api_hash=self.api_hash,
-                        workdir=os.path.dirname(session_path)
-                    )
-                    
-                    app.connect()
-                    
-                    # 检查是否已授权
-                    if app.is_connected:
-                        me = app.get_me()
-                        nickname = me.first_name or me.username or phone
-                        acc['nickname'] = nickname
-                        if me.date:
-                            acc['register_time'] = me.date.strftime("%Y-%m-%d")
-                        acc['status'] = '正常'
-                        self.log(f"✅ {phone}: 登录成功 | 昵称: {nickname}")
-                        app.disconnect()
-                        success_count += 1
-                    else:
-                        self.log(f"❌ {phone}: session无效")
-                        acc['status'] = 'session无效'
-                    
-                except Exception as e:
-                    error_msg = str(e)
-                    if "AUTH_KEY_DUPLICATED" in error_msg:
-                        self.log(f"⚠️ {phone}: 异地登录")
-                        acc['status'] = '异地登录'
-                    elif "FLOOD" in error_msg.upper():
-                        self.log(f"⛔ {phone}: 被限制")
-                        acc['status'] = '被限制'
-                    elif "DEACTIVATED" in error_msg.upper():
-                        self.log(f"💀 {phone}: 账号已注销")
-                        acc['status'] = '销号'
-                    elif "BANNED" in error_msg.upper():
-                        self.log(f"🚫 {phone}: 账号被封禁")
-                        acc['status'] = '封禁'
-                    else:
-                        self.log(f"❌ {phone}: 登录失败 - {error_msg[:80]}")
-                        acc['status'] = '登录失败'
-                
-                self.root.after(0, self.refresh_account_list)
-                time.sleep(1)  # 避免请求过快
-            
-            self.log(f"批量登录完成: 成功 {success_count}/{len(accounts_to_login)}")
-            self.root.after(0, lambda: self.show_centered_info("登录完成", f"成功登录 {success_count} 个账号"))
+        def run_login_async():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._login_all_accounts_async(accounts_to_login))
+            loop.close()
         
-        threading.Thread(target=do_login, daemon=True).start()
+        threading.Thread(target=run_login_async, daemon=True).start()
+    
+    async def _login_all_accounts_async(self, accounts_to_login):
+        success_count = 0
+        for idx, (i, acc) in enumerate(accounts_to_login, 1):
+            phone = acc.get('phone', '')
+            session_path = acc.get('session_path', '')
+            
+            self.log(f"[{idx}/{len(accounts_to_login)}] 正在登录账号: {phone}")
+            
+            if not session_path or not os.path.exists(session_path):
+                self.log(f"❌ {phone}: session文件不存在")
+                acc['status'] = '文件不存在'
+                self.refresh_account_list()
+                continue
+            
+            try:
+                app = Client(
+                    name=session_path.replace('.session', ''),
+                    api_id=self.api_id,
+                    api_hash=self.api_hash,
+                    workdir=os.path.dirname(session_path)
+                )
+                
+                await app.start()
+                me = await app.get_me()
+                nickname = me.first_name or me.username or phone
+                acc['nickname'] = nickname
+                if me.date:
+                    acc['register_time'] = me.date.strftime("%Y-%m-%d")
+                acc['status'] = '正常'
+                self.log(f"✅ {phone}: 登录成功 | 昵称: {nickname}")
+                await app.stop()
+                success_count += 1
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "AUTH_KEY_DUPLICATED" in error_msg:
+                    self.log(f"⚠️ {phone}: 异地登录")
+                    acc['status'] = '异地登录'
+                elif "FLOOD" in error_msg.upper():
+                    self.log(f"⛔ {phone}: 被限制")
+                    acc['status'] = '被限制'
+                elif "DEACTIVATED" in error_msg.upper():
+                    self.log(f"💀 {phone}: 账号已注销")
+                    acc['status'] = '销号'
+                else:
+                    self.log(f"❌ {phone}: 登录失败 - {error_msg[:80]}")
+                    acc['status'] = '登录失败'
+            
+            self.refresh_account_list()
+            await asyncio.sleep(1)
+        
+        self.log(f"批量登录完成: 成功 {success_count}/{len(accounts_to_login)}")
+        self.show_centered_info("登录完成", f"成功登录 {success_count} 个账号")
     
     def check_accounts(self):
-        """检测账号状态"""
         selected = self.account_tree.selection()
         if not selected:
             self.show_centered_warning("提示", "请先选择要检测的账号")
@@ -565,56 +556,55 @@ class TelegramFullGUI:
         
         self.log(f"开始检测 {len(selected)} 个账号...")
         
-        def do_check():
-            for item in selected:
-                idx = int(self.account_tree.item(item)['values'][0]) - 1
-                acc = self.accounts[idx]
-                phone = acc.get('phone', '')
-                session_path = acc.get('session_path', '')
-                
-                if not session_path or not os.path.exists(session_path):
-                    acc['status'] = '文件不存在'
-                    self.log(f"❌ {phone}: session文件不存在")
-                    self.root.after(0, self.refresh_account_list)
-                    continue
-                
-                try:
-                    app = Client(
-                        name=session_path.replace('.session', ''),
-                        api_id=self.api_id,
-                        api_hash=self.api_hash,
-                        workdir=os.path.dirname(session_path)
-                    )
-                    
-                    app.connect()
-                    
-                    if app.is_connected:
-                        me = app.get_me()
-                        nickname = me.first_name or me.username or phone
-                        acc['nickname'] = nickname
-                        if me.date:
-                            acc['register_time'] = me.date.strftime("%Y-%m-%d")
-                        acc['status'] = '正常'
-                        self.log(f"✅ {phone}: 正常 | 昵称: {nickname}")
-                    else:
-                        acc['status'] = '未登录'
-                        self.log(f"⚠️ {phone}: 未登录")
-                    
-                    app.disconnect()
-                    
-                except Exception as e:
-                    acc['status'] = '异常'
-                    self.log(f"❌ {phone}: 检测异常 - {str(e)[:50]}")
-                
-                self.root.after(0, self.refresh_account_list)
-                time.sleep(0.5)
-            
-            self.log("账号检测完成")
+        def run_check_async():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._check_accounts_async(selected))
+            loop.close()
         
-        threading.Thread(target=do_check, daemon=True).start()
+        threading.Thread(target=run_check_async, daemon=True).start()
+    
+    async def _check_accounts_async(self, selected):
+        for item in selected:
+            idx = int(self.account_tree.item(item)['values'][0]) - 1
+            acc = self.accounts[idx]
+            phone = acc.get('phone', '')
+            session_path = acc.get('session_path', '')
+            
+            if not session_path or not os.path.exists(session_path):
+                acc['status'] = '文件不存在'
+                self.log(f"❌ {phone}: session文件不存在")
+                self.refresh_account_list()
+                continue
+            
+            try:
+                app = Client(
+                    name=session_path.replace('.session', ''),
+                    api_id=self.api_id,
+                    api_hash=self.api_hash,
+                    workdir=os.path.dirname(session_path)
+                )
+                
+                await app.start()
+                me = await app.get_me()
+                nickname = me.first_name or me.username or phone
+                acc['nickname'] = nickname
+                if me.date:
+                    acc['register_time'] = me.date.strftime("%Y-%m-%d")
+                acc['status'] = '正常'
+                self.log(f"✅ {phone}: 正常 | 昵称: {nickname}")
+                await app.stop()
+                
+            except Exception as e:
+                acc['status'] = '异常'
+                self.log(f"❌ {phone}: 检测异常 - {str(e)[:50]}")
+            
+            self.refresh_account_list()
+            await asyncio.sleep(0.5)
+        
+        self.log("账号检测完成")
     
     def edit_profile(self):
-        """修改账号资料"""
         selected = self.account_tree.selection()
         if not selected:
             self.show_centered_warning("提示", "请先选择要修改资料的账号")
@@ -670,7 +660,7 @@ class TelegramFullGUI:
             status_label.config(text="正在修改中...")
             dialog.update()
             
-            def do_update():
+            async def do_update():
                 try:
                     app = Client(
                         name=session_path.replace('.session', ''),
@@ -679,24 +669,24 @@ class TelegramFullGUI:
                         workdir=os.path.dirname(session_path)
                     )
                     
-                    app.connect()
+                    await app.start()
                     
                     if new_first_name:
-                        app.set_first_name(new_first_name)
+                        await app.set_first_name(new_first_name)
                     if new_last_name:
-                        app.set_last_name(new_last_name)
+                        await app.set_last_name(new_last_name)
                     if new_bio:
-                        app.set_bio(new_bio)
+                        await app.set_bio(new_bio)
                     
                     acc['nickname'] = new_first_name
                     if new_last_name:
                         acc['nickname'] = f"{new_first_name} {new_last_name}".strip()
                     
-                    self.root.after(0, self.refresh_account_list)
+                    self.refresh_account_list()
                     status_label.config(text="修改成功！")
                     self.log(f"账号 {phone} 资料修改成功")
                     
-                    app.disconnect()
+                    await app.stop()
                     
                 except Exception as e:
                     status_label.config(text=f"修改失败: {str(e)[:30]}")
@@ -704,7 +694,13 @@ class TelegramFullGUI:
                 finally:
                     dialog.after(2000, dialog.destroy)
             
-            threading.Thread(target=do_update, daemon=True).start()
+            def run_update():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(do_update())
+                loop.close()
+            
+            threading.Thread(target=run_update, daemon=True).start()
         
         ttk.Button(dialog, text="保存修改", command=save_profile).pack(pady=20)
     
@@ -945,7 +941,7 @@ class TelegramFullGUI:
         
         self.log(f"开始采集: {group} (数量: {limit}) 使用账号: {account_phone}")
         
-        def do_scrape():
+        async def do_scrape_async():
             try:
                 app = Client(
                     name=session_path.replace('.session', ''),
@@ -954,9 +950,8 @@ class TelegramFullGUI:
                     workdir=os.path.dirname(session_path)
                 )
                 
-                app.connect()
+                await app.start()
                 
-                # 解析群组
                 if 't.me/' in group:
                     chat = group.split('t.me/')[-1]
                 else:
@@ -981,12 +976,18 @@ class TelegramFullGUI:
                     json.dump(members, f, ensure_ascii=False, indent=2)
                 
                 self.log(f"采集完成，共 {len(members)} 个成员，已保存到 members.json")
-                app.disconnect()
+                await app.stop()
                 
             except Exception as e:
                 self.log(f"采集失败: {e}")
         
-        threading.Thread(target=do_scrape, daemon=True).start()
+        def run_scrape():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(do_scrape_async())
+            loop.close()
+        
+        threading.Thread(target=run_scrape, daemon=True).start()
     
     # ==================== 批量拉人页面 ====================
     def create_invite_page(self):
@@ -1058,7 +1059,7 @@ class TelegramFullGUI:
         
         self.log(f"开始拉人: 共 {min(int(limit), len(members))} 人")
         
-        def do_invite():
+        async def do_invite_async():
             try:
                 app = Client(
                     name=session_path.replace('.session', ''),
@@ -1067,9 +1068,8 @@ class TelegramFullGUI:
                     workdir=os.path.dirname(session_path)
                 )
                 
-                app.connect()
+                await app.start()
                 
-                # 解析目标群组
                 if 't.me/' in group:
                     target_chat = group.split('t.me/')[-1]
                 else:
@@ -1080,23 +1080,29 @@ class TelegramFullGUI:
                     try:
                         user_id = m.get('id')
                         if user_id:
-                            app.add_chat_members(target_chat, user_id)
+                            await app.add_chat_members(target_chat, user_id)
                             success += 1
                             self.log(f"拉人成功: {m.get('first_name', m.get('username', user_id))}")
-                        time.sleep(delay)
+                        await asyncio.sleep(delay)
                     except FloodWait as e:
-                        self.log(f"请求频繁，等待{e.x}秒")
-                        time.sleep(e.x)
+                        self.log(f"请求频繁，等待{e.value}秒")
+                        await asyncio.sleep(e.value)
                     except Exception as e:
                         self.log(f"拉人失败: {e}")
                 
                 self.log(f"拉人完成: 成功 {success}")
-                app.disconnect()
+                await app.stop()
                 
             except Exception as e:
                 self.log(f"拉人失败: {e}")
         
-        threading.Thread(target=do_invite, daemon=True).start()
+        def run_invite():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(do_invite_async())
+            loop.close()
+        
+        threading.Thread(target=run_invite, daemon=True).start()
     
     # ==================== 群发广告页面 ====================
     def create_send_page(self):
@@ -1193,7 +1199,7 @@ class TelegramFullGUI:
         
         self.log(f"开始群发: {len(members)} 个用户, 间隔: {delay}秒")
         
-        def do_send():
+        async def do_send_async():
             try:
                 app = Client(
                     name=session_path.replace('.session', ''),
@@ -1202,30 +1208,36 @@ class TelegramFullGUI:
                     workdir=os.path.dirname(session_path)
                 )
                 
-                app.connect()
+                await app.start()
                 
                 success = 0
                 for i, m in enumerate(members):
                     try:
                         user_id = m.get('id')
                         if user_id:
-                            app.send_message(user_id, ad_content)
+                            await app.send_message(user_id, ad_content)
                             success += 1
                             self.log(f"发送成功: {m.get('first_name', m.get('username', user_id))}")
-                        time.sleep(delay)
+                        await asyncio.sleep(delay)
                     except FloodWait as e:
-                        self.log(f"请求频繁，等待{e.x}秒")
-                        time.sleep(e.x)
+                        self.log(f"请求频繁，等待{e.value}秒")
+                        await asyncio.sleep(e.value)
                     except Exception as e:
                         self.log(f"发送失败: {e}")
                 
                 self.log(f"群发完成: 成功 {success}/{len(members)}")
-                app.disconnect()
+                await app.stop()
                 
             except Exception as e:
                 self.log(f"群发失败: {e}")
         
-        threading.Thread(target=do_send, daemon=True).start()
+        def run_send():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(do_send_async())
+            loop.close()
+        
+        threading.Thread(target=run_send, daemon=True).start()
     
     # ==================== 自动群聊页面 ====================
     def create_group_chat_page(self):
@@ -1302,7 +1314,7 @@ class TelegramFullGUI:
         self.log(f"启动炒群: {group} 使用账号: {account_phone}")
         self.running_tasks['chat'] = True
         
-        def do_chat():
+        async def do_chat_async():
             try:
                 app = Client(
                     name=session_path.replace('.session', ''),
@@ -1311,15 +1323,13 @@ class TelegramFullGUI:
                     workdir=os.path.dirname(session_path)
                 )
                 
-                app.connect()
+                await app.start()
                 
-                # 解析目标群组
                 if 't.me/' in group:
                     target_chat = group.split('t.me/')[-1]
                 else:
                     target_chat = group
                 
-                # 加载话术和关键词
                 scripts = []
                 if os.path.exists("scripts.txt"):
                     with open("scripts.txt", "r", encoding="utf-8") as f:
@@ -1333,45 +1343,30 @@ class TelegramFullGUI:
                     with open("keywords.json", "r") as f:
                         keywords = json.load(f)
                 
-                # 监听新消息
                 @app.on_message()
-                def handle_message(client, message):
+                async def handle_message(client, message):
                     if not self.running_tasks.get('chat', False):
                         return
                     if message.chat.username == target_chat or str(message.chat.id) == target_chat:
                         text = message.text or ""
                         for kw, reply in keywords.items():
                             if kw.lower() in text.lower():
-                                message.reply(reply)
+                                await message.reply(reply)
                                 self.log(f"自动回复: {reply[:30]}...")
                                 break
                 
-                # 定时发言
-                import asyncio
-                import random
-                
-                async def auto_speak():
-                    count = 0
-                    daily_limit = int(self.chat_daily.get())
-                    interval = int(self.chat_interval.get())
-                    
-                    while self.running_tasks.get('chat', False) and count < daily_limit:
-                        script = random.choice(scripts)
-                        app.send_message(target_chat, script)
-                        self.log(f"自动发言: {script[:30]}...")
-                        count += 1
-                        time.sleep(interval)
-                
-                # 运行
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.create_task(auto_speak())
-                app.run()
+                await app.run()
                 
             except Exception as e:
                 self.log(f"炒群出错: {e}")
         
-        threading.Thread(target=do_chat, daemon=True).start()
+        def run_chat():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(do_chat_async())
+            loop.close()
+        
+        threading.Thread(target=run_chat, daemon=True).start()
     
     def stop_group_chat(self):
         self.running_tasks['chat'] = False
