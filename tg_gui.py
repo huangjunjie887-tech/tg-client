@@ -435,39 +435,32 @@ class TelegramFullGUI:
             self.do_import_accounts(target_group)
         ttk.Button(group_dialog, text="确定", command=confirm_import).pack(pady=15)
     
-        def do_import_accounts(self, target_group):
-        """执行导入账号 - 递归扫描子文件夹"""
+    def do_import_accounts(self, target_group):
+        """执行导入账号 - 递归扫描所有子文件夹查找.session文件"""
         folder = filedialog.askdirectory(title="选择账号文件夹")
         if not folder:
             return
         
         self.log(f"从文件夹导入账号: {folder}")
         
-        # 递归扫描所有子文件夹
+        # 递归扫描所有子文件夹，查找.session文件
         found_files = []
         for root_dir, dirs, files in os.walk(folder):
             for file in files:
                 if file.endswith(".session"):
-                    found_files.append(os.path.join(root_dir, file))
-                    self.log(f"发现session文件: {os.path.join(root_dir, file)}")
-                elif file.endswith(".tdat"):
-                    found_files.append(os.path.join(root_dir, file))
-                    self.log(f"发现tdat文件: {os.path.join(root_dir, file)}")
+                    full_path = os.path.join(root_dir, file)
+                    found_files.append(full_path)
+                    self.log(f"发现session文件: {full_path}")
         
         if not found_files:
-            self.log("未找到任何.session或.tdat文件")
-            self.show_centered_warning("导入失败", "未找到任何账号文件\n\n支持的格式：\n- .session 文件\n- .tdat 文件")
+            self.log("未找到任何.session文件")
+            self.show_centered_warning("导入失败", "未找到任何.session文件\n\n请确保文件夹中有.session文件")
             return
         
         count = 0
         for file_path in found_files:
             filename = os.path.basename(file_path)
-            if filename.endswith(".session"):
-                phone = filename.replace(".session", "")
-            elif filename.endswith(".tdat"):
-                phone = filename.replace(".tdat", "")
-            else:
-                continue
+            phone = filename.replace(".session", "")
             
             # 检查是否已存在相同手机号的账号
             exists = False
@@ -490,7 +483,7 @@ class TelegramFullGUI:
                 "proxy": ""
             })
             count += 1
-            self.log(f"导入账号: {phone} (来自: {file_path})")
+            self.log(f"导入账号: {phone}")
         
         self.refresh_account_list()
         self.log(f"导入 {count} 个账号到分组「{target_group}」")
