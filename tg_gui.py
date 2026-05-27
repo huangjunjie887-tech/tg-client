@@ -12,28 +12,51 @@ SERVER = "http://172.98.23.64:5000"
 class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Telegram 全能营销系统 v3.0")
-        self.root.geometry("950x750")
+        self.root.title("天师府TG全能营销系统 联系@Tian2547")
+        self.root.geometry("1100x800")
         self.root.resizable(True, True)
         
+        # 创建菜单栏
+        self.create_menu()
+        
+        # 创建选项卡
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         
+        # 各功能页面
         self.create_server_page()
         self.create_account_page()
+        self.create_proxy_page()
         self.create_scrape_page()
         self.create_invite_page()
+        self.create_send_page()
         self.create_group_chat_page()
         self.create_auto_register_page()
         self.create_monitor_page()
         self.create_script_page()
         self.create_log_page()
         
+        # 数据存储
+        self.accounts = []      # 账号列表
+        self.proxies = []       # 代理列表
         self.running_tasks = {}
-        self.accounts = []
-        self.keywords = {}
         
         self.log("系统启动完成")
+    
+    def create_menu(self):
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="文件", menu=file_menu)
+        file_menu.add_command(label="导出配置", command=self.export_config)
+        file_menu.add_command(label="导入配置", command=self.import_config)
+        file_menu.add_separator()
+        file_menu.add_command(label="退出", command=self.root.quit)
+        
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="帮助", menu=help_menu)
+        help_menu.add_command(label="关于", command=self.about)
     
     def log(self, msg, level="INFO"):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -86,6 +109,7 @@ class TelegramFullGUI:
         else:
             self.log("登录失败")
     
+    # ==================== 服务器配置页面 ====================
     def create_server_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="服务器配置")
@@ -114,67 +138,185 @@ class TelegramFullGUI:
         self.login_status = ttk.Label(login_frame, text="未登录", foreground="red")
         self.login_status.grid(row=0, column=4, padx=10, pady=5)
     
+    # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
         
+        # 工具栏
+        toolbar = ttk.Frame(page)
+        toolbar.pack(fill="x", padx=10, pady=5)
+        
+        ttk.Button(toolbar, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="导出账号", command=self.export_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="账号检测", command=self.check_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="资料修改", command=self.edit_profile).pack(side="left", padx=2)
+        
+        # 账号列表
         frame = ttk.LabelFrame(page, text="账号列表")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        columns = ("序号", "手机号", "状态")
-        self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=8)
+        columns = ("序号", "手机号", "昵称", "当前任务", "上一次操作", "账号状态", "注册时长")
+        self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         for col in columns:
             self.account_tree.heading(col, text=col)
             self.account_tree.column(col, width=120)
-        self.account_tree.pack(fill="both", expand=True, padx=5, pady=5)
         
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(fill="x", pady=5)
-        
-        ttk.Button(btn_frame, text="添加账号", command=self.add_account).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="删除账号", command=self.del_account).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="导入账号", command=self.import_accounts).pack(side="left", padx=5)
-        
-        freq_frame = ttk.LabelFrame(page, text="频率控制（防风控）")
-        freq_frame.pack(fill="x", padx=10, pady=5)
-        
-        ttk.Label(freq_frame, text="发言间隔(秒):").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.chat_delay = ttk.Entry(freq_frame, width=10)
-        self.chat_delay.insert(0, "30")
-        self.chat_delay.grid(row=0, column=1, padx=5, pady=5)
-        
-        ttk.Label(freq_frame, text="拉人间隔(秒):").grid(row=0, column=2, sticky="w", padx=5, pady=5)
-        self.invite_delay = ttk.Entry(freq_frame, width=10)
-        self.invite_delay.insert(0, "60")
-        self.invite_delay.grid(row=0, column=3, padx=5, pady=5)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.account_tree.yview)
+        self.account_tree.configure(yscrollcommand=scrollbar.set)
+        self.account_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        scrollbar.pack(side="right", fill="y")
     
-    def add_account(self):
-        phone = messagebox.askstring("添加账号", "请输入手机号:")
-        if phone:
-            self.accounts.append({"phone": phone, "status": "未登录"})
+    def import_accounts_folder(self):
+        folder = filedialog.askdirectory(title="选择账号文件夹")
+        if folder:
+            self.log(f"从文件夹导入账号: {folder}")
+            for file in os.listdir(folder):
+                if file.endswith(".session"):
+                    self.accounts.append({
+                        "phone": file.replace(".session", ""),
+                        "nickname": "",
+                        "status": "正常",
+                        "register_time": "未知"
+                    })
             self.refresh_account_list()
-            self.log(f"添加账号: {phone}")
+            self.log(f"导入 {len([f for f in os.listdir(folder) if f.endswith('.session')])} 个账号")
     
-    def del_account(self):
+    def export_accounts(self):
+        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
+        if file_path:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(self.accounts, f, ensure_ascii=False, indent=2)
+            self.log(f"导出 {len(self.accounts)} 个账号到 {file_path}")
+    
+    def delete_dead_accounts(self):
         selected = self.account_tree.selection()
         if selected:
             for item in selected:
                 idx = int(self.account_tree.item(item)['values'][0]) - 1
                 self.accounts.pop(idx)
             self.refresh_account_list()
-            self.log("删除账号")
+            self.log("删除选中账号")
     
-    def import_accounts(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
-        if file_path:
-            self.log(f"导入账号文件: {file_path}")
+    def check_accounts(self):
+        self.log("开始检测账号状态...")
+        messagebox.showinfo("提示", "账号检测功能开发中")
+    
+    def edit_profile(self):
+        selected = self.account_tree.selection()
+        if not selected:
+            self.log("请先选择账号")
+            return
+        messagebox.showinfo("提示", "资料修改功能开发中")
     
     def refresh_account_list(self):
         for item in self.account_tree.get_children():
             self.account_tree.delete(item)
         for i, acc in enumerate(self.accounts, 1):
-            self.account_tree.insert("", "end", values=(i, acc['phone'], acc['status']))
+            self.account_tree.insert("", "end", values=(
+                i, acc.get('phone', ''), acc.get('nickname', ''),
+                acc.get('current_task', ''), acc.get('last_action', ''),
+                acc.get('status', '正常'), acc.get('register_time', '未知')
+            ))
     
+    # ==================== 代理IP页面 ====================
+    def create_proxy_page(self):
+        page = ttk.Frame(self.notebook)
+        self.notebook.add(page, text="代理IP")
+        
+        # 工具栏
+        toolbar = ttk.Frame(page)
+        toolbar.pack(fill="x", padx=10, pady=5)
+        
+        self.proxy_count_label = ttk.Label(toolbar, text=f"IP数: {len(self.proxies)}/10")
+        self.proxy_count_label.pack(side="left", padx=10)
+        
+        ttk.Button(toolbar, text="添加代理IP", command=self.add_proxy).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="删除代理IP", command=self.delete_proxy).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="检测代理IP", command=self.check_proxies).pack(side="left", padx=2)
+        
+        # 代理列表
+        frame = ttk.LabelFrame(page, text="代理列表")
+        frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        columns = ("序号", "代理类型", "IP/域名", "端口", "用户名", "密码", "状态")
+        self.proxy_tree = ttk.Treeview(frame, columns=columns, show="headings", height=8)
+        for col in columns:
+            self.proxy_tree.heading(col, text=col)
+            self.proxy_tree.column(col, width=100)
+        self.proxy_tree.pack(fill="both", expand=True, padx=5, pady=5)
+    
+    def add_proxy(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("添加代理")
+        dialog.geometry("400x300")
+        
+        ttk.Label(dialog, text="代理类型:").grid(row=0, column=0, padx=5, pady=5)
+        proxy_type = ttk.Combobox(dialog, values=["http", "https", "socks4", "socks5"], width=20)
+        proxy_type.set("socks5")
+        proxy_type.grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="IP/域名:").grid(row=1, column=0, padx=5, pady=5)
+        proxy_host = ttk.Entry(dialog, width=30)
+        proxy_host.grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="端口:").grid(row=2, column=0, padx=5, pady=5)
+        proxy_port = ttk.Entry(dialog, width=30)
+        proxy_port.grid(row=2, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="用户名(可选):").grid(row=3, column=0, padx=5, pady=5)
+        proxy_user = ttk.Entry(dialog, width=30)
+        proxy_user.grid(row=3, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="密码(可选):").grid(row=4, column=0, padx=5, pady=5)
+        proxy_pass = ttk.Entry(dialog, width=30, show="*")
+        proxy_pass.grid(row=4, column=1, padx=5, pady=5)
+        
+        def save_proxy():
+            if len(self.proxies) >= 10:
+                messagebox.showerror("错误", "最多添加10个代理")
+                return
+            self.proxies.append({
+                "type": proxy_type.get(),
+                "host": proxy_host.get(),
+                "port": proxy_port.get(),
+                "user": proxy_user.get(),
+                "pass": proxy_pass.get(),
+                "status": "未检测"
+            })
+            self.refresh_proxy_list()
+            self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
+            dialog.destroy()
+            self.log(f"添加代理: {proxy_host.get()}:{proxy_port.get()}")
+        
+        ttk.Button(dialog, text="保存", command=save_proxy).grid(row=5, column=0, columnspan=2, pady=20)
+    
+    def delete_proxy(self):
+        selected = self.proxy_tree.selection()
+        if selected:
+            for item in selected:
+                idx = int(self.proxy_tree.item(item)['values'][0]) - 1
+                self.proxies.pop(idx)
+            self.refresh_proxy_list()
+            self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
+            self.log("删除代理")
+    
+    def check_proxies(self):
+        self.log("开始检测代理...")
+        messagebox.showinfo("提示", "代理检测功能开发中")
+    
+    def refresh_proxy_list(self):
+        for item in self.proxy_tree.get_children():
+            self.proxy_tree.delete(item)
+        for i, p in enumerate(self.proxies, 1):
+            self.proxy_tree.insert("", "end", values=(
+                i, p.get('type', ''), p.get('host', ''),
+                p.get('port', ''), p.get('user', ''),
+                p.get('pass', '***'), p.get('status', '未检测')
+            ))
+    
+    # ==================== 采集群成员页面 ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
@@ -217,6 +359,7 @@ class TelegramFullGUI:
         
         threading.Thread(target=do_scrape, daemon=True).start()
     
+    # ==================== 批量拉人页面 ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -238,8 +381,13 @@ class TelegramFullGUI:
         self.invite_delay_entry.insert(0, "60")
         self.invite_delay_entry.grid(row=2, column=1, sticky="w", padx=5, pady=5)
         
+        ttk.Label(frame, text="选择任务账号:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
+        self.task_account = ttk.Combobox(frame, values=["全部账号"] + [a.get('phone', '') for a in self.accounts], width=30)
+        self.task_account.set("全部账号")
+        self.task_account.grid(row=3, column=1, sticky="w", padx=5, pady=5)
+        
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="开始拉人", command=self.start_invite).pack()
     
     def start_invite(self):
@@ -274,6 +422,95 @@ class TelegramFullGUI:
         
         threading.Thread(target=do_invite, daemon=True).start()
     
+    # ==================== 群发广告页面 ====================
+    def create_send_page(self):
+        page = ttk.Frame(self.notebook)
+        self.notebook.add(page, text="群发广告")
+        
+        frame = ttk.LabelFrame(page, text="群发设置")
+        frame.pack(fill="x", padx=10, pady=5)
+        
+        ttk.Label(frame, text="选择任务账号:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.send_account = ttk.Combobox(frame, values=["全部账号"] + [a.get('phone', '') for a in self.accounts], width=30)
+        self.send_account.set("全部账号")
+        self.send_account.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        
+        ttk.Label(frame, text="广告词:").grid(row=1, column=0, sticky="nw", padx=5, pady=5)
+        self.ad_text = scrolledtext.ScrolledText(frame, width=60, height=5)
+        self.ad_text.grid(row=1, column=1, padx=5, pady=5)
+        
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        ttk.Button(btn_frame, text="导入广告词文本", command=self.import_ad_text).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="导入用户列表", command=self.import_user_list).pack(side="left", padx=2)
+        
+        ttk.Label(frame, text="时间间隔(秒):").grid(row=3, column=0, sticky="w", padx=5, pady=5)
+        self.send_delay = ttk.Entry(frame, width=10)
+        self.send_delay.insert(0, "30")
+        self.send_delay.grid(row=3, column=1, sticky="w", padx=5, pady=5)
+        
+        ttk.Label(frame, text="线程数:").grid(row=4, column=0, sticky="w", padx=5, pady=5)
+        self.thread_count = ttk.Entry(frame, width=10)
+        self.thread_count.insert(0, "1")
+        self.thread_count.grid(row=4, column=1, sticky="w", padx=5, pady=5)
+        
+        btn_frame2 = ttk.Frame(frame)
+        btn_frame2.grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame2, text="开始群发", command=self.start_send).pack()
+    
+    def import_ad_text(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
+        if file_path:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.ad_text.delete("1.0", tk.END)
+            self.ad_text.insert("1.0", content)
+            self.log(f"导入广告词: {file_path}")
+    
+    def import_user_list(self):
+        file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json"), ("Text files", "*.txt")])
+        if file_path:
+            self.log(f"导入用户列表: {file_path}")
+            if file_path.endswith('.json'):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    users = json.load(f)
+                self.log(f"导入 {len(users)} 个用户")
+    
+    def start_send(self):
+        ad_content = self.ad_text.get("1.0", tk.END).strip()
+        if not ad_content:
+            self.log("请输入广告词")
+            return
+        
+        if not os.path.exists("members.json"):
+            self.log("请先导入用户列表")
+            return
+        
+        with open("members.json", "r") as f:
+            members = json.load(f)
+        
+        delay = int(self.send_delay.get())
+        threads = int(self.thread_count.get())
+        
+        self.log(f"开始群发: {len(members)} 个用户, 线程数: {threads}, 间隔: {delay}秒")
+        
+        def do_send(start_idx, end_idx):
+            for i in range(start_idx, min(end_idx, len(members))):
+                try:
+                    result = self.call_api("/send", {"user_id": members[i]['id'], "message": ad_content})
+                    if result and result.get("success"):
+                        self.log(f"发送成功: {members[i].get('first_name', members[i].get('username', members[i]['id']))}")
+                    time.sleep(delay)
+                except Exception as e:
+                    self.log(f"发送失败: {e}")
+        
+        chunk_size = len(members) // threads if threads > 0 else len(members)
+        for t in range(threads):
+            start = t * chunk_size
+            end = start + chunk_size if t < threads - 1 else len(members)
+            threading.Thread(target=do_send, args=(start, end), daemon=True).start()
+    
+    # ==================== 自动群聊页面 ====================
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
@@ -324,11 +561,11 @@ class TelegramFullGUI:
     
     def save_keywords(self):
         content = self.keyword_text.get("1.0", tk.END)
-        self.keywords = json.loads(content) if content.strip() else {}
         with open("keywords.json", "w", encoding="utf-8") as f:
-            json.dump(self.keywords, f, ensure_ascii=False, indent=2)
-        self.log(f"保存 {len(self.keywords)} 个关键词规则")
+            f.write(content)
+        self.log("关键词配置已保存")
     
+    # ==================== 自动注册页面 ====================
     def create_auto_register_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动注册账号")
@@ -355,8 +592,9 @@ class TelegramFullGUI:
     
     def start_register(self):
         self.log("批量注册功能需要对接具体接码平台API")
-        messagebox.showinfo("提示", "批量注册功能需要对接具体接码平台API")
+        messagebox.showinfo("提示", "批量注册功能开发中")
     
+    # ==================== 监听页面 ====================
     def create_monitor_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="监听群组")
@@ -387,8 +625,9 @@ class TelegramFullGUI:
     
     def start_monitor(self):
         self.log("监听功能需要服务器端支持实时消息推送")
-        messagebox.showinfo("提示", "监听功能需要服务器端支持实时消息推送")
+        messagebox.showinfo("提示", "监听功能开发中")
     
+    # ==================== 话术配置页面 ====================
     def create_script_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="话术配置")
@@ -420,6 +659,7 @@ class TelegramFullGUI:
             f.write(content)
         self.log("话术已保存")
     
+    # ==================== 日志页面 ====================
     def create_log_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="运行日志")
@@ -447,6 +687,34 @@ class TelegramFullGUI:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             self.log(f"日志已导出: {file_path}")
+    
+    def export_config(self):
+        config = {
+            "accounts": self.accounts,
+            "proxies": self.proxies,
+            "server": self.server_entry.get()
+        }
+        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
+        if file_path:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            self.log("配置已导出")
+    
+    def import_config(self):
+        file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
+        if file_path:
+            with open(file_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            self.accounts = config.get("accounts", [])
+            self.proxies = config.get("proxies", [])
+            self.server_entry.delete(0, tk.END)
+            self.server_entry.insert(0, config.get("server", SERVER))
+            self.refresh_account_list()
+            self.refresh_proxy_list()
+            self.log("配置已导入")
+    
+    def about(self):
+        messagebox.showinfo("关于", "天师府TG全能营销系统\n联系@Tian2547\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置\n\n服务器: " + SERVER)
 
 if __name__ == "__main__":
     root = tk.Tk()
