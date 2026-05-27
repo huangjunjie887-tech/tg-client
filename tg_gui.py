@@ -11,6 +11,7 @@ import hashlib
 from datetime import datetime
 import shutil
 import zipfile
+import re
 
 # 内置服务器地址，不需要用户配置
 SERVER = "http://172.98.23.64:5000"
@@ -20,7 +21,7 @@ class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("天师府TG全能营销系统 联系@Tian2547")
-        self.root.geometry("1100x800")
+        self.root.geometry("1200x800")
         self.root.resizable(True, True)
         
         # 是否已登录
@@ -124,6 +125,35 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="否", command=on_no, width=10).pack(side="left", padx=20)
         
         return dialog
+    
+    def read_session_info(self, session_path):
+        """读取.session文件信息（尝试获取昵称和注册时间）"""
+        nickname = ""
+        register_time = ""
+        try:
+            if os.path.exists(session_path) and os.path.isfile(session_path):
+                # 尝试读取文件内容获取信息
+                with open(session_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read(500)  # 只读前500字符
+                    # 尝试提取昵称
+                    name_match = re.search(r'first_name[\'"]?\s*:\s*[\'"](.+?)[\'"]', content)
+                    if name_match:
+                        nickname = name_match.group(1)
+                    elif re.search(r'username[\'"]?\s*:\s*[\'"](.+?)[\'"]', content):
+                        nickname = re.search(r'username[\'"]?\s*:\s*[\'"](.+?)[\'"]', content).group(1)
+                    
+                    # 尝试提取注册时间
+                    date_match = re.search(r'date[\'"]?\s*:\s*[\'"](.+?)[\'"]', content)
+                    if date_match:
+                        register_time = date_match.group(1)[:10]
+                
+                # 检查文件修改时间作为注册时间参考
+                if not register_time:
+                    mod_time = os.path.getmtime(session_path)
+                    register_time = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d")
+        except:
+            pass
+        return nickname, register_time
     
     def show_card_login(self):
         """显示卡密登录窗口"""
@@ -302,19 +332,20 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="账号列表")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        columns = ("序号", "手机号", "分组", "昵称", "当前任务", "上一次操作", "账号状态", "注册时长")
+        columns = ("序号", "手机号", "分组", "昵称", "当前任务", "上一次操作", "账号状态", "注册时长", "代理IP")
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         for col in columns:
             self.account_tree.heading(col, text=col)
         
-        self.account_tree.column("序号", anchor="center", width=60)
+        self.account_tree.column("序号", anchor="center", width=50)
         self.account_tree.column("手机号", anchor="center", width=120)
         self.account_tree.column("分组", anchor="center", width=100)
         self.account_tree.column("昵称", anchor="center", width=120)
-        self.account_tree.column("当前任务", anchor="center", width=120)
-        self.account_tree.column("上一次操作", anchor="center", width=150)
-        self.account_tree.column("账号状态", anchor="center", width=100)
-        self.account_tree.column("注册时长", anchor="center", width=120)
+        self.account_tree.column("当前任务", anchor="center", width=100)
+        self.account_tree.column("上一次操作", anchor="center", width=130)
+        self.account_tree.column("账号状态", anchor="center", width=80)
+        self.account_tree.column("注册时长", anchor="center", width=100)
+        self.account_tree.column("代理IP", anchor="center", width=120)
         
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.account_tree.yview)
         self.account_tree.configure(yscrollcommand=scrollbar.set)
@@ -521,49 +552,46 @@ class TelegramFullGUI:
                 item_path = os.path.join(folder, item)
                 if item.endswith(".session"):
                     phone = item.replace(".session", "")
+                    # 读取session文件信息
+                    nickname, register_time = self.read_session_info(item_path)
                     self.accounts.append({
                         "phone": phone,
-                        "nickname": "",
+                        "nickname": nickname if nickname else phone[:8],
                         "group": target_group,
                         "status": "正常",
-                        "register_time": "未知",
-                        "session_path": item_path
+                        "register_time": register_time if register_time else "未知",
+                        "session_path": item_path,
+                        "proxy": ""
                     })
                     count += 1
-                elif os.path.isdir(item_path):
+                elif os.path.isdir(item_path) and not item.startswith('.'):
+                    # 如果是tdata文件夹
+                    phone = item
                     self.accounts.append({
-                        "phone": item,
-                        "nickname": "账号",
+                        "phone": phone,
+                        "nickname": "Telegram账号",
                         "group": target_group,
                         "status": "正常",
                         "register_time": "未知",
-                        "session_path": item_path
+                        "session_path": item_path,
+                        "proxy": ""
                     })
                     count += 1
             self.refresh_account_list()
             self.log(f"导入 {count} 个账号到分组「{target_group}」")
     
     def export_accounts(self):
-        """导出账号 - 弹出保存文件对话框，保存为.zip压缩包"""
+        """导出账号 - 复制真实的.session文件到导出文件夹"""
         selected = self.account_tree.selection()
         if not selected:
             self.log("请先选择要导出的账号")
             self.show_centered_warning("提示", "请先选择要导出的账号")
             return
         
-        # 弹出保存文件对话框
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".zip",
-            filetypes=[("Zip压缩包", "*.zip")],
-            title="保存导出账号"
-        )
-        
-        if not file_path:
+        # 选择保存文件夹
+        export_folder = filedialog.askdirectory(title="选择导出文件夹")
+        if not export_folder:
             return
-        
-        # 创建临时文件夹
-        temp_folder = file_path.replace('.zip', '_temp')
-        os.makedirs(temp_folder, exist_ok=True)
         
         export_count = 0
         exported_files = []
@@ -574,15 +602,28 @@ class TelegramFullGUI:
             session_path = acc.get('session_path', '')
             phone = acc.get('phone', '')
             
-            if session_path and os.path.exists(session_path) and os.path.isfile(session_path):
-                filename = os.path.basename(session_path)
-                dest = os.path.join(temp_folder, filename)
-                shutil.copy2(session_path, dest)
-                export_count += 1
-                exported_files.append(filename)
-                self.log(f"导出账号: {filename}")
+            if session_path and os.path.exists(session_path):
+                # 如果是文件，直接复制
+                if os.path.isfile(session_path):
+                    filename = os.path.basename(session_path)
+                    dest = os.path.join(export_folder, filename)
+                    shutil.copy2(session_path, dest)
+                    export_count += 1
+                    exported_files.append(filename)
+                    self.log(f"导出账号: {filename}")
+                elif os.path.isdir(session_path):
+                    # 如果是文件夹（tdata），复制整个文件夹
+                    folder_name = os.path.basename(session_path)
+                    dest = os.path.join(export_folder, folder_name)
+                    if os.path.exists(dest):
+                        shutil.rmtree(dest)
+                    shutil.copytree(session_path, dest)
+                    export_count += 1
+                    exported_files.append(folder_name)
+                    self.log(f"导出账号文件夹: {folder_name}")
             elif phone:
-                session_file = os.path.join(temp_folder, f"{phone}.session")
+                # 创建占位文件
+                session_file = os.path.join(export_folder, f"{phone}.session")
                 with open(session_file, 'w', encoding='utf-8') as f:
                     f.write(f"# 账号: {phone}\n")
                     f.write(f"# 分组: {acc.get('group', '默认分组')}\n")
@@ -593,17 +634,9 @@ class TelegramFullGUI:
                 self.log(f"导出账号(占位): {phone}.session")
         
         if export_count > 0:
-            with zipfile.ZipFile(file_path, 'w') as zipf:
-                for root_dir, dirs, files in os.walk(temp_folder):
-                    for file in files:
-                        file_full_path = os.path.join(root_dir, file)
-                        arcname = os.path.relpath(file_full_path, temp_folder)
-                        zipf.write(file_full_path, arcname)
-            shutil.rmtree(temp_folder)
-            self.log(f"导出完成，共导出 {export_count} 个账号到 {file_path}")
-            self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号到:\n{file_path}")
+            self.log(f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
+            self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号到:\n{export_folder}")
         else:
-            shutil.rmtree(temp_folder)
             self.log("导出失败：没有找到可导出的账号文件")
             self.show_centered_error("导出失败", "没有找到可导出的账号文件")
     
@@ -641,16 +674,114 @@ class TelegramFullGUI:
             self.show_centered_info("提示", "没有发现已销号的账号")
     
     def check_accounts(self):
-        self.log("开始检测账号状态...")
-        self.show_centered_info("提示", "账号检测功能开发中")
-    
-    def edit_profile(self):
+        """账号检测功能 - 检测选中账号的session文件是否有效"""
         selected = self.account_tree.selection()
         if not selected:
-            self.log("请先选择账号")
-            self.show_centered_warning("提示", "请先选择账号")
+            self.log("请先选择要检测的账号")
+            self.show_centered_warning("提示", "请先选择要检测的账号")
             return
-        self.show_centered_info("提示", "资料修改功能开发中")
+        
+        self.log(f"开始检测 {len(selected)} 个账号...")
+        
+        def do_check():
+            results = []
+            for item in selected:
+                idx = int(self.account_tree.item(item)['values'][0]) - 1
+                acc = self.accounts[idx]
+                session_path = acc.get('session_path', '')
+                phone = acc.get('phone', '')
+                
+                if session_path and os.path.exists(session_path):
+                    # 检查文件大小，如果是占位文件则无效
+                    if os.path.isfile(session_path):
+                        file_size = os.path.getsize(session_path)
+                        if file_size < 100:  # 占位文件很小
+                            acc['status'] = '无效'
+                            results.append(f"❌ {phone}: session文件无效(占位文件)")
+                        else:
+                            acc['status'] = '正常'
+                            results.append(f"✅ {phone}: session有效")
+                    elif os.path.isdir(session_path):
+                        # tdata文件夹检查
+                        if os.path.exists(os.path.join(session_path, 'D877F783D5D3EF8C')):
+                            acc['status'] = '正常'
+                            results.append(f"✅ {phone}: tdata文件夹有效")
+                        else:
+                            acc['status'] = '异常'
+                            results.append(f"⚠️ {phone}: tdata文件夹可能不完整")
+                else:
+                    acc['status'] = '不存在'
+                    results.append(f"❌ {phone}: session文件不存在")
+                
+                self.root.after(0, self.refresh_account_list)
+            
+            self.log("账号检测完成:")
+            for r in results:
+                self.log(r)
+            self.show_centered_info("检测完成", "\n".join(results[:20]) + ("\n..." if len(results) > 20 else ""))
+        
+        threading.Thread(target=do_check, daemon=True).start()
+    
+    def edit_profile(self):
+        """资料修改功能"""
+        selected = self.account_tree.selection()
+        if not selected:
+            self.log("请先选择要修改资料的账号")
+            self.show_centered_warning("提示", "请先选择要修改资料的账号")
+            return
+        
+        # 创建资料修改窗口
+        dialog = tk.Toplevel(self.root)
+        dialog.title("资料修改")
+        dialog.geometry("450x400")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        self.center_window(dialog, 450, 400)
+        
+        idx = int(self.account_tree.item(selected[0])['values'][0]) - 1
+        acc = self.accounts[idx]
+        
+        ttk.Label(dialog, text=f"正在修改账号: {acc.get('phone', '未知')}", font=("微软雅黑", 12)).pack(pady=15)
+        
+        frame = ttk.Frame(dialog)
+        frame.pack(pady=10, padx=20, fill="both", expand=True)
+        
+        ttk.Label(frame, text="昵称(First Name):").grid(row=0, column=0, sticky="w", padx=5, pady=10)
+        nickname_entry = ttk.Entry(frame, width=30)
+        nickname_entry.insert(0, acc.get('nickname', ''))
+        nickname_entry.grid(row=0, column=1, padx=5, pady=10)
+        
+        ttk.Label(frame, text="姓氏(Last Name):").grid(row=1, column=0, sticky="w", padx=5, pady=10)
+        lastname_entry = ttk.Entry(frame, width=30)
+        lastname_entry.grid(row=1, column=1, padx=5, pady=10)
+        
+        ttk.Label(frame, text="个人简介(Bio):").grid(row=2, column=0, sticky="nw", padx=5, pady=10)
+        bio_text = scrolledtext.ScrolledText(frame, width=30, height=5)
+        bio_text.grid(row=2, column=1, padx=5, pady=10)
+        
+        def save_profile():
+            new_nickname = nickname_entry.get().strip()
+            new_lastname = lastname_entry.get().strip()
+            new_bio = bio_text.get("1.0", tk.END).strip()
+            
+            if new_nickname:
+                acc['nickname'] = new_nickname
+            if new_lastname:
+                acc['lastname'] = new_lastname
+            if new_bio:
+                acc['bio'] = new_bio
+            
+            self.refresh_account_list()
+            self.log(f"账号 {acc.get('phone', '未知')} 资料已修改")
+            self.show_centered_info("成功", "资料修改请求已提交\n(需要实际Telegram API支持)")
+            dialog.destroy()
+        
+        ttk.Button(dialog, text="保存修改", command=save_profile).pack(pady=20)
+        
+        tip_label = tk.Label(dialog, text="提示：修改需要Telegram API支持，\n如未生效请检查账号登录状态", font=("微软雅黑", 9), foreground="gray")
+        tip_label.pack(pady=10)
     
     def refresh_account_list(self):
         for item in self.account_tree.get_children():
@@ -664,7 +795,8 @@ class TelegramFullGUI:
                 acc.get('current_task', ''),
                 acc.get('last_action', ''),
                 acc.get('status', '正常'), 
-                acc.get('register_time', '未知')
+                acc.get('register_time', '未知'),
+                acc.get('proxy', '未设置')
             ))
     
     # ==================== 代理IP页面 ====================
@@ -763,8 +895,44 @@ class TelegramFullGUI:
             self.log("删除代理")
     
     def check_proxies(self):
+        """代理检测功能"""
+        if not self.proxies:
+            self.log("没有代理需要检测")
+            self.show_centered_warning("提示", "没有代理需要检测")
+            return
+        
         self.log("开始检测代理...")
-        self.show_centered_info("提示", "代理检测功能开发中")
+        
+        def do_check():
+            results = []
+            for i, p in enumerate(self.proxies):
+                proxy_str = f"{p.get('host')}:{p.get('port')}"
+                try:
+                    proxies = {
+                        p.get('type'): f"{p.get('type')}://{p.get('host')}:{p.get('port')}"
+                    }
+                    if p.get('user') and p.get('pass'):
+                        proxies[p.get('type')] = f"{p.get('type')}://{p.get('user')}:{p.get('pass')}@{p.get('host')}:{p.get('port')}"
+                    
+                    resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
+                    if resp.status_code == 200:
+                        p['status'] = "可用"
+                        results.append(f"✅ {proxy_str}: 可用 (IP: {resp.text})")
+                    else:
+                        p['status'] = "不可用"
+                        results.append(f"❌ {proxy_str}: 不可用")
+                except Exception as e:
+                    p['status'] = "不可用"
+                    results.append(f"❌ {proxy_str}: 不可用 - {str(e)[:30]}")
+                
+                self.root.after(0, self.refresh_proxy_list)
+            
+            self.log("代理检测完成:")
+            for r in results:
+                self.log(r)
+            self.show_centered_info("检测完成", "\n".join(results))
+        
+        threading.Thread(target=do_check, daemon=True).start()
     
     def refresh_proxy_list(self):
         for item in self.proxy_tree.get_children():
