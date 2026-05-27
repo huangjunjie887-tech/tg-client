@@ -5,7 +5,6 @@ import json
 import threading
 import os
 import time
-import random
 from datetime import datetime
 
 SERVER = "http://172.98.23.64:5000"
@@ -32,9 +31,7 @@ class TelegramFullGUI:
         
         self.running_tasks = {}
         self.accounts = []
-        self.group_list = []
         self.keywords = {}
-        self.scripts = {}
         
         self.log("系统启动完成")
     
@@ -44,7 +41,7 @@ class TelegramFullGUI:
         self.log_text.see(tk.END)
         self.root.update()
     
-    def call_api(self, endpoint, data=None, account_id=None):
+    def call_api(self, endpoint, data=None):
         server = self.server_entry.get()
         url = f"{server}{endpoint}"
         try:
@@ -96,26 +93,26 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="连接设置")
         frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(frame, text="服务器地址:").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="服务器地址:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.server_entry = ttk.Entry(frame, width=40)
         self.server_entry.insert(0, SERVER)
-        self.server_entry.grid(row=0, column=1, padx=5)
+        self.server_entry.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Button(frame, text="测试连接", command=self.test_connection).grid(row=0, column=2, padx=5)
+        ttk.Button(frame, text="测试连接", command=self.test_connection).grid(row=0, column=2, padx=5, pady=5)
         self.status_label = ttk.Label(frame, text="未连接", foreground="red")
-        self.status_label.grid(row=0, column=3, padx=10)
+        self.status_label.grid(row=0, column=3, padx=10, pady=5)
         
         login_frame = ttk.LabelFrame(page, text="账号登录")
         login_frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(login_frame, text="验证码:").grid(row=0, column=0, sticky="w")
+        ttk.Label(login_frame, text="验证码:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.code_entry = ttk.Entry(login_frame, width=20)
-        self.code_entry.grid(row=0, column=1, padx=5)
+        self.code_entry.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Button(login_frame, text="发送验证码", command=self.send_code).grid(row=0, column=2, padx=5)
-        ttk.Button(login_frame, text="确认登录", command=self.verify_login).grid(row=0, column=3, padx=5)
+        ttk.Button(login_frame, text="发送验证码", command=self.send_code).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(login_frame, text="确认登录", command=self.verify_login).grid(row=0, column=3, padx=5, pady=5)
         self.login_status = ttk.Label(login_frame, text="未登录", foreground="red")
-        self.login_status.grid(row=0, column=4, padx=10)
+        self.login_status.grid(row=0, column=4, padx=10, pady=5)
     
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
@@ -124,12 +121,12 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="账号列表")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        columns = ("序号", "手机号", "状态", "序号")
+        columns = ("序号", "手机号", "状态")
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=8)
         for col in columns:
             self.account_tree.heading(col, text=col)
-            self.account_tree.column(col, width=100)
-        self.account_tree.pack(fill="both", expand=True)
+            self.account_tree.column(col, width=120)
+        self.account_tree.pack(fill="both", expand=True, padx=5, pady=5)
         
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", pady=5)
@@ -141,15 +138,15 @@ class TelegramFullGUI:
         freq_frame = ttk.LabelFrame(page, text="频率控制（防风控）")
         freq_frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(freq_frame, text="发言间隔(秒):").grid(row=0, column=0, sticky="w")
+        ttk.Label(freq_frame, text="发言间隔(秒):").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.chat_delay = ttk.Entry(freq_frame, width=10)
         self.chat_delay.insert(0, "30")
-        self.chat_delay.grid(row=0, column=1, padx=5)
+        self.chat_delay.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Label(freq_frame, text="拉人间隔(秒):").grid(row=0, column=2, sticky="w")
+        ttk.Label(freq_frame, text="拉人间隔(秒):").grid(row=0, column=2, sticky="w", padx=5, pady=5)
         self.invite_delay = ttk.Entry(freq_frame, width=10)
         self.invite_delay.insert(0, "60")
-        self.invite_delay.grid(row=0, column=3, padx=5)
+        self.invite_delay.grid(row=0, column=3, padx=5, pady=5)
     
     def add_account(self):
         phone = messagebox.askstring("添加账号", "请输入手机号:")
@@ -168,16 +165,15 @@ class TelegramFullGUI:
             self.log("删除账号")
     
     def import_accounts(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("Excel files", "*.xlsx")])
+        file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
         if file_path:
             self.log(f"导入账号文件: {file_path}")
-            messagebox.showinfo("提示", "账号导入功能开发中")
     
     def refresh_account_list(self):
         for item in self.account_tree.get_children():
             self.account_tree.delete(item)
         for i, acc in enumerate(self.accounts, 1):
-            self.account_tree.insert("", "end", values=(i, acc['phone'], acc['status'], i))
+            self.account_tree.insert("", "end", values=(i, acc['phone'], acc['status']))
     
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
@@ -186,16 +182,18 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="采集设置")
         frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(frame, text="群组链接:").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="群组链接:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.scrape_group = ttk.Entry(frame, width=50)
         self.scrape_group.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="采集数量:").grid(row=1, column=0, sticky="w")
+        ttk.Label(frame, text="采集数量:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.scrape_limit = ttk.Entry(frame, width=10)
         self.scrape_limit.insert(0, "200")
-        self.scrape_limit.grid(row=1, column=1, sticky="w", padx=5)
+        self.scrape_limit.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Button(frame, text="开始采集", command=self.start_scrape).pack(pady=10)
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="开始采集", command=self.start_scrape).pack()
     
     def start_scrape(self):
         group = self.scrape_group.get()
@@ -226,21 +224,23 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="拉人设置")
         frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.target_group = ttk.Entry(frame, width=50)
         self.target_group.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="拉人数量:").grid(row=1, column=0, sticky="w")
+        ttk.Label(frame, text="拉人数量:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.invite_limit = ttk.Entry(frame, width=10)
         self.invite_limit.insert(0, "50")
-        self.invite_limit.grid(row=1, column=1, sticky="w", padx=5)
+        self.invite_limit.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Label(frame, text="拉人间隔(秒):").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="拉人间隔(秒):").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.invite_delay_entry = ttk.Entry(frame, width=10)
         self.invite_delay_entry.insert(0, "60")
-        self.invite_delay_entry.grid(row=2, column=1, sticky="w", padx=5)
+        self.invite_delay_entry.grid(row=2, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Button(frame, text="开始拉人", command=self.start_invite).pack(pady=10)
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="开始拉人", command=self.start_invite).pack()
     
     def start_invite(self):
         group = self.target_group.get()
@@ -281,22 +281,22 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="群聊设置")
         frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.chat_group = ttk.Entry(frame, width=50)
         self.chat_group.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="发言间隔(秒):").grid(row=1, column=0, sticky="w")
+        ttk.Label(frame, text="发言间隔(秒):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.chat_interval = ttk.Entry(frame, width=10)
         self.chat_interval.insert(0, "60")
-        self.chat_interval.grid(row=1, column=1, sticky="w", padx=5)
+        self.chat_interval.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Label(frame, text="每日上限:").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="每日上限:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.chat_daily = ttk.Entry(frame, width=10)
         self.chat_daily.insert(0, "100")
-        self.chat_daily.grid(row=2, column=1, sticky="w", padx=5)
+        self.chat_daily.grid(row=2, column=1, sticky="w", padx=5, pady=5)
         
         btn_frame = ttk.Frame(frame)
-        btn_frame.pack(pady=10)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="启动炒群", command=self.start_group_chat).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="停止炒群", command=self.stop_group_chat).pack(side="left", padx=5)
         
@@ -305,7 +305,10 @@ class TelegramFullGUI:
         
         self.keyword_text = scrolledtext.ScrolledText(kw_frame, width=80, height=6)
         self.keyword_text.pack(fill="x", padx=5, pady=5)
-        ttk.Button(kw_frame, text="保存关键词配置", command=self.save_keywords).pack(pady=5)
+        
+        btn_frame2 = ttk.Frame(kw_frame)
+        btn_frame2.pack(pady=5)
+        ttk.Button(btn_frame2, text="保存关键词配置", command=self.save_keywords).pack()
     
     def start_group_chat(self):
         group = self.chat_group.get()
@@ -333,31 +336,26 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="注册设置")
         frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(frame, text="接码平台API:").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="接码平台API:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.sms_api = ttk.Entry(frame, width=50)
         self.sms_api.grid(row=0, column=1, padx=5, pady=5)
-        ttk.Label(frame, text="例如: https://api.sms-activate.org/stubs/handler_api").grid(row=1, column=0, columnspan=2, sticky="w")
         
-        ttk.Label(frame, text="API Key:").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="API Key:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.sms_key = ttk.Entry(frame, width=50, show="*")
-        self.sms_key.grid(row=2, column=1, padx=5, pady=5)
+        self.sms_key.grid(row=1, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="注册数量:").grid(row=3, column=0, sticky="w")
+        ttk.Label(frame, text="注册数量:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.register_count = ttk.Entry(frame, width=10)
         self.register_count.insert(0, "10")
-        self.register_count.grid(row=3, column=1, sticky="w", padx=5)
+        self.register_count.grid(row=2, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Button(frame, text="开始批量注册", command=self.start_register).pack(pady=10)
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="开始批量注册", command=self.start_register).pack()
     
     def start_register(self):
-        api = self.sms_api.get()
-        key = self.sms_key.get()
-        count = self.register_count.get()
-        if not api or not key:
-            self.log("请填写接码平台API和Key")
-            return
-        self.log(f"开始批量注册 {count} 个账号...")
-        messagebox.showinfo("提示", "批量注册功能需要对接具体接码平台API，请先配置好接口参数")
+        self.log("批量注册功能需要对接具体接码平台API")
+        messagebox.showinfo("提示", "批量注册功能需要对接具体接码平台API")
     
     def create_monitor_page(self):
         page = ttk.Frame(self.notebook)
@@ -366,28 +364,29 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(page, text="监听设置")
         frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(frame, text="监听群组列表:").grid(row=0, column=0, sticky="nw")
+        ttk.Label(frame, text="监听群组列表:").grid(row=0, column=0, sticky="nw", padx=5, pady=5)
         self.monitor_groups = scrolledtext.ScrolledText(frame, width=60, height=6)
         self.monitor_groups.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="触发动作:").grid(row=1, column=0, sticky="w")
+        ttk.Label(frame, text="触发动作:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.monitor_action = ttk.Combobox(frame, values=["私信", "拉入群组", "两者都做"], width=20)
         self.monitor_action.set("私信")
-        self.monitor_action.grid(row=1, column=1, sticky="w", padx=5)
+        self.monitor_action.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Label(frame, text="目标群组(拉人用):").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="目标群组(拉人用):").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.monitor_target = ttk.Entry(frame, width=40)
         self.monitor_target.grid(row=2, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="私信内容:").grid(row=3, column=0, sticky="nw")
+        ttk.Label(frame, text="私信内容:").grid(row=3, column=0, sticky="nw", padx=5, pady=5)
         self.monitor_msg = scrolledtext.ScrolledText(frame, width=60, height=4)
         self.monitor_msg.grid(row=3, column=1, padx=5, pady=5)
         
-        ttk.Button(frame, text="启动监听", command=self.start_monitor).pack(pady=10)
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="启动监听", command=self.start_monitor).pack()
     
     def start_monitor(self):
-        groups = self.monitor_groups.get("1.0", tk.END).strip().split('\n')
-        self.log(f"启动监听: {len(groups)} 个群组")
+        self.log("监听功能需要服务器端支持实时消息推送")
         messagebox.showinfo("提示", "监听功能需要服务器端支持实时消息推送")
     
     def create_script_page(self):
@@ -404,7 +403,6 @@ class TelegramFullGUI:
         btn_frame.pack(fill="x", pady=5)
         
         ttk.Button(btn_frame, text="导入TXT", command=self.import_txt).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="导入Excel", command=self.import_excel).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="保存配置", command=self.save_scripts).pack(side="left", padx=5)
     
     def import_txt(self):
@@ -416,18 +414,11 @@ class TelegramFullGUI:
             self.script_text.insert("1.0", content)
             self.log(f"导入话术: {file_path}")
     
-    def import_excel(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
-        if file_path:
-            self.log(f"导入Excel话术: {file_path}")
-            messagebox.showinfo("提示", "Excel导入功能需要安装openpyxl库")
-    
     def save_scripts(self):
         content = self.script_text.get("1.0", tk.END)
-        lines = [l.strip() for l in content.split('\n') if l.strip()]
         with open("scripts.txt", "w", encoding="utf-8") as f:
             f.write(content)
-        self.log(f"保存 {len(lines)} 条话术")
+        self.log("话术已保存")
     
     def create_log_page(self):
         page = ttk.Frame(self.notebook)
