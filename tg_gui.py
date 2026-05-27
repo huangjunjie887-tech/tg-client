@@ -17,22 +17,19 @@ class TelegramFullGUI:
         self.root.geometry("950x750")
         self.root.resizable(True, True)
         
-        # 创建选项卡
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 各功能页面
-        self.create_server_page()      # 服务器配置+登录
-        self.create_account_page()     # 多账号管理
-        self.create_scrape_page()      # 采集群成员
-        self.create_invite_page()      # 批量拉人
-        self.create_group_chat_page()  # 自动群聊+回复
-        self.create_auto_register_page() # 自动注册
-        self.create_monitor_page()     # 监听新成员/关键词
-        self.create_script_page()      # 话术配置
-        self.create_log_page()         # 日志
+        self.create_server_page()
+        self.create_account_page()
+        self.create_scrape_page()
+        self.create_invite_page()
+        self.create_group_chat_page()
+        self.create_auto_register_page()
+        self.create_monitor_page()
+        self.create_script_page()
+        self.create_log_page()
         
-        # 运行状态
         self.running_tasks = {}
         self.accounts = []
         self.group_list = []
@@ -65,19 +62,19 @@ class TelegramFullGUI:
         result = self.call_api("/status")
         if result:
             self.status_label.config(text="已连接", foreground="green")
-            self.log("✅ 连接成功")
+            self.log("连接成功")
         else:
             self.status_label.config(text="连接失败", foreground="red")
-            self.log("❌ 连接失败")
+            self.log("连接失败")
     
     def send_code(self):
         self.log("发送验证码...")
         result = self.call_api("/login", {})
         if result and result.get("status") == "code_sent":
-            self.log("✅ 验证码已发送")
+            self.log("验证码已发送")
             messagebox.showinfo("提示", "验证码已发送到Telegram")
         else:
-            self.log("❌ 发送失败")
+            self.log("发送失败")
     
     def verify_login(self):
         code = self.code_entry.get().strip()
@@ -87,17 +84,16 @@ class TelegramFullGUI:
         result = self.call_api("/login", {"code": code})
         if result and result.get("status") == "success":
             self.login_status.config(text=f"已登录: {result['user']}", foreground="green")
-            self.log(f"✅ 登录成功: {result['user']}")
+            self.log(f"登录成功: {result['user']}")
             messagebox.showinfo("成功", f"登录成功: {result['user']}")
         else:
-            self.log("❌ 登录失败")
+            self.log("登录失败")
     
-    # ==================== 服务器配置页面 ====================
     def create_server_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="服务器配置")
         
-        frame = ttk.LabelFrame(page, text="连接设置", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="连接设置")
         frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(frame, text="服务器地址:").grid(row=0, column=0, sticky="w")
@@ -109,7 +105,7 @@ class TelegramFullGUI:
         self.status_label = ttk.Label(frame, text="未连接", foreground="red")
         self.status_label.grid(row=0, column=3, padx=10)
         
-        login_frame = ttk.LabelFrame(page, text="账号登录", padx=10, pady=5)
+        login_frame = ttk.LabelFrame(page, text="账号登录")
         login_frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(login_frame, text="验证码:").grid(row=0, column=0, sticky="w")
@@ -121,12 +117,11 @@ class TelegramFullGUI:
         self.login_status = ttk.Label(login_frame, text="未登录", foreground="red")
         self.login_status.grid(row=0, column=4, padx=10)
     
-    # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
         
-        frame = ttk.LabelFrame(page, text="账号列表", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="账号列表")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         columns = ("序号", "手机号", "状态", "序号")
@@ -143,7 +138,7 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="删除账号", command=self.del_account).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="导入账号", command=self.import_accounts).pack(side="left", padx=5)
         
-        freq_frame = ttk.LabelFrame(page, text="频率控制（防风控）", padx=10, pady=5)
+        freq_frame = ttk.LabelFrame(page, text="频率控制（防风控）")
         freq_frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(freq_frame, text="发言间隔(秒):").grid(row=0, column=0, sticky="w")
@@ -184,12 +179,11 @@ class TelegramFullGUI:
         for i, acc in enumerate(self.accounts, 1):
             self.account_tree.insert("", "end", values=(i, acc['phone'], acc['status'], i))
     
-    # ==================== 采集群成员页面 ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
         
-        frame = ttk.LabelFrame(page, text="采集设置", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="采集设置")
         frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(frame, text="群组链接:").grid(row=0, column=0, sticky="w")
@@ -216,21 +210,20 @@ class TelegramFullGUI:
             result = self.call_api("/scrape", {"group": group, "limit": int(limit)})
             if result:
                 members = result.get("members", [])
-                self.log(f"✅ 采集到 {len(members)} 个成员")
+                self.log(f"采集到 {len(members)} 个成员")
                 with open("members.json", "w", encoding="utf-8") as f:
                     json.dump(members, f, ensure_ascii=False, indent=2)
-                self.log("💾 已保存到 members.json")
+                self.log("已保存到 members.json")
             else:
-                self.log("❌ 采集失败")
+                self.log("采集失败")
         
         threading.Thread(target=do_scrape, daemon=True).start()
     
-    # ==================== 批量拉人页面 ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
         
-        frame = ttk.LabelFrame(page, text="拉人设置", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="拉人设置")
         frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w")
@@ -273,20 +266,19 @@ class TelegramFullGUI:
                     result = self.call_api("/invite", {"group": group, "user_id": m['id']})
                     if result and result.get("success"):
                         success += 1
-                        self.log(f"✅ 拉人成功: {m.get('first_name', m.get('username', m['id']))}")
+                        self.log(f"拉人成功: {m.get('first_name', m.get('username', m['id']))}")
                     time.sleep(int(delay))
                 except Exception as e:
-                    self.log(f"❌ 拉人失败: {e}")
+                    self.log(f"拉人失败: {e}")
             self.log(f"拉人完成: 成功 {success}")
         
         threading.Thread(target=do_invite, daemon=True).start()
     
-    # ==================== 自动群聊+回复页面 ====================
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
         
-        frame = ttk.LabelFrame(page, text="群聊设置", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="群聊设置")
         frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w")
@@ -303,11 +295,12 @@ class TelegramFullGUI:
         self.chat_daily.insert(0, "100")
         self.chat_daily.grid(row=2, column=1, sticky="w", padx=5)
         
-        ttk.Button(frame, text="启动炒群", command=self.start_group_chat).pack(side="left", padx=5, pady=10)
-        ttk.Button(frame, text="停止炒群", command=self.stop_group_chat).pack(side="left", padx=5, pady=10)
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="启动炒群", command=self.start_group_chat).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="停止炒群", command=self.stop_group_chat).pack(side="left", padx=5)
         
-        # 关键词回复
-        kw_frame = ttk.LabelFrame(page, text="关键词自动回复", padx=10, pady=5)
+        kw_frame = ttk.LabelFrame(page, text="关键词自动回复")
         kw_frame.pack(fill="x", padx=10, pady=5)
         
         self.keyword_text = scrolledtext.ScrolledText(kw_frame, width=80, height=6)
@@ -333,12 +326,11 @@ class TelegramFullGUI:
             json.dump(self.keywords, f, ensure_ascii=False, indent=2)
         self.log(f"保存 {len(self.keywords)} 个关键词规则")
     
-    # ==================== 自动注册页面 ====================
     def create_auto_register_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动注册账号")
         
-        frame = ttk.LabelFrame(page, text="注册设置", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="注册设置")
         frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(frame, text="接码平台API:").grid(row=0, column=0, sticky="w")
@@ -367,12 +359,11 @@ class TelegramFullGUI:
         self.log(f"开始批量注册 {count} 个账号...")
         messagebox.showinfo("提示", "批量注册功能需要对接具体接码平台API，请先配置好接口参数")
     
-    # ==================== 监听页面 ====================
     def create_monitor_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="监听群组")
         
-        frame = ttk.LabelFrame(page, text="监听设置", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="监听设置")
         frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Label(frame, text="监听群组列表:").grid(row=0, column=0, sticky="nw")
@@ -399,12 +390,11 @@ class TelegramFullGUI:
         self.log(f"启动监听: {len(groups)} 个群组")
         messagebox.showinfo("提示", "监听功能需要服务器端支持实时消息推送")
     
-    # ==================== 话术配置页面 ====================
     def create_script_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="话术配置")
         
-        frame = ttk.LabelFrame(page, text="话术库", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="话术库")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         self.script_text = scrolledtext.ScrolledText(frame, width=80, height=15)
@@ -439,12 +429,11 @@ class TelegramFullGUI:
             f.write(content)
         self.log(f"保存 {len(lines)} 条话术")
     
-    # ==================== 日志页面 ====================
     def create_log_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="运行日志")
         
-        frame = ttk.LabelFrame(page, text="日志记录", padx=10, pady=5)
+        frame = ttk.LabelFrame(page, text="日志记录")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         self.log_text = scrolledtext.ScrolledText(frame, width=100, height=20)
