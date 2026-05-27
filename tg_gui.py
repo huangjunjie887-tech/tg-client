@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime
 
+# 内置服务器地址，不需要用户配置
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"  # 卡密验证接口
 
@@ -133,8 +134,7 @@ class TelegramFullGUI:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 各功能页面
-        self.create_server_page()
+        # 各功能页面（没有服务器配置页面）
         self.create_account_page()
         self.create_proxy_page()
         self.create_scrape_page()
@@ -147,7 +147,7 @@ class TelegramFullGUI:
         self.create_log_page()
         
         # 状态栏显示卡密信息
-        self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')}", relief="sunken")
+        self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 服务器: {SERVER}", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
         
         self.log("系统启动完成")
@@ -194,8 +194,7 @@ class TelegramFullGUI:
         self.root.update()
     
     def call_api(self, endpoint, data=None):
-        server = self.server_entry.get()
-        url = f"{server}{endpoint}"
+        url = f"{SERVER}{endpoint}"
         try:
             if data:
                 resp = requests.post(url, json=data, timeout=60, proxies={"http": None, "https": None})
@@ -205,67 +204,6 @@ class TelegramFullGUI:
         except Exception as e:
             self.log(f"API错误: {e}", "ERROR")
             return None
-    
-    def test_connection(self):
-        self.log("正在测试连接...")
-        result = self.call_api("/status")
-        if result:
-            self.status_label.config(text="已连接", foreground="green")
-            self.log("连接成功")
-        else:
-            self.status_label.config(text="连接失败", foreground="red")
-            self.log("连接失败")
-    
-    def send_code(self):
-        self.log("发送验证码...")
-        result = self.call_api("/login", {})
-        if result and result.get("status") == "code_sent":
-            self.log("验证码已发送")
-            messagebox.showinfo("提示", "验证码已发送到Telegram")
-        else:
-            self.log("发送失败")
-    
-    def verify_login(self):
-        code = self.code_entry.get().strip()
-        if not code:
-            self.log("请输入验证码")
-            return
-        result = self.call_api("/login", {"code": code})
-        if result and result.get("status") == "success":
-            self.login_status.config(text=f"已登录: {result['user']}", foreground="green")
-            self.log(f"登录成功: {result['user']}")
-            messagebox.showinfo("成功", f"登录成功: {result['user']}")
-        else:
-            self.log("登录失败")
-    
-    # ==================== 服务器配置页面 ====================
-    def create_server_page(self):
-        page = ttk.Frame(self.notebook)
-        self.notebook.add(page, text="服务器配置")
-        
-        frame = ttk.LabelFrame(page, text="连接设置")
-        frame.pack(fill="x", padx=10, pady=5)
-        
-        ttk.Label(frame, text="服务器地址:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.server_entry = ttk.Entry(frame, width=40)
-        self.server_entry.insert(0, SERVER)
-        self.server_entry.grid(row=0, column=1, padx=5, pady=5)
-        
-        ttk.Button(frame, text="测试连接", command=self.test_connection).grid(row=0, column=2, padx=5, pady=5)
-        self.status_label = ttk.Label(frame, text="未连接", foreground="red")
-        self.status_label.grid(row=0, column=3, padx=10, pady=5)
-        
-        login_frame = ttk.LabelFrame(page, text="账号登录")
-        login_frame.pack(fill="x", padx=10, pady=5)
-        
-        ttk.Label(login_frame, text="验证码:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.code_entry = ttk.Entry(login_frame, width=20)
-        self.code_entry.grid(row=0, column=1, padx=5, pady=5)
-        
-        ttk.Button(login_frame, text="发送验证码", command=self.send_code).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Button(login_frame, text="确认登录", command=self.verify_login).grid(row=0, column=3, padx=5, pady=5)
-        self.login_status = ttk.Label(login_frame, text="未登录", foreground="red")
-        self.login_status.grid(row=0, column=4, padx=10, pady=5)
     
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
@@ -290,7 +228,16 @@ class TelegramFullGUI:
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         for col in columns:
             self.account_tree.heading(col, text=col)
-            self.account_tree.column(col, width=120)
+            self.account_tree.column(col, width=120, anchor="center")
+        
+        # 设置每一列居中显示
+        self.account_tree.column("序号", anchor="center", width=60)
+        self.account_tree.column("手机号", anchor="center", width=120)
+        self.account_tree.column("昵称", anchor="center", width=120)
+        self.account_tree.column("当前任务", anchor="center", width=120)
+        self.account_tree.column("上一次操作", anchor="center", width=150)
+        self.account_tree.column("账号状态", anchor="center", width=100)
+        self.account_tree.column("注册时长", anchor="center", width=120)
         
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.account_tree.yview)
         self.account_tree.configure(yscrollcommand=scrollbar.set)
@@ -373,7 +320,17 @@ class TelegramFullGUI:
         self.proxy_tree = ttk.Treeview(frame, columns=columns, show="headings", height=8)
         for col in columns:
             self.proxy_tree.heading(col, text=col)
-            self.proxy_tree.column(col, width=100)
+            self.proxy_tree.column(col, width=100, anchor="center")
+        
+        # 设置每一列居中
+        self.proxy_tree.column("序号", anchor="center", width=50)
+        self.proxy_tree.column("代理类型", anchor="center", width=80)
+        self.proxy_tree.column("IP/域名", anchor="center", width=120)
+        self.proxy_tree.column("端口", anchor="center", width=80)
+        self.proxy_tree.column("用户名", anchor="center", width=100)
+        self.proxy_tree.column("密码", anchor="center", width=80)
+        self.proxy_tree.column("状态", anchor="center", width=80)
+        
         self.proxy_tree.pack(fill="both", expand=True, padx=5, pady=5)
     
     def add_proxy(self):
@@ -820,8 +777,7 @@ class TelegramFullGUI:
     def export_config(self):
         config = {
             "accounts": self.accounts,
-            "proxies": self.proxies,
-            "server": self.server_entry.get()
+            "proxies": self.proxies
         }
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
         if file_path:
@@ -836,14 +792,12 @@ class TelegramFullGUI:
                 config = json.load(f)
             self.accounts = config.get("accounts", [])
             self.proxies = config.get("proxies", [])
-            self.server_entry.delete(0, tk.END)
-            self.server_entry.insert(0, config.get("server", SERVER))
             self.refresh_account_list()
             self.refresh_proxy_list()
             self.log("配置已导入")
     
     def about(self):
-        messagebox.showinfo("关于", "天师府TG全能营销系统\n联系@Tian2547\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置\n\n服务器: " + SERVER)
+        messagebox.showinfo("关于", "天师府TG全能营销系统\n联系@Tian2547\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
 
 if __name__ == "__main__":
     root = tk.Tk()
