@@ -35,8 +35,8 @@ class TelegramFullGUI:
         self.running_tasks = {}
         
         # API配置 - 用户需要替换为自己的
-        self.api_id = 2040
-        self.api_hash = "b18441a1ff607e10a989891a5462e627"
+        self.api_id = 34256693
+        self.api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
         
         self.machine_id = self.get_machine_id()
         self.show_card_login()
