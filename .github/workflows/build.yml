@@ -18,9 +18,25 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install pyinstaller requests
+        python -m pip install --upgrade pip
+        pip install requests pyinstaller
     
-    - name: Build EXE with manifest
+    - name: Create manifest file
+      run: |
+        @"
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+          <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+            <security>
+              <requestedPrivileges>
+                <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+              </requestedPrivileges>
+            </security>
+          </trustInfo>
+        </assembly>
+        "@ | Out-File -FilePath tg_gui.manifest -Encoding UTF8
+    
+    - name: Build EXE
       run: |
         pyinstaller --onefile --name TG营销系统 --windowed --noconsole --manifest tg_gui.manifest tg_gui.py
     
