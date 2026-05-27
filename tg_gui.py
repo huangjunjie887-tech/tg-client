@@ -29,7 +29,7 @@ class TelegramFullGUI:
         # 数据存储
         self.accounts = []      # 账号列表
         self.proxies = []       # 代理列表
-        self.groups = []        # 分组列表
+        self.groups = ["默认分组"]        # 分组列表
         self.running_tasks = {}
         
         # 获取机器码
@@ -213,27 +213,11 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
         
-        # 分组管理工具栏
-        group_toolbar = ttk.LabelFrame(page, text="分组管理")
-        group_toolbar.pack(fill="x", padx=10, pady=5)
-        
-        group_frame = ttk.Frame(group_toolbar)
-        group_frame.pack(fill="x", padx=5, pady=5)
-        
-        ttk.Label(group_frame, text="当前分组:").pack(side="left", padx=5)
-        self.group_combobox = ttk.Combobox(group_frame, values=self.groups, width=20)
-        self.group_combobox.pack(side="left", padx=5)
-        if self.groups:
-            self.group_combobox.set(self.groups[0])
-        
-        ttk.Button(group_frame, text="新建分组", command=self.create_group).pack(side="left", padx=5)
-        ttk.Button(group_frame, text="删除分组", command=self.delete_group).pack(side="left", padx=5)
-        ttk.Button(group_frame, text="移动账号到分组", command=self.move_to_group).pack(side="left", padx=5)
-        
         # 账号操作工具栏
         toolbar = ttk.Frame(page)
         toolbar.pack(fill="x", padx=10, pady=5)
         
+        ttk.Button(toolbar, text="分组管理", command=self.open_group_manager).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导出账号", command=self.export_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
@@ -263,87 +247,186 @@ class TelegramFullGUI:
         self.account_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
     
-    def create_group(self):
+    def open_group_manager(self):
+        """打开分组管理窗口"""
         dialog = tk.Toplevel(self.root)
-        dialog.title("新建分组")
-        dialog.geometry("300x150")
+        dialog.title("分组管理")
+        dialog.geometry("500x400")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
         
-        ttk.Label(dialog, text="分组名称:").pack(pady=20)
-        group_name = ttk.Entry(dialog, width=30)
-        group_name.pack(pady=5)
+        # 分组列表
+        group_frame = ttk.LabelFrame(dialog, text="分组列表")
+        group_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
-        def save_group():
-            name = group_name.get().strip()
+        group_listbox = tk.Listbox(group_frame, height=8)
+        group_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        for g in self.groups:
+            group_listbox.insert(tk.END, g)
+        
+        # 分组操作按钮
+        btn_frame = ttk.Frame(group_frame)
+        btn_frame.pack(fill="x", pady=5)
+        
+        def add_group():
+            name = group_name_entry.get().strip()
             if name:
                 if name not in self.groups:
                     self.groups.append(name)
-                    self.group_combobox['values'] = self.groups
-                    self.group_combobox.set(name)
+                    group_listbox.insert(tk.END, name)
+                    group_name_entry.delete(0, tk.END)
                     self.log(f"创建分组: {name}")
-                    dialog.destroy()
                 else:
                     messagebox.showerror("错误", "分组已存在")
         
-        ttk.Button(dialog, text="确定", command=save_group).pack(pady=20)
-    
-    def delete_group(self):
-        current_group = self.group_combobox.get()
-        if not current_group:
-            messagebox.showwarning("提示", "请选择要删除的分组")
-            return
-        if current_group == "默认分组":
-            messagebox.showwarning("提示", "默认分组不能删除")
-            return
+        def delete_group():
+            selected = group_listbox.curselection()
+            if selected:
+                group_name = group_listbox.get(selected[0])
+                if group_name == "默认分组":
+                    messagebox.showwarning("提示", "默认分组不能删除")
+                    return
+                if messagebox.askyesno("确认", f"确定要删除分组「{group_name}」吗？\n该分组下的账号将移动到「默认分组」"):
+                    # 将分组下的账号移动到默认分组
+                    for acc in self.accounts:
+                        if acc.get('group', '默认分组') == group_name:
+                            acc['group'] = '默认分组'
+                    self.groups.remove(group_name)
+                    group_listbox.delete(selected[0])
+                    self.refresh_account_list()
+                    self.log(f"删除分组: {group_name}")
         
-        if messagebox.askyesno("确认", f"确定要删除分组「{current_group}」吗？\n该分组下的账号将移动到「默认分组」"):
-            # 将分组下的账号移动到默认分组
-            for acc in self.accounts:
-                if acc.get('group', '默认分组') == current_group:
-                    acc['group'] = '默认分组'
-            self.groups.remove(current_group)
-            if not self.groups:
-                self.groups = ["默认分组"]
-            self.group_combobox['values'] = self.groups
-            self.group_combobox.set(self.groups[0] if self.groups else "")
-            self.refresh_account_list()
-            self.log(f"删除分组: {current_group}")
-    
-    def move_to_group(self):
-        selected = self.account_tree.selection()
-        if not selected:
-            self.log("请先选择要移动的账号")
-            return
+        def rename_group():
+            selected = group_listbox.curselection()
+            if selected:
+                old_name = group_listbox.get(selected[0])
+                if old_name == "默认分组":
+                    messagebox.showwarning("提示", "默认分组不能重命名")
+                    return
+                new_name = group_name_entry.get().strip()
+                if new_name and new_name not in self.groups:
+                    # 更新分组名
+                    for acc in self.accounts:
+                        if acc.get('group', '默认分组') == old_name:
+                            acc['group'] = new_name
+                    idx = self.groups.index(old_name)
+                    self.groups[idx] = new_name
+                    group_listbox.delete(selected[0])
+                    group_listbox.insert(selected[0], new_name)
+                    group_listbox.selection_set(selected[0])
+                    self.refresh_account_list()
+                    self.log(f"重命名分组: {old_name} -> {new_name}")
+                    group_name_entry.delete(0, tk.END)
+                elif not new_name:
+                    messagebox.showwarning("提示", "请输入新分组名称")
+                else:
+                    messagebox.showwarning("提示", "分组名称已存在")
         
-        target_group = self.group_combobox.get()
-        if not target_group:
-            messagebox.showwarning("提示", "请选择目标分组")
-            return
+        ttk.Label(btn_frame, text="分组名称:").pack(side="left", padx=5)
+        group_name_entry = ttk.Entry(btn_frame, width=20)
+        group_name_entry.pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="新建", command=add_group).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="重命名", command=rename_group).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="删除", command=delete_group).pack(side="left", padx=2)
         
-        for item in selected:
-            idx = int(self.account_tree.item(item)['values'][0]) - 1
+        # 移动账号到分组
+        move_frame = ttk.LabelFrame(dialog, text="移动账号到分组")
+        move_frame.pack(fill="x", padx=10, pady=10)
+        
+        account_frame = ttk.Frame(move_frame)
+        account_frame.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(account_frame, text="选择账号:").pack(side="left", padx=5)
+        account_var = tk.StringVar()
+        account_combo = ttk.Combobox(account_frame, textvariable=account_var, width=30)
+        account_combo.pack(side="left", padx=5)
+        
+        def refresh_account_combo():
+            accounts_list = [f"{i+1}. {acc.get('phone', '未知')} (分组:{acc.get('group', '默认分组')})" for i, acc in enumerate(self.accounts)]
+            account_combo['values'] = accounts_list
+            if accounts_list:
+                account_combo.set(accounts_list[0])
+        
+        refresh_account_combo()
+        
+        target_frame = ttk.Frame(move_frame)
+        target_frame.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(target_frame, text="目标分组:").pack(side="left", padx=5)
+        target_group_var = tk.StringVar()
+        target_group_combo = ttk.Combobox(target_frame, textvariable=target_group_var, values=self.groups, width=20)
+        target_group_combo.pack(side="left", padx=5)
+        if self.groups:
+            target_group_combo.set(self.groups[0])
+        
+        def move_account_to_group():
+            if not self.accounts:
+                messagebox.showwarning("提示", "没有账号可移动")
+                return
+            selected_account = account_var.get()
+            target_group = target_group_var.get()
+            if not selected_account:
+                messagebox.showwarning("提示", "请选择账号")
+                return
+            if not target_group:
+                messagebox.showwarning("提示", "请选择目标分组")
+                return
+            
+            # 解析账号索引
+            idx = int(selected_account.split('.')[0]) - 1
+            old_group = self.accounts[idx].get('group', '默认分组')
             self.accounts[idx]['group'] = target_group
+            self.refresh_account_list()
+            refresh_account_combo()
+            self.log(f"移动账号 {self.accounts[idx].get('phone', '未知')} 从 {old_group} 到 {target_group}")
         
-        self.refresh_account_list()
-        self.log(f"移动 {len(selected)} 个账号到分组: {target_group}")
+        ttk.Button(move_frame, text="移动", command=move_account_to_group).pack(pady=5)
+        
+        # 刷新按钮
+        def refresh_all():
+            refresh_account_combo()
+            target_group_combo['values'] = self.groups
+            if self.groups:
+                target_group_combo.set(self.groups[0])
+            group_listbox.delete(0, tk.END)
+            for g in self.groups:
+                group_listbox.insert(tk.END, g)
+        
+        ttk.Button(dialog, text="刷新", command=refresh_all).pack(pady=5)
     
     def import_accounts_folder(self):
         """导入账号文件夹"""
         # 先选择分组
-        target_group = self.group_combobox.get()
-        if not target_group:
-            # 如果没有分组，提示创建
-            if messagebox.askyesno("提示", "请先创建分组，是否现在创建？"):
-                self.create_group()
-                return
-            target_group = "默认分组"
-            if "默认分组" not in self.groups:
-                self.groups.append("默认分组")
-                self.group_combobox['values'] = self.groups
-                self.group_combobox.set("默认分组")
+        if not self.groups:
+            self.groups = ["默认分组"]
         
+        group_dialog = tk.Toplevel(self.root)
+        group_dialog.title("选择分组")
+        group_dialog.geometry("300x150")
+        group_dialog.resizable(False, False)
+        group_dialog.transient(self.root)
+        group_dialog.grab_set()
+        
+        ttk.Label(group_dialog, text="请选择导入账号的目标分组:").pack(pady=15)
+        
+        group_var = tk.StringVar()
+        group_combo = ttk.Combobox(group_dialog, textvariable=group_var, values=self.groups, width=25)
+        group_combo.pack(pady=5)
+        if self.groups:
+            group_combo.set(self.groups[0])
+        
+        def confirm_import():
+            target_group = group_var.get()
+            if not target_group:
+                target_group = "默认分组"
+            group_dialog.destroy()
+            self.do_import_accounts(target_group)
+        
+        ttk.Button(group_dialog, text="确定", command=confirm_import).pack(pady=15)
+    
+    def do_import_accounts(self, target_group):
+        """执行导入账号"""
         folder = filedialog.askdirectory(title="选择账号文件夹")
         if folder:
             self.log(f"从文件夹导入账号: {folder}")
@@ -381,6 +464,7 @@ class TelegramFullGUI:
         selected = self.account_tree.selection()
         if not selected:
             self.log("请先选择要导出的账号")
+            messagebox.showwarning("提示", "请先选择要导出的账号")
             return
         
         export_folder = filedialog.askdirectory(title="选择导出文件夹")
@@ -397,14 +481,17 @@ class TelegramFullGUI:
                     dest = os.path.join(export_folder, filename)
                     shutil.copy2(session_path, dest)
                     export_count += 1
+                    self.log(f"导出账号: {filename}")
                 elif acc.get('phone'):
                     # 如果没有session_path，创建一个空的.session文件占位
                     session_file = os.path.join(export_folder, f"{acc['phone']}.session")
                     with open(session_file, 'w') as f:
                         f.write("# 请将真实的.session文件替换此文件")
                     export_count += 1
+                    self.log(f"导出账号(占位): {acc['phone']}.session")
             
-            self.log(f"导出 {export_count} 个账号到 {export_folder}")
+            self.log(f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
+            messagebox.showinfo("导出完成", f"成功导出 {export_count} 个账号到:\n{export_folder}")
     
     def delete_selected_accounts(self):
         """删除选中的账号"""
@@ -431,8 +518,10 @@ class TelegramFullGUI:
                 self.accounts.pop(idx)
             self.refresh_account_list()
             self.log(f"一键删除 {len(dead_indices)} 个已销号账号")
+            messagebox.showinfo("删除完成", f"已删除 {len(dead_indices)} 个已销号账号")
         else:
             self.log("没有发现已销号的账号")
+            messagebox.showinfo("提示", "没有发现已销号的账号")
     
     def check_accounts(self):
         self.log("开始检测账号状态...")
@@ -442,6 +531,7 @@ class TelegramFullGUI:
         selected = self.account_tree.selection()
         if not selected:
             self.log("请先选择账号")
+            messagebox.showwarning("提示", "请先选择账号")
             return
         messagebox.showinfo("提示", "资料修改功能开发中")
     
@@ -960,8 +1050,6 @@ class TelegramFullGUI:
             self.groups = config.get("groups", [])
             if not self.groups:
                 self.groups = ["默认分组"]
-            self.group_combobox['values'] = self.groups
-            self.group_combobox.set(self.groups[0] if self.groups else "")
             self.refresh_account_list()
             self.refresh_proxy_list()
             self.log("配置已导入")
