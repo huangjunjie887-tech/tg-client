@@ -39,13 +39,11 @@ class TelegramFullGUI:
     def get_machine_id(self):
         """获取设备唯一标识"""
         try:
-            # 使用MAC地址 + 主机名作为机器码
             mac = uuid.getnode()
             hostname = platform.node()
             machine_id = hashlib.md5(f"{mac}{hostname}".encode()).hexdigest()
             return machine_id
         except:
-            # 如果失败，使用备用方案
             return hashlib.md5(platform.node().encode()).hexdigest()
     
     def show_card_login(self):
@@ -57,20 +55,17 @@ class TelegramFullGUI:
         login_window.transient(self.root)
         login_window.grab_set()
         
-        # 居中显示
         login_window.update_idletasks()
         x = (login_window.winfo_screenwidth() // 2) - (450 // 2)
         y = (login_window.winfo_screenheight() // 2) - (350 // 2)
         login_window.geometry(f"+{x}+{y}")
         
-        # 标题
         title_label = tk.Label(login_window, text="天师府TG全能营销系统", font=("微软雅黑", 18, "bold"))
         title_label.pack(pady=20)
         
         sub_label = tk.Label(login_window, text="请输入卡密激活", font=("微软雅黑", 10))
         sub_label.pack()
         
-        # 卡密输入框
         frame = ttk.Frame(login_window)
         frame.pack(pady=30)
         
@@ -78,22 +73,18 @@ class TelegramFullGUI:
         self.card_entry = ttk.Entry(frame, width=30, font=("微软雅黑", 12), show="●")
         self.card_entry.grid(row=0, column=1, padx=10, pady=10)
         
-        # 状态标签
         self.login_status = ttk.Label(login_window, text="", foreground="red")
         self.login_status.pack(pady=5)
         
-        # 按钮
         btn_frame = ttk.Frame(login_window)
         btn_frame.pack(pady=20)
         
         ttk.Button(btn_frame, text="激活", command=lambda: self.verify_card(login_window), width=12).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="购买卡密", command=self.buy_card, width=12).pack(side="left", padx=10)
         
-        # 提示
         tip_label = tk.Label(login_window, text="购买卡密请联系 @Tian2547", font=("微软雅黑", 9), foreground="gray")
         tip_label.pack(side="bottom", pady=10)
         
-        # 绑定回车键
         self.card_entry.bind("<Return>", lambda event: self.verify_card(login_window))
     
     def verify_card(self, login_window):
@@ -106,7 +97,6 @@ class TelegramFullGUI:
         self.login_status.config(text="验证中...", foreground="blue")
         login_window.update()
         
-        # 调用卡密验证接口，带上机器码
         try:
             resp = requests.post(
                 CARD_API,
@@ -121,8 +111,6 @@ class TelegramFullGUI:
                 self.card_info = result
                 self.login_status.config(text="激活成功！正在启动...", foreground="green")
                 login_window.update()
-                
-                # 延迟关闭登录窗口，启动主界面
                 login_window.after(1000, lambda: self.on_login_success(login_window))
             else:
                 error_msg = result.get("error", "卡密无效")
@@ -139,20 +127,16 @@ class TelegramFullGUI:
         webbrowser.open("https://t.me/Tian2547")
     
     def on_login_success(self, login_window):
-        """登录成功后初始化主界面"""
         login_window.destroy()
         self.init_main_interface()
     
     def init_main_interface(self):
         """初始化主界面"""
-        # 创建菜单栏
         self.create_menu()
         
-        # 创建选项卡
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 各功能页面（没有服务器配置页面）
         self.create_account_page()
         self.create_proxy_page()
         self.create_scrape_page()
@@ -164,7 +148,6 @@ class TelegramFullGUI:
         self.create_script_page()
         self.create_log_page()
         
-        # 状态栏显示卡密信息
         self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 服务器: {SERVER}", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
         
@@ -188,7 +171,6 @@ class TelegramFullGUI:
         help_menu.add_command(label="关于", command=self.about)
     
     def show_card_info(self):
-        """显示卡密信息"""
         if self.card_info:
             messagebox.showinfo("卡密信息", 
                 f"天师府TG全能营销系统\n\n"
@@ -229,7 +211,6 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
         
-        # 工具栏
         toolbar = ttk.Frame(page)
         toolbar.pack(fill="x", padx=10, pady=5)
         
@@ -239,7 +220,6 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="账号检测", command=self.check_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="资料修改", command=self.edit_profile).pack(side="left", padx=2)
         
-        # 账号列表
         frame = ttk.LabelFrame(page, text="账号列表")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
@@ -248,7 +228,6 @@ class TelegramFullGUI:
         for col in columns:
             self.account_tree.heading(col, text=col)
         
-        # 设置每一列居中显示
         self.account_tree.column("序号", anchor="center", width=60)
         self.account_tree.column("手机号", anchor="center", width=120)
         self.account_tree.column("昵称", anchor="center", width=120)
@@ -263,19 +242,34 @@ class TelegramFullGUI:
         scrollbar.pack(side="right", fill="y")
     
     def import_accounts_folder(self):
+        """导入账号文件夹"""
         folder = filedialog.askdirectory(title="选择账号文件夹")
         if folder:
             self.log(f"从文件夹导入账号: {folder}")
-            for file in os.listdir(folder):
-                if file.endswith(".session"):
+            count = 0
+            for item in os.listdir(folder):
+                item_path = os.path.join(folder, item)
+                # 支持 .session 文件
+                if item.endswith(".session"):
+                    phone = item.replace(".session", "")
                     self.accounts.append({
-                        "phone": file.replace(".session", ""),
+                        "phone": phone,
                         "nickname": "",
                         "status": "正常",
                         "register_time": "未知"
                     })
+                    count += 1
+                # 支持文件夹（tdata或其他账号文件夹）
+                elif os.path.isdir(item_path):
+                    self.accounts.append({
+                        "phone": item,
+                        "nickname": "账号",
+                        "status": "正常",
+                        "register_time": "未知"
+                    })
+                    count += 1
             self.refresh_account_list()
-            self.log(f"导入 {len([f for f in os.listdir(folder) if f.endswith('.session')])} 个账号")
+            self.log(f"导入 {count} 个账号")
     
     def export_accounts(self):
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
@@ -319,7 +313,6 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="代理IP")
         
-        # 工具栏
         toolbar = ttk.Frame(page)
         toolbar.pack(fill="x", padx=10, pady=5)
         
@@ -330,7 +323,6 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除代理IP", command=self.delete_proxy).pack(side="left", padx=2)
         ttk.Button(toolbar, text="检测代理IP", command=self.check_proxies).pack(side="left", padx=2)
         
-        # 代理列表
         frame = ttk.LabelFrame(page, text="代理列表")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
@@ -339,7 +331,6 @@ class TelegramFullGUI:
         for col in columns:
             self.proxy_tree.heading(col, text=col)
         
-        # 设置每一列居中
         self.proxy_tree.column("序号", anchor="center", width=50)
         self.proxy_tree.column("代理类型", anchor="center", width=80)
         self.proxy_tree.column("IP/域名", anchor="center", width=120)
