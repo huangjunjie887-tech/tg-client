@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 
 SERVER = "http://172.98.23.64:5000"
+CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"  # 卡密验证接口
 
 class TelegramFullGUI:
     def __init__(self, root):
@@ -16,16 +17,120 @@ class TelegramFullGUI:
         self.root.geometry("1100x800")
         self.root.resizable(True, True)
         
-        # 数据存储（必须在创建页面前定义）
+        # 是否已登录
+        self.is_logged_in = False
+        self.card_info = None
+        
+        # 数据存储
         self.accounts = []      # 账号列表
         self.proxies = []       # 代理列表
         self.running_tasks = {}
         
+        # 先显示卡密登录窗口
+        self.show_card_login()
+    
+    def show_card_login(self):
+        """显示卡密登录窗口"""
+        login_window = tk.Toplevel(self.root)
+        login_window.title("卡密登录 - 天师府TG全能营销系统")
+        login_window.geometry("450x350")
+        login_window.resizable(False, False)
+        login_window.transient(self.root)
+        login_window.grab_set()
+        
+        # 居中显示
+        login_window.update_idletasks()
+        x = (login_window.winfo_screenwidth() // 2) - (450 // 2)
+        y = (login_window.winfo_screenheight() // 2) - (350 // 2)
+        login_window.geometry(f"+{x}+{y}")
+        
+        # 标题
+        title_label = tk.Label(login_window, text="天师府TG全能营销系统", font=("微软雅黑", 18, "bold"))
+        title_label.pack(pady=20)
+        
+        sub_label = tk.Label(login_window, text="请输入卡密激活", font=("微软雅黑", 10))
+        sub_label.pack()
+        
+        # 卡密输入框
+        frame = ttk.Frame(login_window)
+        frame.pack(pady=30)
+        
+        ttk.Label(frame, text="卡密:", font=("微软雅黑", 12)).grid(row=0, column=0, padx=10, pady=10)
+        self.card_entry = ttk.Entry(frame, width=30, font=("微软雅黑", 12), show="●")
+        self.card_entry.grid(row=0, column=1, padx=10, pady=10)
+        
+        # 状态标签
+        self.login_status = ttk.Label(login_window, text="", foreground="red")
+        self.login_status.pack(pady=5)
+        
+        # 按钮
+        btn_frame = ttk.Frame(login_window)
+        btn_frame.pack(pady=20)
+        
+        ttk.Button(btn_frame, text="激活", command=lambda: self.verify_card(login_window), width=12).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="购买卡密", command=self.buy_card, width=12).pack(side="left", padx=10)
+        
+        # 提示
+        tip_label = tk.Label(login_window, text="购买卡密请联系 @Tian2547", font=("微软雅黑", 9), foreground="gray")
+        tip_label.pack(side="bottom", pady=10)
+        
+        # 绑定回车键
+        self.card_entry.bind("<Return>", lambda event: self.verify_card(login_window))
+    
+    def verify_card(self, login_window):
+        """验证卡密"""
+        card_code = self.card_entry.get().strip()
+        if not card_code:
+            self.login_status.config(text="请输入卡密", foreground="red")
+            return
+        
+        self.login_status.config(text="验证中...", foreground="blue")
+        login_window.update()
+        
+        # 调用卡密验证接口
+        try:
+            resp = requests.post(
+                CARD_API,
+                json={"action": "verify", "card": card_code},
+                timeout=15,
+                proxies={"http": None, "https": None}
+            )
+            result = resp.json()
+            
+            if result.get("success"):
+                self.is_logged_in = True
+                self.card_info = result
+                self.login_status.config(text="激活成功！正在启动...", foreground="green")
+                login_window.update()
+                
+                # 延迟关闭登录窗口，启动主界面
+                login_window.after(1000, lambda: self.on_login_success(login_window))
+            else:
+                error_msg = result.get("error", "卡密无效")
+                self.login_status.config(text=error_msg, foreground="red")
+                
+        except requests.exceptions.ConnectionError:
+            self.login_status.config(text="无法连接验证服务器，请检查网络", foreground="red")
+        except Exception as e:
+            self.login_status.config(text=f"验证失败: {str(e)[:30]}", foreground="red")
+    
+    def buy_card(self):
+        """购买卡密"""
+        import webbrowser
+        webbrowser.open("https://t.me/Tian2547")
+    
+    def on_login_success(self, login_window):
+        """登录成功后初始化主界面"""
+        login_window.destroy()
+        self.init_main_interface()
+    
+    def init_main_interface(self):
+        """初始化主界面"""
         # 创建菜单栏
         self.create_menu()
         
         # 创建选项卡
-        self.notebook = ttk.Notebook(root)
+        self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 各功能页面
@@ -41,7 +146,12 @@ class TelegramFullGUI:
         self.create_script_page()
         self.create_log_page()
         
+        # 状态栏显示卡密信息
+        self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')}", relief="sunken")
+        self.status_bar.pack(side="bottom", fill="x")
+        
         self.log("系统启动完成")
+        self.log(f"卡密验证成功，有效期至: {self.card_info.get('expire_date', '永久')}")
     
     def create_menu(self):
         menubar = tk.Menu(self.root)
@@ -52,11 +162,30 @@ class TelegramFullGUI:
         file_menu.add_command(label="导出配置", command=self.export_config)
         file_menu.add_command(label="导入配置", command=self.import_config)
         file_menu.add_separator()
+        file_menu.add_command(label="卡密信息", command=self.show_card_info)
         file_menu.add_command(label="退出", command=self.root.quit)
         
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="帮助", menu=help_menu)
         help_menu.add_command(label="关于", command=self.about)
+    
+    def show_card_info(self):
+        """显示卡密信息"""
+        if self.card_info:
+            messagebox.showinfo("卡密信息", 
+                f"天师府TG全能营销系统\n\n"
+                f"卡密状态: 已激活\n"
+                f"有效期至: {self.card_info.get('expire_date', '永久')}\n"
+                f"功能权限:\n"
+                f"  - 采集群成员: {'✓' if self.card_info.get('permissions', {}).get('scrape', True) else '✗'}\n"
+                f"  - 批量拉人: {'✓' if self.card_info.get('permissions', {}).get('invite', True) else '✗'}\n"
+                f"  - 群发广告: {'✓' if self.card_info.get('permissions', {}).get('send', True) else '✗'}\n"
+                f"  - 自动群聊: {'✓' if self.card_info.get('permissions', {}).get('chat', True) else '✗'}\n"
+                f"  - 代理IP: {'✓' if self.card_info.get('permissions', {}).get('proxy', True) else '✗'}\n"
+                f"  - 多账号管理: {'✓' if self.card_info.get('permissions', {}).get('account', True) else '✗'}\n\n"
+                f"联系客服: @Tian2547")
+        else:
+            messagebox.showinfo("卡密信息", "未找到卡密信息，请重新登录")
     
     def log(self, msg, level="INFO"):
         timestamp = datetime.now().strftime("%H:%M:%S")
