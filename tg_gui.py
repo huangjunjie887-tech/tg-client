@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from tkinter import ttk, scrolledtext, filedialog
 import requests
 import json
 import threading
@@ -50,18 +50,80 @@ class TelegramFullGUI:
             return hashlib.md5(platform.node().encode()).hexdigest()
     
     def center_window(self, window, width, height):
-        """让窗口在主窗口中居中显示"""
+        """让弹出窗口在主窗口中居中显示"""
         window.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
         window.geometry(f"{width}x{height}+{x}+{y}")
     
-    def center_toplevel(self, window, width, height):
-        """让Toplevel窗口在主窗口中居中显示"""
-        window.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
-        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
-        window.geometry(f"{width}x{height}+{x}+{y}")
+    def show_centered_info(self, title, message):
+        """自定义居中信息框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        
+        self.center_window(dialog, 400, 200)
+        
+        tk.Label(dialog, text=message, font=("微软雅黑", 10), wraplength=350).pack(pady=40)
+        ttk.Button(dialog, text="确定", command=dialog.destroy, width=12).pack(pady=10)
+    
+    def show_centered_warning(self, title, message):
+        """自定义居中警告框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        
+        self.center_window(dialog, 400, 200)
+        
+        tk.Label(dialog, text=message, font=("微软雅黑", 10), wraplength=350, fg="orange").pack(pady=40)
+        ttk.Button(dialog, text="确定", command=dialog.destroy, width=12).pack(pady=10)
+    
+    def show_centered_error(self, title, message):
+        """自定义居中错误框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        
+        self.center_window(dialog, 400, 200)
+        
+        tk.Label(dialog, text=message, font=("微软雅黑", 10), wraplength=350, fg="red").pack(pady=40)
+        ttk.Button(dialog, text="确定", command=dialog.destroy, width=12).pack(pady=10)
+    
+    def show_centered_yesno(self, title, message, callback_yes=None, callback_no=None):
+        """自定义居中确认框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        
+        self.center_window(dialog, 400, 200)
+        
+        tk.Label(dialog, text=message, font=("微软雅黑", 10), wraplength=350).pack(pady=30)
+        
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=20)
+        
+        def on_yes():
+            dialog.destroy()
+            if callback_yes:
+                callback_yes()
+        
+        def on_no():
+            dialog.destroy()
+            if callback_no:
+                callback_no()
+        
+        ttk.Button(btn_frame, text="是", command=on_yes, width=10).pack(side="left", padx=20)
+        ttk.Button(btn_frame, text="否", command=on_no, width=10).pack(side="left", padx=20)
+        
+        return dialog
     
     def show_card_login(self):
         """显示卡密登录窗口"""
@@ -72,7 +134,7 @@ class TelegramFullGUI:
         login_window.transient(self.root)
         login_window.grab_set()
         
-        self.center_toplevel(login_window, 450, 350)
+        self.center_window(login_window, 450, 350)
         
         title_label = tk.Label(login_window, text="天师府TG全能营销系统", font=("微软雅黑", 18, "bold"))
         title_label.pack(pady=20)
@@ -186,8 +248,7 @@ class TelegramFullGUI:
     
     def show_card_info(self):
         if self.card_info:
-            messagebox.showinfo("卡密信息", 
-                f"天师府TG全能营销系统\n\n"
+            info_text = (f"天师府TG全能营销系统\n\n"
                 f"卡密状态: 已激活\n"
                 f"有效期至: {self.card_info.get('expire_date', '永久')}\n"
                 f"设备绑定: 已绑定\n"
@@ -199,8 +260,9 @@ class TelegramFullGUI:
                 f"  - 代理IP: {'✓' if self.card_info.get('permissions', {}).get('proxy', True) else '✗'}\n"
                 f"  - 多账号管理: {'✓' if self.card_info.get('permissions', {}).get('account', True) else '✗'}\n\n"
                 f"联系客服: @Tian2547")
+            self.show_centered_info("卡密信息", info_text)
         else:
-            messagebox.showinfo("卡密信息", "未找到卡密信息，请重新登录")
+            self.show_centered_warning("卡密信息", "未找到卡密信息，请重新登录")
     
     def log(self, msg, level="INFO"):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -263,12 +325,12 @@ class TelegramFullGUI:
         """打开分组管理窗口"""
         dialog = tk.Toplevel(self.root)
         dialog.title("分组管理")
-        dialog.geometry("550x480")
+        dialog.geometry("550x500")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
         
-        self.center_toplevel(dialog, 550, 480)
+        self.center_window(dialog, 550, 500)
         
         # 分组列表
         group_frame = ttk.LabelFrame(dialog, text="分组列表")
@@ -320,21 +382,21 @@ class TelegramFullGUI:
         if self.groups:
             target_group_combo.set(self.groups[0])
         
-        # 按钮行 - 移动按钮和刷新按钮并排
+        # 按钮行
         button_line = ttk.Frame(move_frame)
         button_line.pack(pady=10)
         
         def move_account_to_group():
             if not self.accounts:
-                messagebox.showwarning("提示", "没有账号可移动")
+                self.show_centered_warning("提示", "没有账号可移动")
                 return
             selected_account = account_var.get()
             target_group = target_group_var.get()
             if not selected_account:
-                messagebox.showwarning("提示", "请选择账号")
+                self.show_centered_warning("提示", "请选择账号")
                 return
             if not target_group:
-                messagebox.showwarning("提示", "请选择目标分组")
+                self.show_centered_warning("提示", "请选择目标分组")
                 return
             
             idx = int(selected_account.split('.')[0]) - 1
@@ -343,7 +405,7 @@ class TelegramFullGUI:
             self.refresh_account_list()
             refresh_account_combo()
             self.log(f"移动账号 {self.accounts[idx].get('phone', '未知')} 从 {old_group} 到 {target_group}")
-            messagebox.showinfo("成功", f"已移动账号到「{target_group}」")
+            self.show_centered_info("成功", f"已移动账号到「{target_group}」")
         
         def refresh_all():
             refresh_account_combo()
@@ -366,16 +428,16 @@ class TelegramFullGUI:
                 name_entry.delete(0, tk.END)
                 self.log(f"创建分组: {name}")
             else:
-                messagebox.showerror("错误", "分组已存在")
+                self.show_centered_error("错误", "分组已存在")
         else:
-            messagebox.showwarning("提示", "请输入分组名称")
+            self.show_centered_warning("提示", "请输入分组名称")
     
     def rename_group(self, name_entry, listbox):
         selected = listbox.curselection()
         if selected:
             old_name = listbox.get(selected[0])
             if old_name == "默认分组":
-                messagebox.showwarning("提示", "默认分组不能重命名")
+                self.show_centered_warning("提示", "默认分组不能重命名")
                 return
             new_name = name_entry.get().strip()
             if new_name and new_name not in self.groups:
@@ -391,20 +453,21 @@ class TelegramFullGUI:
                 self.log(f"重命名分组: {old_name} -> {new_name}")
                 name_entry.delete(0, tk.END)
             elif not new_name:
-                messagebox.showwarning("提示", "请输入新分组名称")
+                self.show_centered_warning("提示", "请输入新分组名称")
             else:
-                messagebox.showwarning("提示", "分组名称已存在")
+                self.show_centered_warning("提示", "分组名称已存在")
         else:
-            messagebox.showwarning("提示", "请先选择要重命名的分组")
+            self.show_centered_warning("提示", "请先选择要重命名的分组")
     
     def delete_group_from_manager(self, listbox):
         selected = listbox.curselection()
         if selected:
             group_name = listbox.get(selected[0])
             if group_name == "默认分组":
-                messagebox.showwarning("提示", "默认分组不能删除")
+                self.show_centered_warning("提示", "默认分组不能删除")
                 return
-            if messagebox.askyesno("确认", f"确定要删除分组「{group_name}」吗？\n该分组下的账号将移动到「默认分组」"):
+            
+            def do_delete():
                 for acc in self.accounts:
                     if acc.get('group', '默认分组') == group_name:
                         acc['group'] = '默认分组'
@@ -412,8 +475,10 @@ class TelegramFullGUI:
                 listbox.delete(selected[0])
                 self.refresh_account_list()
                 self.log(f"删除分组: {group_name}")
+            
+            self.show_centered_yesno("确认", f"确定要删除分组「{group_name}」吗？\n该分组下的账号将移动到「默认分组」", do_delete)
         else:
-            messagebox.showwarning("提示", "请先选择要删除的分组")
+            self.show_centered_warning("提示", "请先选择要删除的分组")
     
     def import_accounts_folder(self):
         """导入账号文件夹"""
@@ -427,7 +492,7 @@ class TelegramFullGUI:
         group_dialog.transient(self.root)
         group_dialog.grab_set()
         
-        self.center_toplevel(group_dialog, 300, 150)
+        self.center_window(group_dialog, 300, 150)
         
         ttk.Label(group_dialog, text="请选择导入账号的目标分组:").pack(pady=15)
         
@@ -479,17 +544,26 @@ class TelegramFullGUI:
             self.log(f"导入 {count} 个账号到分组「{target_group}」")
     
     def export_accounts(self):
-        """导出账号 - 导出为.session文件，保存到选择的文件夹"""
+        """导出账号 - 弹出保存文件对话框，保存为.zip压缩包"""
         selected = self.account_tree.selection()
         if not selected:
             self.log("请先选择要导出的账号")
-            messagebox.showwarning("提示", "请先选择要导出的账号")
+            self.show_centered_warning("提示", "请先选择要导出的账号")
             return
         
-        # 选择保存文件夹
-        export_folder = filedialog.askdirectory(title="选择导出文件夹")
-        if not export_folder:
+        # 弹出保存文件对话框
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".zip",
+            filetypes=[("Zip压缩包", "*.zip")],
+            title="保存导出账号"
+        )
+        
+        if not file_path:
             return
+        
+        # 创建临时文件夹
+        temp_folder = file_path.replace('.zip', '_temp')
+        os.makedirs(temp_folder, exist_ok=True)
         
         export_count = 0
         exported_files = []
@@ -501,16 +575,14 @@ class TelegramFullGUI:
             phone = acc.get('phone', '')
             
             if session_path and os.path.exists(session_path) and os.path.isfile(session_path):
-                # 如果是.session文件，直接复制
                 filename = os.path.basename(session_path)
-                dest = os.path.join(export_folder, filename)
+                dest = os.path.join(temp_folder, filename)
                 shutil.copy2(session_path, dest)
                 export_count += 1
                 exported_files.append(filename)
                 self.log(f"导出账号: {filename}")
             elif phone:
-                # 创建.session文件
-                session_file = os.path.join(export_folder, f"{phone}.session")
+                session_file = os.path.join(temp_folder, f"{phone}.session")
                 with open(session_file, 'w', encoding='utf-8') as f:
                     f.write(f"# 账号: {phone}\n")
                     f.write(f"# 分组: {acc.get('group', '默认分组')}\n")
@@ -521,22 +593,32 @@ class TelegramFullGUI:
                 self.log(f"导出账号(占位): {phone}.session")
         
         if export_count > 0:
-            self.log(f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
-            messagebox.showinfo("导出完成", f"成功导出 {export_count} 个账号到:\n{export_folder}\n\n导出文件:\n" + "\n".join(exported_files[:10]) + ("\n..." if len(exported_files) > 10 else ""))
+            with zipfile.ZipFile(file_path, 'w') as zipf:
+                for root_dir, dirs, files in os.walk(temp_folder):
+                    for file in files:
+                        file_full_path = os.path.join(root_dir, file)
+                        arcname = os.path.relpath(file_full_path, temp_folder)
+                        zipf.write(file_full_path, arcname)
+            shutil.rmtree(temp_folder)
+            self.log(f"导出完成，共导出 {export_count} 个账号到 {file_path}")
+            self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号到:\n{file_path}")
         else:
+            shutil.rmtree(temp_folder)
             self.log("导出失败：没有找到可导出的账号文件")
-            messagebox.showwarning("导出失败", "没有找到可导出的账号文件")
+            self.show_centered_error("导出失败", "没有找到可导出的账号文件")
     
     def delete_selected_accounts(self):
         """删除选中的账号"""
         selected = self.account_tree.selection()
         if selected:
-            if messagebox.askyesno("确认", f"确定要删除选中的 {len(selected)} 个账号吗？"):
+            def do_delete():
                 indices = sorted([int(self.account_tree.item(item)['values'][0]) - 1 for item in selected], reverse=True)
                 for idx in indices:
                     self.accounts.pop(idx)
                 self.refresh_account_list()
                 self.log(f"删除 {len(selected)} 个选中账号")
+            
+            self.show_centered_yesno("确认", f"确定要删除选中的 {len(selected)} 个账号吗？", do_delete)
     
     def delete_dead_accounts(self):
         """一键删除所有账号状态为"销号"的账号"""
@@ -546,26 +628,29 @@ class TelegramFullGUI:
                 dead_indices.append(i)
         
         if dead_indices:
-            for idx in sorted(dead_indices, reverse=True):
-                self.accounts.pop(idx)
-            self.refresh_account_list()
-            self.log(f"一键删除 {len(dead_indices)} 个已销号账号")
-            messagebox.showinfo("删除完成", f"已删除 {len(dead_indices)} 个已销号账号")
+            def do_delete():
+                for idx in sorted(dead_indices, reverse=True):
+                    self.accounts.pop(idx)
+                self.refresh_account_list()
+                self.log(f"一键删除 {len(dead_indices)} 个已销号账号")
+                self.show_centered_info("删除完成", f"已删除 {len(dead_indices)} 个已销号账号")
+            
+            self.show_centered_yesno("确认", f"确定要删除 {len(dead_indices)} 个已销号账号吗？", do_delete)
         else:
             self.log("没有发现已销号的账号")
-            messagebox.showinfo("提示", "没有发现已销号的账号")
+            self.show_centered_info("提示", "没有发现已销号的账号")
     
     def check_accounts(self):
         self.log("开始检测账号状态...")
-        messagebox.showinfo("提示", "账号检测功能开发中")
+        self.show_centered_info("提示", "账号检测功能开发中")
     
     def edit_profile(self):
         selected = self.account_tree.selection()
         if not selected:
             self.log("请先选择账号")
-            messagebox.showwarning("提示", "请先选择账号")
+            self.show_centered_warning("提示", "请先选择账号")
             return
-        messagebox.showinfo("提示", "资料修改功能开发中")
+        self.show_centered_info("提示", "资料修改功能开发中")
     
     def refresh_account_list(self):
         for item in self.account_tree.get_children():
@@ -625,7 +710,7 @@ class TelegramFullGUI:
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        self.center_toplevel(dialog, 400, 300)
+        self.center_window(dialog, 400, 300)
         
         ttk.Label(dialog, text="代理类型:").grid(row=0, column=0, padx=5, pady=5)
         proxy_type = ttk.Combobox(dialog, values=["http", "https", "socks4", "socks5"], width=20)
@@ -650,7 +735,7 @@ class TelegramFullGUI:
         
         def save_proxy():
             if len(self.proxies) >= 10:
-                messagebox.showerror("错误", "最多添加10个代理")
+                self.show_centered_error("错误", "最多添加10个代理")
                 return
             self.proxies.append({
                 "type": proxy_type.get(),
@@ -679,7 +764,7 @@ class TelegramFullGUI:
     
     def check_proxies(self):
         self.log("开始检测代理...")
-        messagebox.showinfo("提示", "代理检测功能开发中")
+        self.show_centered_info("提示", "代理检测功能开发中")
     
     def refresh_proxy_list(self):
         for item in self.proxy_tree.get_children():
@@ -967,7 +1052,7 @@ class TelegramFullGUI:
     
     def start_register(self):
         self.log("批量注册功能需要对接具体接码平台API")
-        messagebox.showinfo("提示", "批量注册功能开发中")
+        self.show_centered_info("提示", "批量注册功能开发中")
     
     # ==================== 监听页面 ====================
     def create_monitor_page(self):
@@ -1000,7 +1085,7 @@ class TelegramFullGUI:
     
     def start_monitor(self):
         self.log("监听功能需要服务器端支持实时消息推送")
-        messagebox.showinfo("提示", "监听功能开发中")
+        self.show_centered_info("提示", "监听功能开发中")
     
     # ==================== 话术配置页面 ====================
     def create_script_page(self):
@@ -1090,7 +1175,7 @@ class TelegramFullGUI:
             self.log("配置已导入")
     
     def about(self):
-        messagebox.showinfo("关于", "天师府TG全能营销系统\n联系@Tian2547\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
+        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
 
 if __name__ == "__main__":
     root = tk.Tk()
