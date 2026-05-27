@@ -13,7 +13,6 @@ import shutil
 import asyncio
 import re
 from telethon import TelegramClient
-from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError
 from telethon.errors.rpcerrorlist import PhoneNumberBannedError
 
@@ -35,7 +34,7 @@ class TelegramFullGUI:
         self.groups = ["默认分组"]
         self.running_tasks = {}
         
-        # API配置
+        # API配置 - 猎鹰TG群发器兼容
         self.api_id = 34256693
         self.api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
         
@@ -400,7 +399,7 @@ class TelegramFullGUI:
             self.show_centered_yesno("确认", f"确定删除分组「{group_name}」？账号将移至默认分组", do_delete)
     
     def import_accounts_folder(self):
-        """导入账号文件夹 - 自动识别tdata、session、json、2FA"""
+        """导入账号文件夹 - 直接导入猎鹰TG群发器的session文件"""
         if not self.groups:
             self.groups = ["默认分组"]
         
@@ -426,68 +425,30 @@ class TelegramFullGUI:
         ttk.Button(group_dialog, text="确定", command=confirm_import).pack(pady=15)
     
     def do_import_accounts(self, target_group):
-        """执行导入账号 - 递归扫描，自动识别每个账号文件夹"""
-        folder = filedialog.askdirectory(title="选择账号文件夹（包含多个账号子文件夹的目录）")
+        """执行导入账号 - 直接导入猎鹰TG群发器格式的session文件"""
+        folder = filedialog.askdirectory(title="选择账号文件夹（包含.session文件的目录）")
         if not folder:
             return
         
         self.log(f"开始扫描账号文件夹: {folder}")
         
-        # 递归查找所有包含tdata或session文件的文件夹
-        account_folders = []
-        
+        # 查找所有.session文件
+        session_files = []
         for root_dir, dirs, files in os.walk(folder):
-            # 检查当前目录是否包含tdata文件夹或session文件
-            has_tdata = 'tdata' in dirs
-            has_session = any(f.endswith('.session') for f in files)
-            
-            if has_tdata or has_session:
-                # 确定手机号（文件夹名）
-                phone = os.path.basename(root_dir)
-                # 如果文件夹名不是数字，尝试从session文件名获取
-                if not phone.isdigit():
-                    for f in files:
-                        if f.endswith('.session'):
-                            phone = f.replace('.session', '')
-                            break
-                
-                # 读取2FA密码
-                two_fa = ""
-                json_data = {}
-                for f in files:
-                    if f == '2FA.txt':
-                        try:
-                            with open(os.path.join(root_dir, f), 'r', encoding='utf-8') as pf:
-                                two_fa = pf.read().strip()
-                        except:
-                            pass
-                    elif f.endswith('.json'):
-                        try:
-                            with open(os.path.join(root_dir, f), 'r', encoding='utf-8') as jf:
-                                json_data = json.load(jf)
-                                if not two_fa and '2fa' in json_data:
-                                    two_fa = str(json_data['2fa'])
-                        except:
-                            pass
-                
-                account_folders.append({
-                    'phone': phone,
-                    'path': root_dir,
-                    'has_tdata': has_tdata,
-                    'has_session': has_session,
-                    'two_fa': two_fa,
-                    'json_data': json_data
-                })
-                self.log(f"发现账号: {phone} (路径: {root_dir}, tdata: {has_tdata}, session: {has_session}, 2FA: {'有' if two_fa else '无'})")
+            for file in files:
+                if file.endswith(".session"):
+                    session_files.append(os.path.join(root_dir, file))
+                    self.log(f"发现session文件: {file}")
         
-        if not account_folders:
-            self.log("未找到任何账号文件夹（需要包含tdata文件夹或.session文件）")
-            self.show_centered_warning("导入失败", "未找到任何账号文件夹\n\n请确保选择的目录中包含：\n- 包含tdata文件夹的子目录\n- 或包含.session文件的子目录")
+        if not session_files:
+            self.log("未找到任何.session文件")
+            self.show_centered_warning("导入失败", "未找到任何.session文件\n\n请选择包含.session文件的文件夹")
             return
         
         count = 0
-        for acc_info in account_folders:
-            phone = acc_info['phone']
+        for session_path in session_files:
+            filename = os.path.basename(session_path)
+            phone = filename.replace(".session", "")
             
             # 检查是否已存在
             exists = False
@@ -506,12 +467,7 @@ class TelegramFullGUI:
                 "group": target_group,
                 "status": "待登录",
                 "register_time": "未知",
-                "account_path": acc_info['path'],
-                "has_tdata": acc_info['has_tdata'],
-                "has_session": acc_info['has_session'],
-                "two_fa": acc_info['two_fa'],
-                "json_data": acc_info['json_data'],
-                "session_created": False,
+                "session_path": session_path,
                 "proxy": ""
             })
             count += 1
@@ -520,129 +476,10 @@ class TelegramFullGUI:
         self.refresh_account_list()
         self.log(f"导入 {count} 个账号到分组「{target_group}」")
         if count > 0:
-            self.show_centered_info("导入完成", f"成功导入 {count} 个账号\n\n请点击「一键登录所有账号」自动登录")
-    
-    def login_single_account(self, acc, index, total):
-        """登录单个账号（自动使用tdata或session）"""
-        phone = acc.get('phone', '')
-        account_path = acc.get('account_path', '')
-        two_fa = acc.get('two_fa', '')
-        has_tdata = acc.get('has_tdata', False)
-        
-        self.log(f"[{index}/{total}] 正在登录账号: {phone}")
-        
-        # 确定session文件路径
-        session_path = os.path.join(account_path, f"{phone}.session")
-        
-        async def do_login():
-            client = None
-            try:
-                # 优先使用tdata登录
-                if has_tdata:
-                    tdata_path = os.path.join(account_path, 'tdata')
-                    self.log(f"使用tdata登录: {tdata_path}")
-                    # Telethon支持直接读取tdata文件夹
-                    client = TelegramClient(
-                        session_path,  # 会创建session文件
-                        self.api_id, 
-                        self.api_hash
-                    )
-                    await client.connect()
-                    
-                    # 检查是否已经授权
-                    if not await client.is_user_authorized():
-                        # 尝试使用tdata中的登录信息
-                        # 这里需要导入tdata的key
-                        self.log(f"tdata登录中...")
-                        # 等待一下让client自动识别
-                        await asyncio.sleep(2)
-                        
-                        if not await client.is_user_authorized():
-                            self.log(f"⚠️ {phone}: tdata登录失败，尝试其他方式")
-                            await client.disconnect()
-                            client = None
-                        else:
-                            self.log(f"✅ {phone}: tdata登录成功")
-                    else:
-                        self.log(f"✅ {phone}: session已存在，直接使用")
-                
-                # 如果tdata失败或没有tdata，尝试直接用session
-                if client is None:
-                    client = TelegramClient(session_path, self.api_id, self.api_hash)
-                    await client.connect()
-                    
-                    if not await client.is_user_authorized():
-                        self.log(f"❌ {phone}: 无法登录，session无效")
-                        acc['status'] = '登录失败'
-                        return False
-                
-                # 获取账号信息
-                me = await client.get_me()
-                first_name = me.first_name or ""
-                last_name = me.last_name or ""
-                nickname = f"{first_name} {last_name}".strip()
-                if nickname:
-                    acc['nickname'] = nickname
-                else:
-                    acc['nickname'] = me.username or phone
-                
-                if hasattr(me, 'date'):
-                    acc['register_time'] = me.date.strftime("%Y-%m-%d")
-                
-                acc['status'] = '正常'
-                acc['session_created'] = True
-                self.log(f"✅ {phone}: 登录成功 | 昵称: {acc['nickname']}")
-                
-                await client.disconnect()
-                return True
-                
-            except SessionPasswordNeededError:
-                # 需要2FA
-                if two_fa:
-                    try:
-                        await client.sign_in(password=two_fa)
-                        me = await client.get_me()
-                        acc['nickname'] = me.first_name or phone
-                        acc['status'] = '正常'
-                        self.log(f"✅ {phone}: 2FA登录成功")
-                        await client.disconnect()
-                        return True
-                    except Exception as e:
-                        self.log(f"❌ {phone}: 2FA密码错误 - {str(e)[:50]}")
-                        acc['status'] = '2FA错误'
-                else:
-                    self.log(f"⚠️ {phone}: 需要2FA验证但未提供密码")
-                    acc['status'] = '需要2FA'
-                return False
-                
-            except FloodWaitError as e:
-                self.log(f"⛔ {phone}: 被限制，需等待{e.seconds}秒")
-                acc['status'] = f'限制({e.seconds}秒)'
-                return False
-                
-            except Exception as e:
-                error_msg = str(e)
-                if "Could not authenticate" in error_msg:
-                    self.log(f"❌ {phone}: 认证失败，tdata或session无效")
-                    acc['status'] = '认证失败'
-                elif "AUTH_KEY_DUPLICATED" in error_msg:
-                    self.log(f"⚠️ {phone}: 异地登录")
-                    acc['status'] = '异地登录'
-                else:
-                    self.log(f"❌ {phone}: 登录失败 - {error_msg[:100]}")
-                    acc['status'] = '登录失败'
-                return False
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(do_login())
-        loop.close()
-        
-        self.root.after(0, self.refresh_account_list)
-        return result
+            self.show_centered_info("导入完成", f"成功导入 {count} 个账号\n\n请点击「一键登录所有账号」")
     
     def login_all_accounts(self):
-        """一键登录所有账号"""
+        """一键登录所有账号 - 兼容猎鹰TG群发器session格式"""
         accounts_to_login = []
         for i, acc in enumerate(self.accounts):
             status = acc.get('status', '')
@@ -659,9 +496,63 @@ class TelegramFullGUI:
         def do_login():
             success_count = 0
             for idx, (i, acc) in enumerate(accounts_to_login, 1):
-                if self.login_single_account(acc, idx, len(accounts_to_login)):
+                phone = acc.get('phone', '')
+                session_path = acc.get('session_path', '')
+                
+                self.log(f"[{idx}/{len(accounts_to_login)}] 正在登录账号: {phone}")
+                
+                if not session_path or not os.path.exists(session_path):
+                    self.log(f"❌ {phone}: session文件不存在")
+                    acc['status'] = '文件不存在'
+                    self.root.after(0, self.refresh_account_list)
+                    continue
+                
+                async def do_login_single():
+                    try:
+                        # 直接使用session文件创建客户端
+                        client = TelegramClient(session_path, self.api_id, self.api_hash)
+                        await client.connect()
+                        
+                        if await client.is_user_authorized():
+                            # session有效，直接获取信息
+                            me = await client.get_me()
+                            nickname = me.first_name or me.username or phone
+                            acc['nickname'] = nickname
+                            if hasattr(me, 'date'):
+                                acc['register_time'] = me.date.strftime("%Y-%m-%d")
+                            acc['status'] = '正常'
+                            self.log(f"✅ {phone}: 登录成功 | 昵称: {nickname}")
+                            await client.disconnect()
+                            return True
+                        else:
+                            self.log(f"❌ {phone}: session无效，请使用猎鹰TG群发器重新生成session")
+                            acc['status'] = 'session无效'
+                            await client.disconnect()
+                            return False
+                            
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "Could not authenticate" in error_msg:
+                            self.log(f"❌ {phone}: session认证失败，可能格式不兼容")
+                            acc['status'] = 'session不兼容'
+                        elif "AUTH_KEY_DUPLICATED" in error_msg:
+                            self.log(f"⚠️ {phone}: 异地登录")
+                            acc['status'] = '异地登录'
+                        else:
+                            self.log(f"❌ {phone}: 登录失败 - {error_msg[:80]}")
+                            acc['status'] = '登录失败'
+                        return False
+                
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(do_login_single())
+                loop.close()
+                
+                if result:
                     success_count += 1
-                time.sleep(2)  # 避免请求过快
+                
+                self.root.after(0, self.refresh_account_list)
+                time.sleep(1)  # 避免请求过快
             
             self.log(f"批量登录完成: 成功 {success_count}/{len(accounts_to_login)}")
             self.root.after(0, lambda: self.show_centered_info("登录完成", f"成功登录 {success_count} 个账号"))
@@ -682,11 +573,11 @@ class TelegramFullGUI:
                 idx = int(self.account_tree.item(item)['values'][0]) - 1
                 acc = self.accounts[idx]
                 phone = acc.get('phone', '')
-                session_path = os.path.join(acc.get('account_path', ''), f"{phone}.session")
+                session_path = acc.get('session_path', '')
                 
-                if not os.path.exists(session_path):
-                    acc['status'] = '未登录'
-                    self.log(f"⚠️ {phone}: 未登录")
+                if not session_path or not os.path.exists(session_path):
+                    acc['status'] = '文件不存在'
+                    self.log(f"❌ {phone}: session文件不存在")
                     self.root.after(0, self.refresh_account_list)
                     continue
                 
@@ -704,19 +595,12 @@ class TelegramFullGUI:
                                 return
                             
                             me = await client.get_me()
-                            first_name = me.first_name or ""
-                            last_name = me.last_name or ""
-                            nickname = f"{first_name} {last_name}".strip()
-                            if nickname:
-                                acc['nickname'] = nickname
-                            else:
-                                acc['nickname'] = me.username or phone
-                            
+                            nickname = me.first_name or me.username or phone
+                            acc['nickname'] = nickname
                             if hasattr(me, 'date'):
                                 acc['register_time'] = me.date.strftime("%Y-%m-%d")
-                            
                             acc['status'] = '正常'
-                            self.log(f"✅ {phone}: 正常 | 昵称: {acc['nickname']}")
+                            self.log(f"✅ {phone}: 正常 | 昵称: {nickname}")
                             await client.disconnect()
                         except Exception as e:
                             acc['status'] = '异常'
@@ -746,9 +630,9 @@ class TelegramFullGUI:
         idx = int(self.account_tree.item(selected[0])['values'][0]) - 1
         acc = self.accounts[idx]
         phone = acc.get('phone', '')
-        session_path = os.path.join(acc.get('account_path', ''), f"{phone}.session")
+        session_path = acc.get('session_path', '')
         
-        if not os.path.exists(session_path):
+        if not session_path or not os.path.exists(session_path):
             self.show_centered_error("错误", "请先登录账号")
             return
         
@@ -1060,9 +944,9 @@ class TelegramFullGUI:
             self.log("未找到账号")
             return
         
-        session_path = os.path.join(acc.get('account_path', ''), f"{account_phone}.session")
-        if not os.path.exists(session_path):
-            self.log("请先登录账号（使用一键登录功能）")
+        session_path = acc.get('session_path', '')
+        if not session_path or not os.path.exists(session_path):
+            self.log("请先登录账号")
             return
         
         if acc.get('status') != '正常':
@@ -1172,8 +1056,8 @@ class TelegramFullGUI:
             self.log("未找到账号")
             return
         
-        session_path = os.path.join(acc.get('account_path', ''), f"{account_phone}.session")
-        if not os.path.exists(session_path):
+        session_path = acc.get('session_path', '')
+        if not session_path or not os.path.exists(session_path):
             self.log("请先登录账号")
             return
         
@@ -1309,8 +1193,8 @@ class TelegramFullGUI:
             self.log("未找到账号")
             return
         
-        session_path = os.path.join(acc.get('account_path', ''), f"{account_phone}.session")
-        if not os.path.exists(session_path):
+        session_path = acc.get('session_path', '')
+        if not session_path or not os.path.exists(session_path):
             self.log("请先登录账号")
             return
         
@@ -1426,8 +1310,8 @@ class TelegramFullGUI:
             self.log("未找到账号")
             return
         
-        session_path = os.path.join(acc.get('account_path', ''), f"{account_phone}.session")
-        if not os.path.exists(session_path):
+        session_path = acc.get('session_path', '')
+        if not session_path or not os.path.exists(session_path):
             self.log("请先登录账号")
             return
         
@@ -1669,7 +1553,7 @@ class TelegramFullGUI:
     
     def export_config(self):
         config = {
-            "accounts": [{"phone": a.get('phone'), "group": a.get('group'), "account_path": a.get('account_path')} for a in self.accounts],
+            "accounts": [{"phone": a.get('phone'), "group": a.get('group'), "session_path": a.get('session_path')} for a in self.accounts],
             "proxies": self.proxies,
             "groups": self.groups
         }
@@ -1694,7 +1578,7 @@ class TelegramFullGUI:
             self.log("配置已导入")
     
     def about(self):
-        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0")
+        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n兼容猎鹰TG群发器session格式")
 
 if __name__ == "__main__":
     from telethon import events
