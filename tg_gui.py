@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog
+from tkinter import ttk, scrolledtext, filedialog, messagebox
 import requests
 import json
 import threading
@@ -11,9 +11,10 @@ import hashlib
 from datetime import datetime
 import shutil
 import asyncio
-from telethon import TelegramClient
-from telethon.errors import FloodWaitError, UserDeactivatedError, PhoneBannedError, SessionPasswordNeededError
 import re
+from telethon import TelegramClient, events
+from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError
+from telethon.errors.rpcerrorlist import PhoneNumberBannedError
 
 # 内置服务器地址
 SERVER = "http://172.98.23.64:5000"
@@ -33,9 +34,9 @@ class TelegramFullGUI:
         self.groups = ["默认分组"]
         self.running_tasks = {}
         
-        # API配置
-        self.api_id = 2040  # 需要替换为您自己的API ID
-        self.api_hash = "b18441a1ff607e10a989891a5462e627"  # 需要替换为您自己的API Hash
+        # API配置 - 用户需要替换为自己的
+        self.api_id = 2040
+        self.api_hash = "b18441a1ff607e10a989891a5462e627"
         
         self.machine_id = self.get_machine_id()
         self.show_card_login()
@@ -457,14 +458,12 @@ class TelegramFullGUI:
             self.log(f"导入 {count} 个账号到分组「{target_group}」，请使用账号检测获取真实昵称和状态")
     
     def export_accounts(self):
-        """导出账号 - 弹出保存文件对话框，保存选中的.session文件"""
         selected = self.account_tree.selection()
         if not selected:
             self.log("请先选择要导出的账号")
             self.show_centered_warning("提示", "请先选择要导出的账号")
             return
         
-        # 弹出保存文件对话框（选择保存位置和文件名）
         file_path = filedialog.asksaveasfilename(
             defaultextension=".session",
             filetypes=[("Session文件", "*.session"), ("所有文件", "*.*")],
@@ -474,18 +473,15 @@ class TelegramFullGUI:
         if not file_path:
             return
         
-        # 获取第一个选中的账号
         idx = int(self.account_tree.item(selected[0])['values'][0]) - 1
         acc = self.accounts[idx]
         session_path = acc.get('session_path', '')
         
         if session_path and os.path.exists(session_path) and os.path.isfile(session_path):
-            # 复制session文件到目标位置
             shutil.copy2(session_path, file_path)
             self.log(f"导出账号: {os.path.basename(file_path)}")
             self.show_centered_info("导出完成", f"账号已导出到:\n{file_path}")
         elif acc.get('phone'):
-            # 创建session文件
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(f"# Telegram Session File\n")
                 f.write(f"# Phone: {acc.get('phone')}\n")
@@ -519,7 +515,6 @@ class TelegramFullGUI:
             self.show_centered_info("提示", "没有发现已销号的账号")
     
     def check_accounts(self):
-        """真实检测账号状态 - 通过Telegram API"""
         selected = self.account_tree.selection()
         if not selected:
             self.show_centered_warning("提示", "请先选择要检测的账号")
@@ -541,7 +536,6 @@ class TelegramFullGUI:
                     continue
                 
                 try:
-                    # 创建异步事件循环
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     
@@ -555,7 +549,6 @@ class TelegramFullGUI:
                                 return
                             
                             me = await client.get_me()
-                            # 获取真实昵称
                             first_name = me.first_name or ""
                             last_name = me.last_name or ""
                             nickname = f"{first_name} {last_name}".strip()
@@ -564,11 +557,9 @@ class TelegramFullGUI:
                             else:
                                 acc['nickname'] = me.username or phone
                             
-                            # 获取注册时间
                             if hasattr(me, 'date'):
                                 acc['register_time'] = me.date.strftime("%Y-%m-%d")
                             
-                            # 检测账号状态
                             acc['status'] = '正常'
                             self.log(f"✅ {phone}: 正常 | 昵称: {acc['nickname']}")
                             
@@ -579,7 +570,7 @@ class TelegramFullGUI:
                         except UserDeactivatedError:
                             acc['status'] = '销号'
                             self.log(f"💀 {phone}: 账号已注销")
-                        except PhoneBannedError:
+                        except PhoneNumberBannedError:
                             acc['status'] = '封禁'
                             self.log(f"🚫 {phone}: 账号已被封禁")
                         except SessionPasswordNeededError:
@@ -601,7 +592,7 @@ class TelegramFullGUI:
                     
                     loop.run_until_complete(check_single())
                     loop.close()
-                    time.sleep(2)  # 避免请求过快
+                    time.sleep(2)
                     
                 except Exception as e:
                     acc['status'] = '检测失败'
@@ -614,7 +605,6 @@ class TelegramFullGUI:
         threading.Thread(target=do_check, daemon=True).start()
     
     def edit_profile(self):
-        """真实修改Telegram账号资料"""
         selected = self.account_tree.selection()
         if not selected:
             self.show_centered_warning("提示", "请先选择要修改资料的账号")
@@ -677,21 +667,13 @@ class TelegramFullGUI:
                             status_label.config(text="错误: 账号未登录")
                             return
                         
-                        me = await client.get_me()
-                        
-                        # 更新昵称
                         if new_first_name:
                             await client.edit_profile(first_name=new_first_name)
-                        
-                        # 更新姓氏
                         if new_last_name:
                             await client.edit_profile(last_name=new_last_name)
-                        
-                        # 更新简介
                         if new_bio:
                             await client.edit_profile(about=new_bio)
                         
-                        # 更新本地存储的昵称
                         acc['nickname'] = new_first_name
                         if new_last_name:
                             acc['nickname'] = f"{new_first_name} {new_last_name}".strip()
@@ -729,7 +711,8 @@ class TelegramFullGUI:
                 acc.get('register_time', '未知'),
                 acc.get('proxy', '未设置')
             ))
-                # ==================== 代理IP页面 ====================
+    
+    # ==================== 代理IP页面 ====================
     def create_proxy_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="代理IP")
@@ -825,7 +808,6 @@ class TelegramFullGUI:
             self.log("删除代理")
     
     def check_proxies(self):
-        """检测代理IP是否可用"""
         if not self.proxies:
             self.log("没有代理需要检测")
             return
@@ -907,7 +889,6 @@ class TelegramFullGUI:
             self.log("请选择采集账号")
             return
         
-        # 查找账号
         acc = None
         for a in self.accounts:
             if a.get('phone') == account_phone:
@@ -937,7 +918,6 @@ class TelegramFullGUI:
                         self.log("账号未登录")
                         return
                     
-                    # 解析群组链接
                     if 't.me/' in group:
                         group_username = group.split('t.me/')[-1]
                         entity = await client.get_entity(group_username)
@@ -1017,7 +997,6 @@ class TelegramFullGUI:
             self.log("请先采集成员")
             return
         
-        # 查找账号
         acc = None
         for a in self.accounts:
             if a.get('phone') == account_phone:
@@ -1050,7 +1029,6 @@ class TelegramFullGUI:
                         self.log("账号未登录")
                         return
                     
-                    # 解析目标群组
                     if 't.me/' in group:
                         group_username = group.split('t.me/')[-1]
                         target_entity = await client.get_entity(group_username)
@@ -1152,7 +1130,6 @@ class TelegramFullGUI:
             self.log("请先导入用户列表")
             return
         
-        # 查找账号
         acc = None
         for a in self.accounts:
             if a.get('phone') == account_phone:
@@ -1252,7 +1229,7 @@ class TelegramFullGUI:
         
         btn_frame2 = ttk.Frame(kw_frame)
         btn_frame2.pack(pady=5)
-        ttk.Button(btn_frame2, text="保存关键词配置", command=self.save_keywords).pack()
+        ttk.Button(btn_frame2, text="保存关键词配置", command=self.save_keywords).pack(side="left", padx=5)
         ttk.Button(btn_frame2, text="加载关键词配置", command=self.load_keywords).pack(side="left", padx=5)
     
     def start_group_chat(self):
@@ -1266,7 +1243,6 @@ class TelegramFullGUI:
             self.log("请选择账号")
             return
         
-        # 查找账号
         acc = None
         for a in self.accounts:
             if a.get('phone') == account_phone:
@@ -1297,14 +1273,12 @@ class TelegramFullGUI:
                         self.log("账号未登录")
                         return
                     
-                    # 解析群组
                     if 't.me/' in group:
                         group_username = group.split('t.me/')[-1]
                         entity = await client.get_entity(group_username)
                     else:
                         entity = await client.get_entity(int(group))
                     
-                    # 加载话术
                     scripts = []
                     if os.path.exists("scripts.txt"):
                         with open("scripts.txt", "r", encoding="utf-8") as f:
@@ -1313,7 +1287,6 @@ class TelegramFullGUI:
                     if not scripts:
                         scripts = ["Hello!", "Good morning!", "Nice to meet you!"]
                     
-                    # 加载关键词回复
                     keywords = {}
                     if os.path.exists("keywords.json"):
                         with open("keywords.json", "r") as f:
@@ -1335,7 +1308,6 @@ class TelegramFullGUI:
                                 self.log(f"自动回复: {reply[:30]}...")
                                 break
                     
-                    # 运行消息监听
                     await client.run_until_disconnected()
                     
                 except Exception as e:
@@ -1564,8 +1536,6 @@ class TelegramFullGUI:
         self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
 
 if __name__ == "__main__":
-    # 导入events模块用于自动回复
-    from telethon import events
     root = tk.Tk()
     app = TelegramFullGUI(root)
     root.mainloop()
