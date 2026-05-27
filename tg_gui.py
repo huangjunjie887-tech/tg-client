@@ -8,6 +8,7 @@ import time
 import platform
 import uuid
 import hashlib
+import shutil
 from datetime import datetime
 
 # 内置服务器地址，不需要用户配置
@@ -18,7 +19,7 @@ class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("天师府TG全能营销系统 联系@Tian2547")
-        self.root.geometry("1100x800")
+        self.root.geometry("1200x800")
         self.root.resizable(True, True)
         
         # 是否已登录
@@ -211,30 +212,40 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
         
-        toolbar = ttk.Frame(page)
-        toolbar.pack(fill="x", padx=10, pady=5)
+        # 工具栏第一行
+        toolbar1 = ttk.Frame(page)
+        toolbar1.pack(fill="x", padx=10, pady=5)
         
-        ttk.Button(toolbar, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="导出账号", command=self.export_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="账号检测", command=self.check_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="资料修改", command=self.edit_profile).pack(side="left", padx=2)
+        ttk.Button(toolbar1, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
+        ttk.Button(toolbar1, text="导出账号", command=self.export_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar1, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar1, text="删除选中", command=self.delete_selected_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar1, text="设置分组", command=self.set_group).pack(side="left", padx=2)
         
+        # 工具栏第二行
+        toolbar2 = ttk.Frame(page)
+        toolbar2.pack(fill="x", padx=10, pady=5)
+        
+        ttk.Button(toolbar2, text="账号检测", command=self.check_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar2, text="资料修改", command=self.edit_profile).pack(side="left", padx=2)
+        
+        # 账号列表
         frame = ttk.LabelFrame(page, text="账号列表")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        columns = ("序号", "手机号", "昵称", "当前任务", "上一次操作", "账号状态", "注册时长")
+        columns = ("序号", "手机号", "昵称", "分组", "当前任务", "上一次操作", "账号状态", "注册时长")
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         for col in columns:
             self.account_tree.heading(col, text=col)
         
-        self.account_tree.column("序号", anchor="center", width=60)
+        self.account_tree.column("序号", anchor="center", width=50)
         self.account_tree.column("手机号", anchor="center", width=120)
-        self.account_tree.column("昵称", anchor="center", width=120)
-        self.account_tree.column("当前任务", anchor="center", width=120)
-        self.account_tree.column("上一次操作", anchor="center", width=150)
-        self.account_tree.column("账号状态", anchor="center", width=100)
-        self.account_tree.column("注册时长", anchor="center", width=120)
+        self.account_tree.column("昵称", anchor="center", width=100)
+        self.account_tree.column("分组", anchor="center", width=80)
+        self.account_tree.column("当前任务", anchor="center", width=100)
+        self.account_tree.column("上一次操作", anchor="center", width=130)
+        self.account_tree.column("账号状态", anchor="center", width=80)
+        self.account_tree.column("注册时长", anchor="center", width=100)
         
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.account_tree.yview)
         self.account_tree.configure(yscrollcommand=scrollbar.set)
@@ -249,21 +260,21 @@ class TelegramFullGUI:
             count = 0
             for item in os.listdir(folder):
                 item_path = os.path.join(folder, item)
-                # 支持 .session 文件
                 if item.endswith(".session"):
                     phone = item.replace(".session", "")
                     self.accounts.append({
                         "phone": phone,
                         "nickname": "",
+                        "group": "",
                         "status": "正常",
                         "register_time": "未知"
                     })
                     count += 1
-                # 支持文件夹（tdata或其他账号文件夹）
                 elif os.path.isdir(item_path):
                     self.accounts.append({
                         "phone": item,
                         "nickname": "账号",
+                        "group": "",
                         "status": "正常",
                         "register_time": "未知"
                     })
@@ -272,20 +283,100 @@ class TelegramFullGUI:
             self.log(f"导入 {count} 个账号")
     
     def export_accounts(self):
-        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
-        if file_path:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(self.accounts, f, ensure_ascii=False, indent=2)
-            self.log(f"导出 {len(self.accounts)} 个账号到 {file_path}")
+        """导出账号（导出为.session文件格式）"""
+        if not self.accounts:
+            self.log("没有账号可导出")
+            return
+        
+        folder = filedialog.askdirectory(title="选择导出文件夹")
+        if folder:
+            count = 0
+            for acc in self.accounts:
+                phone = acc.get('phone', '')
+                if phone:
+                    # 创建空的.session文件
+                    session_file = os.path.join(folder, f"{phone}.session")
+                    with open(session_file, 'w') as f:
+                        f.write("# Telegram session file\n")
+                    count += 1
+            self.log(f"导出 {count} 个账号到 {folder}")
     
-    def delete_dead_accounts(self):
+    def delete_selected_accounts(self):
+        """删除选中的账号"""
         selected = self.account_tree.selection()
-        if selected:
+        if not selected:
+            self.log("请先选择要删除的账号")
+            return
+        
+        if messagebox.askyesno("确认删除", f"确定要删除选中的 {len(selected)} 个账号吗？"):
+            indices = []
             for item in selected:
                 idx = int(self.account_tree.item(item)['values'][0]) - 1
+                indices.append(idx)
+            indices.sort(reverse=True)
+            for idx in indices:
                 self.accounts.pop(idx)
             self.refresh_account_list()
-            self.log("删除选中账号")
+            self.log(f"删除 {len(selected)} 个账号")
+    
+    def delete_dead_accounts(self):
+        """一键删除所有状态为'死号'的账号"""
+        dead_indices = []
+        for i, acc in enumerate(self.accounts):
+            if acc.get('status') == '死号':
+                dead_indices.append(i)
+        
+        if not dead_indices:
+            self.log("没有需要删除的死号账号")
+            return
+        
+        if messagebox.askyesno("确认删除", f"确定要删除 {len(dead_indices)} 个死号账号吗？"):
+            for idx in sorted(dead_indices, reverse=True):
+                self.accounts.pop(idx)
+            self.refresh_account_list()
+            self.log(f"删除 {len(dead_indices)} 个死号账号")
+    
+    def set_group(self):
+        """为选中的账号设置分组"""
+        selected = self.account_tree.selection()
+        if not selected:
+            self.log("请先选择要设置分组的账号")
+            return
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title("设置分组")
+        dialog.geometry("300x150")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (300 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (150 // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        ttk.Label(dialog, text="请输入分组名称:").pack(pady=20)
+        group_entry = ttk.Entry(dialog, width=30)
+        group_entry.pack(pady=5)
+        
+        def save_group():
+            group_name = group_entry.get().strip()
+            if not group_name:
+                messagebox.showwarning("提示", "分组名称不能为空")
+                return
+            
+            indices = []
+            for item in selected:
+                idx = int(self.account_tree.item(item)['values'][0]) - 1
+                indices.append(idx)
+            
+            for idx in indices:
+                self.accounts[idx]['group'] = group_name
+            
+            self.refresh_account_list()
+            self.log(f"为 {len(indices)} 个账号设置分组: {group_name}")
+            dialog.destroy()
+        
+        ttk.Button(dialog, text="确定", command=save_group).pack(pady=10)
     
     def check_accounts(self):
         self.log("开始检测账号状态...")
@@ -303,9 +394,14 @@ class TelegramFullGUI:
             self.account_tree.delete(item)
         for i, acc in enumerate(self.accounts, 1):
             self.account_tree.insert("", "end", values=(
-                i, acc.get('phone', ''), acc.get('nickname', ''),
-                acc.get('current_task', ''), acc.get('last_action', ''),
-                acc.get('status', '正常'), acc.get('register_time', '未知')
+                i, 
+                acc.get('phone', ''), 
+                acc.get('nickname', ''),
+                acc.get('group', ''),
+                acc.get('current_task', ''), 
+                acc.get('last_action', ''),
+                acc.get('status', '正常'), 
+                acc.get('register_time', '未知')
             ))
     
     # ==================== 代理IP页面 ====================
