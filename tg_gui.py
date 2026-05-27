@@ -16,6 +16,11 @@ class TelegramFullGUI:
         self.root.geometry("1100x800")
         self.root.resizable(True, True)
         
+        # 数据存储（必须在创建页面前定义）
+        self.accounts = []      # 账号列表
+        self.proxies = []       # 代理列表
+        self.running_tasks = {}
+        
         # 创建菜单栏
         self.create_menu()
         
@@ -35,11 +40,6 @@ class TelegramFullGUI:
         self.create_monitor_page()
         self.create_script_page()
         self.create_log_page()
-        
-        # 数据存储
-        self.accounts = []      # 账号列表
-        self.proxies = []       # 代理列表
-        self.running_tasks = {}
         
         self.log("系统启动完成")
     
