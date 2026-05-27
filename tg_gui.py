@@ -436,12 +436,23 @@ class TelegramFullGUI:
         ttk.Button(group_dialog, text="确定", command=confirm_import).pack(pady=15)
     
     def do_import_accounts(self, target_group):
+        """执行导入账号 - 支持.session文件、.tdat文件、tdata文件夹"""
         folder = filedialog.askdirectory(title="选择账号文件夹")
         if folder:
             self.log(f"从文件夹导入账号: {folder}")
+            
+            # 列出文件夹内容用于调试
+            try:
+                all_items = os.listdir(folder)
+                self.log(f"文件夹内容: {all_items}")
+            except Exception as e:
+                self.log(f"读取文件夹失败: {e}")
+            
             count = 0
             for item in os.listdir(folder):
                 item_path = os.path.join(folder, item)
+                
+                # 支持 .session 文件
                 if item.endswith(".session"):
                     phone = item.replace(".session", "")
                     self.accounts.append({
@@ -454,6 +465,52 @@ class TelegramFullGUI:
                         "proxy": ""
                     })
                     count += 1
+                    self.log(f"导入session账号: {phone}")
+                
+                # 支持 .tdat 文件
+                elif item.endswith(".tdat"):
+                    phone = item.replace(".tdat", "")
+                    self.accounts.append({
+                        "phone": phone,
+                        "nickname": "待获取",
+                        "group": target_group,
+                        "status": "待检测",
+                        "register_time": "未知",
+                        "session_path": item_path,
+                        "proxy": ""
+                    })
+                    count += 1
+                    self.log(f"导入tdat账号: {phone}")
+                
+                # 支持文件夹（tdata格式）
+                elif os.path.isdir(item_path):
+                    # 检查是否是tdata文件夹（包含D877F783D5D3EF8C等文件）
+                    is_tdata = False
+                    try:
+                        for f in os.listdir(item_path):
+                            if f in ["D877F783D5D3EF8C", "key_drop", "config.json"]:
+                                is_tdata = True
+                                break
+                    except:
+                        pass
+                    
+                    if is_tdata:
+                        self.accounts.append({
+                            "phone": item,
+                            "nickname": "待获取",
+                            "group": target_group,
+                            "status": "待检测",
+                            "register_time": "未知",
+                            "session_path": item_path,
+                            "proxy": ""
+                        })
+                        count += 1
+                        self.log(f"导入tdata账号文件夹: {item}")
+            
+            if count == 0:
+                self.log("未找到任何账号文件，请确保文件夹中有.session文件、.tdat文件或tdata文件夹")
+                self.show_centered_warning("导入失败", "未找到任何账号文件\n\n支持的格式：\n- .session 文件\n- .tdat 文件\n- tdata 文件夹")
+            
             self.refresh_account_list()
             self.log(f"导入 {count} 个账号到分组「{target_group}」，请使用账号检测获取真实昵称和状态")
     
