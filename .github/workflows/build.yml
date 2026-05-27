@@ -1,4 +1,4 @@
-name: Build EXE
+name: Build GUI EXE
 
 on:
   push:
@@ -20,12 +20,12 @@ jobs:
       run: |
         pip install requests pyinstaller
     
-    - name: Build EXE
+    - name: Build GUI EXE
       run: |
-        pyinstaller --onefile --name TG控制端 tg_client.py
+        pyinstaller --onefile --name TG桌面控制端 --windowed tg_gui.py
     
     - name: Upload EXE
       uses: actions/upload-artifact@v4
       with:
-        name: TG控制端
-        path: dist/TG控制端.exe
+        name: TG桌面控制端
+        path: dist/TG桌面控制端.exe
