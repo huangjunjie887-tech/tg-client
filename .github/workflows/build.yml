@@ -1,4 +1,4 @@
-name: Build GUI EXE
+name: Build Signed EXE
 
 on:
   push:
@@ -18,14 +18,14 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install requests pyinstaller
+        pip install pyinstaller requests
     
-    - name: Build GUI EXE
+    - name: Build EXE with manifest
       run: |
-        pyinstaller --onefile --name TG桌面控制端 --windowed tg_gui.py
+        pyinstaller --onefile --name TG营销系统 --windowed --noconsole --manifest tg_gui.manifest tg_gui.py
     
     - name: Upload EXE
       uses: actions/upload-artifact@v4
       with:
-        name: TG桌面控制端
-        path: dist/TG桌面控制端.exe
+        name: TG营销系统
+        path: dist/TG营销系统.exe
