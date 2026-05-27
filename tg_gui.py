@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import ttk, scrolledtext, filedialog, messagebox, simpledialog
 import requests
 import json
 import threading
@@ -33,10 +33,14 @@ class TelegramFullGUI:
         self.proxies = []
         self.groups = ["默认分组"]
         self.running_tasks = {}
+        self.login_codes = {}  # 存储用户输入的验证码
         
-        # API配置 - 用户需要替换为自己的
+        # API配置 - 使用您的真实Telegram API凭证
         self.api_id = 34256693
         self.api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
+        
+        # 代理配置（如果需要）
+        self.proxy_config = None  # 格式: ('socks5', '127.0.0.1', 10808)
         
         self.machine_id = self.get_machine_id()
         self.show_card_login()
@@ -253,6 +257,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="账号检测", command=self.check_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="一键登录所有账号", command=self.login_all_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="资料修改", command=self.edit_profile).pack(side="left", padx=2)
         
         frame = ttk.LabelFrame(page, text="账号列表")
@@ -488,7 +493,7 @@ class TelegramFullGUI:
         self.refresh_account_list()
         self.log(f"导入 {count} 个账号到分组「{target_group}」")
         if count > 0:
-            self.show_centered_info("导入完成", f"成功导入 {count} 个账号\n\n请使用「账号检测」功能获取真实昵称和状态")
+            self.show_centered_info("导入完成", f"成功导入 {count} 个账号\n\n请使用「一键登录所有账号」功能登录账号")
     
     def export_accounts(self):
         selected = self.account_tree.selection()
@@ -547,7 +552,190 @@ class TelegramFullGUI:
         else:
             self.show_centered_info("提示", "没有发现已销号的账号")
     
+    def login_all_accounts(self):
+        """一键登录所有未登录的账号"""
+        # 获取所有状态不是正常的账号
+        accounts_to_login = []
+        for i, acc in enumerate(self.accounts):
+            status = acc.get('status', '')
+            if status != '正常' and status != '正常':
+                accounts_to_login.append((i, acc))
+        
+        if not accounts_to_login:
+            self.log("所有账号都已登录")
+            self.show_centered_info("提示", "所有账号都已登录，无需重复登录")
+            return
+        
+        self.log(f"开始批量登录 {len(accounts_to_login)} 个账号...")
+        
+        def do_login():
+            for idx, acc in accounts_to_login:
+                phone = acc.get('phone', '')
+                session_path = acc.get('session_path', '')
+                
+                if not session_path:
+                    self.log(f"❌ {phone}: session路径不存在")
+                    continue
+                
+                # 确保目录存在
+                session_dir = os.path.dirname(session_path)
+                if session_dir and not os.path.exists(session_dir):
+                    os.makedirs(session_dir, exist_ok=True)
+                
+                self.log(f"正在登录账号: {phone}")
+                
+                async def login_single():
+                    client = TelegramClient(session_path, self.api_id, self.api_hash)
+                    try:
+                        await client.connect()
+                        
+                        if await client.is_user_authorized():
+                            # 已经登录
+                            me = await client.get_me()
+                            first_name = me.first_name or ""
+                            last_name = me.last_name or ""
+                            nickname = f"{first_name} {last_name}".strip()
+                            if nickname:
+                                acc['nickname'] = nickname
+                            else:
+                                acc['nickname'] = me.username or phone
+                            acc['status'] = '正常'
+                            if hasattr(me, 'date'):
+                                acc['register_time'] = me.date.strftime("%Y-%m-%d")
+                            self.log(f"✅ {phone}: 已登录，昵称: {acc['nickname']}")
+                            await client.disconnect()
+                            return True
+                        
+                        # 未登录，需要输入验证码
+                        self.root.after(0, lambda: self.log(f"📱 {phone}: 需要登录，请输入验证码"))
+                        
+                        # 弹出输入框获取验证码
+                        code_event = threading.Event()
+                        code_result = [None]
+                        
+                        def get_code():
+                            dialog = tk.Toplevel(self.root)
+                            dialog.title(f"登录验证 - {phone}")
+                            dialog.geometry("400x250")
+                            dialog.transient(self.root)
+                            dialog.grab_set()
+                            self.center_window(dialog, 400, 250)
+                            
+                            tk.Label(dialog, text=f"正在登录账号: {phone}", font=("微软雅黑", 12)).pack(pady=15)
+                            tk.Label(dialog, text="请输入Telegram发送的验证码:", font=("微软雅黑", 10)).pack(pady=5)
+                            code_entry = ttk.Entry(dialog, width=20, font=("微软雅黑", 14))
+                            code_entry.pack(pady=10)
+                            code_entry.focus()
+                            
+                            def submit():
+                                code_result[0] = code_entry.get().strip()
+                                dialog.destroy()
+                                code_event.set()
+                            
+                            ttk.Button(dialog, text="确定", command=submit, width=15).pack(pady=10)
+                            
+                            # 绑定回车键
+                            code_entry.bind("<Return>", lambda event: submit())
+                        
+                        self.root.after(0, get_code)
+                        code_event.wait(timeout=120)
+                        
+                        if not code_result[0]:
+                            self.log(f"❌ {phone}: 验证码输入超时")
+                            await client.disconnect()
+                            return False
+                        
+                        try:
+                            await client.sign_in(phone, code_result[0])
+                            me = await client.get_me()
+                            first_name = me.first_name or ""
+                            last_name = me.last_name or ""
+                            nickname = f"{first_name} {last_name}".strip()
+                            if nickname:
+                                acc['nickname'] = nickname
+                            else:
+                                acc['nickname'] = me.username or phone
+                            acc['status'] = '正常'
+                            if hasattr(me, 'date'):
+                                acc['register_time'] = me.date.strftime("%Y-%m-%d")
+                            self.log(f"✅ {phone}: 登录成功，昵称: {acc['nickname']}")
+                            await client.disconnect()
+                            return True
+                            
+                        except SessionPasswordNeededError:
+                            # 需要二次验证密码
+                            self.root.after(0, lambda: self.log(f"🔐 {phone}: 需要二次验证密码"))
+                            
+                            pwd_event = threading.Event()
+                            pwd_result = [None]
+                            
+                            def get_password():
+                                dialog = tk.Toplevel(self.root)
+                                dialog.title(f"二次验证 - {phone}")
+                                dialog.geometry("400x250")
+                                dialog.transient(self.root)
+                                dialog.grab_set()
+                                self.center_window(dialog, 400, 250)
+                                
+                                tk.Label(dialog, text=f"账号 {phone} 需要二次验证", font=("微软雅黑", 12)).pack(pady=15)
+                                tk.Label(dialog, text="请输入2FA密码:", font=("微软雅黑", 10)).pack(pady=5)
+                                pwd_entry = ttk.Entry(dialog, width=20, font=("微软雅黑", 14), show="●")
+                                pwd_entry.pack(pady=10)
+                                pwd_entry.focus()
+                                
+                                def submit():
+                                    pwd_result[0] = pwd_entry.get().strip()
+                                    dialog.destroy()
+                                    pwd_event.set()
+                                
+                                ttk.Button(dialog, text="确定", command=submit, width=15).pack(pady=10)
+                                pwd_entry.bind("<Return>", lambda event: submit())
+                            
+                            self.root.after(0, get_password)
+                            pwd_event.wait(timeout=120)
+                            
+                            if pwd_result[0]:
+                                await client.sign_in(password=pwd_result[0])
+                                me = await client.get_me()
+                                first_name = me.first_name or ""
+                                last_name = me.last_name or ""
+                                nickname = f"{first_name} {last_name}".strip()
+                                if nickname:
+                                    acc['nickname'] = nickname
+                                else:
+                                    acc['nickname'] = me.username or phone
+                                acc['status'] = '正常'
+                                self.log(f"✅ {phone}: 登录成功")
+                            else:
+                                self.log(f"❌ {phone}: 密码输入超时")
+                            
+                            await client.disconnect()
+                            return True
+                            
+                        except Exception as e:
+                            self.log(f"❌ {phone}: 登录失败 - {str(e)[:50]}")
+                            await client.disconnect()
+                            return False
+                            
+                    except Exception as e:
+                        self.log(f"❌ {phone}: 连接失败 - {str(e)[:50]}")
+                        return False
+                
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(login_single())
+                loop.close()
+                
+                self.root.after(0, self.refresh_account_list)
+                time.sleep(3)  # 避免请求过快
+            
+            self.log("批量登录完成")
+            self.root.after(0, lambda: self.show_centered_info("登录完成", "批量登录已完成，请查看账号状态"))
+        
+        threading.Thread(target=do_login, daemon=True).start()
+    
     def check_accounts(self):
+        """检测账号状态（不自动登录）"""
         selected = self.account_tree.selection()
         if not selected:
             self.show_centered_warning("提示", "请先选择要检测的账号")
@@ -578,7 +766,7 @@ class TelegramFullGUI:
                             await client.connect()
                             if not await client.is_user_authorized():
                                 acc['status'] = '未登录'
-                                self.log(f"⚠️ {phone}: 未登录状态")
+                                self.log(f"⚠️ {phone}: 未登录状态，请使用一键登录功能")
                                 return
                             
                             me = await client.get_me()
@@ -625,7 +813,7 @@ class TelegramFullGUI:
                     
                     loop.run_until_complete(check_single())
                     loop.close()
-                    time.sleep(2)
+                    time.sleep(1)
                     
                 except Exception as e:
                     acc['status'] = '检测失败'
@@ -638,6 +826,7 @@ class TelegramFullGUI:
         threading.Thread(target=do_check, daemon=True).start()
     
     def edit_profile(self):
+        """修改账号资料"""
         selected = self.account_tree.selection()
         if not selected:
             self.show_centered_warning("提示", "请先选择要修改资料的账号")
@@ -649,6 +838,10 @@ class TelegramFullGUI:
         
         if not session_path or not os.path.exists(session_path):
             self.show_centered_error("错误", "session文件不存在，无法修改资料")
+            return
+        
+        if acc.get('status') != '正常':
+            self.show_centered_warning("提示", "请先登录账号（使用一键登录功能）后再修改资料")
             return
         
         dialog = tk.Toplevel(self.root)
@@ -937,6 +1130,10 @@ class TelegramFullGUI:
             self.log("账号session文件不存在")
             return
         
+        if acc.get('status') != '正常':
+            self.log("请先登录账号（使用一键登录功能）")
+            return
+        
         self.log(f"开始采集: {group} (数量: {limit}) 使用账号: {account_phone}")
         
         def do_scrape():
@@ -1043,6 +1240,10 @@ class TelegramFullGUI:
         session_path = acc.get('session_path', '')
         if not session_path or not os.path.exists(session_path):
             self.log("账号session文件不存在")
+            return
+        
+        if acc.get('status') != '正常':
+            self.log("请先登录账号（使用一键登录功能）")
             return
         
         with open("members.json", "r") as f:
@@ -1178,6 +1379,10 @@ class TelegramFullGUI:
             self.log("账号session文件不存在")
             return
         
+        if acc.get('status') != '正常':
+            self.log("请先登录账号（使用一键登录功能）")
+            return
+        
         with open("members.json", "r") as f:
             members = json.load(f)
         
@@ -1291,6 +1496,10 @@ class TelegramFullGUI:
             self.log("账号session文件不存在")
             return
         
+        if acc.get('status') != '正常':
+            self.log("请先登录账号（使用一键登录功能）")
+            return
+        
         self.log(f"启动炒群: {group} 使用账号: {account_phone}")
         self.running_tasks['chat'] = True
         
@@ -1324,10 +1533,6 @@ class TelegramFullGUI:
                     if os.path.exists("keywords.json"):
                         with open("keywords.json", "r") as f:
                             keywords = json.load(f)
-                    
-                    message_count = 0
-                    daily_limit = int(self.chat_daily.get())
-                    interval = int(self.chat_interval.get())
                     
                     @client.on(events.NewMessage(chats=entity))
                     async def handle_reply(event):
@@ -1566,7 +1771,7 @@ class TelegramFullGUI:
             self.log("配置已导入")
     
     def about(self):
-        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
+        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置\n- 一键登录所有账号")
 
 if __name__ == "__main__":
     root = tk.Tk()
