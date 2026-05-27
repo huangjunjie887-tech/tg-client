@@ -21,27 +21,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests pyinstaller
     
-    - name: Create manifest file
-      run: |
-        @"
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-          <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-            <security>
-              <requestedPrivileges>
-                <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
-              </requestedPrivileges>
-            </security>
-          </trustInfo>
-        </assembly>
-        "@ | Out-File -FilePath tg_gui.manifest -Encoding UTF8
-    
     - name: Build EXE
       run: |
-        pyinstaller --onefile --name TG营销系统 --windowed --noconsole --manifest tg_gui.manifest tg_gui.py
+        pyinstaller --onefile --name 天师府TG全能营销系统 --windowed --noconsole tg_gui.py
     
     - name: Upload EXE
       uses: actions/upload-artifact@v4
       with:
-        name: TG营销系统
-        path: dist/TG营销系统.exe
+        name: 天师府TG全能营销系统
+        path: dist/天师府TG全能营销系统.exe
