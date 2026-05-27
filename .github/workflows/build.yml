@@ -3,6 +3,7 @@ name: Build Signed EXE
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,11 +20,11 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests pyinstaller
+        pip install requests pyinstaller telethon
     
     - name: Build EXE
       run: |
-        pyinstaller --onefile --name 天师府TG全能营销系统 --windowed --noconsole tg_gui.py
+        pyinstaller --onefile --name "天师府TG全能营销系统" --windowed --noconsole tg_gui.py
     
     - name: Upload EXE
       uses: actions/upload-artifact@v4
