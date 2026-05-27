@@ -5,6 +5,9 @@ import json
 import threading
 import os
 import time
+import platform
+import uuid
+import hashlib
 from datetime import datetime
 
 # 内置服务器地址，不需要用户配置
@@ -27,8 +30,23 @@ class TelegramFullGUI:
         self.proxies = []       # 代理列表
         self.running_tasks = {}
         
+        # 获取机器码
+        self.machine_id = self.get_machine_id()
+        
         # 先显示卡密登录窗口
         self.show_card_login()
+    
+    def get_machine_id(self):
+        """获取设备唯一标识"""
+        try:
+            # 使用MAC地址 + 主机名作为机器码
+            mac = uuid.getnode()
+            hostname = platform.node()
+            machine_id = hashlib.md5(f"{mac}{hostname}".encode()).hexdigest()
+            return machine_id
+        except:
+            # 如果失败，使用备用方案
+            return hashlib.md5(platform.node().encode()).hexdigest()
     
     def show_card_login(self):
         """显示卡密登录窗口"""
@@ -88,11 +106,11 @@ class TelegramFullGUI:
         self.login_status.config(text="验证中...", foreground="blue")
         login_window.update()
         
-        # 调用卡密验证接口
+        # 调用卡密验证接口，带上机器码
         try:
             resp = requests.post(
                 CARD_API,
-                json={"action": "verify", "card": card_code},
+                json={"action": "verify", "card": card_code, "machine_id": self.machine_id},
                 timeout=15,
                 proxies={"http": None, "https": None}
             )
@@ -176,6 +194,7 @@ class TelegramFullGUI:
                 f"天师府TG全能营销系统\n\n"
                 f"卡密状态: 已激活\n"
                 f"有效期至: {self.card_info.get('expire_date', '永久')}\n"
+                f"设备绑定: 已绑定\n"
                 f"功能权限:\n"
                 f"  - 采集群成员: {'✓' if self.card_info.get('permissions', {}).get('scrape', True) else '✗'}\n"
                 f"  - 批量拉人: {'✓' if self.card_info.get('permissions', {}).get('invite', True) else '✗'}\n"
@@ -228,7 +247,6 @@ class TelegramFullGUI:
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         for col in columns:
             self.account_tree.heading(col, text=col)
-            self.account_tree.column(col, width=120, anchor="center")
         
         # 设置每一列居中显示
         self.account_tree.column("序号", anchor="center", width=60)
@@ -320,7 +338,6 @@ class TelegramFullGUI:
         self.proxy_tree = ttk.Treeview(frame, columns=columns, show="headings", height=8)
         for col in columns:
             self.proxy_tree.heading(col, text=col)
-            self.proxy_tree.column(col, width=100, anchor="center")
         
         # 设置每一列居中
         self.proxy_tree.column("序号", anchor="center", width=50)
