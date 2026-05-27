@@ -10,6 +10,7 @@ import uuid
 import hashlib
 from datetime import datetime
 import shutil
+import zipfile
 
 # 内置服务器地址，不需要用户配置
 SERVER = "http://172.98.23.64:5000"
@@ -55,6 +56,13 @@ class TelegramFullGUI:
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
         window.geometry(f"{width}x{height}+{x}+{y}")
     
+    def center_toplevel(self, window, width, height):
+        """让Toplevel窗口在主窗口中居中显示"""
+        window.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
+        window.geometry(f"{width}x{height}+{x}+{y}")
+    
     def show_card_login(self):
         """显示卡密登录窗口"""
         login_window = tk.Toplevel(self.root)
@@ -64,7 +72,7 @@ class TelegramFullGUI:
         login_window.transient(self.root)
         login_window.grab_set()
         
-        self.center_window(login_window, 450, 350)
+        self.center_toplevel(login_window, 450, 350)
         
         title_label = tk.Label(login_window, text="天师府TG全能营销系统", font=("微软雅黑", 18, "bold"))
         title_label.pack(pady=20)
@@ -255,12 +263,12 @@ class TelegramFullGUI:
         """打开分组管理窗口"""
         dialog = tk.Toplevel(self.root)
         dialog.title("分组管理")
-        dialog.geometry("550x450")
+        dialog.geometry("550x480")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
         
-        self.center_window(dialog, 550, 450)
+        self.center_toplevel(dialog, 550, 480)
         
         # 分组列表
         group_frame = ttk.LabelFrame(dialog, text="分组列表")
@@ -419,7 +427,7 @@ class TelegramFullGUI:
         group_dialog.transient(self.root)
         group_dialog.grab_set()
         
-        self.center_window(group_dialog, 300, 150)
+        self.center_toplevel(group_dialog, 300, 150)
         
         ttk.Label(group_dialog, text="请选择导入账号的目标分组:").pack(pady=15)
         
@@ -471,61 +479,53 @@ class TelegramFullGUI:
             self.log(f"导入 {count} 个账号到分组「{target_group}」")
     
     def export_accounts(self):
-        """导出账号 - 弹出保存文件对话框，导出为.zip压缩包或.session文件"""
+        """导出账号 - 导出为.session文件，保存到选择的文件夹"""
         selected = self.account_tree.selection()
         if not selected:
             self.log("请先选择要导出的账号")
             messagebox.showwarning("提示", "请先选择要导出的账号")
             return
         
-        # 弹出保存文件对话框，选择保存位置和文件名
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".zip",
-            filetypes=[("Zip压缩包", "*.zip"), ("文件夹", "*.folder")],
-            title="保存导出账号"
-        )
+        # 选择保存文件夹
+        export_folder = filedialog.askdirectory(title="选择导出文件夹")
+        if not export_folder:
+            return
         
-        if file_path:
-            # 创建临时文件夹
-            temp_folder = file_path.replace('.zip', '_temp')
-            os.makedirs(temp_folder, exist_ok=True)
+        export_count = 0
+        exported_files = []
+        
+        for item in selected:
+            idx = int(self.account_tree.item(item)['values'][0]) - 1
+            acc = self.accounts[idx]
+            session_path = acc.get('session_path', '')
+            phone = acc.get('phone', '')
             
-            export_count = 0
-            for item in selected:
-                idx = int(self.account_tree.item(item)['values'][0]) - 1
-                acc = self.accounts[idx]
-                session_path = acc.get('session_path', '')
-                
-                if session_path and os.path.exists(session_path):
-                    filename = os.path.basename(session_path)
-                    dest = os.path.join(temp_folder, filename)
-                    shutil.copy2(session_path, dest)
-                    export_count += 1
-                    self.log(f"导出账号: {filename}")
-                elif acc.get('phone'):
-                    session_file = os.path.join(temp_folder, f"{acc['phone']}.session")
-                    with open(session_file, 'w') as f:
-                        f.write("# 请将真实的.session文件替换此文件")
-                    export_count += 1
-                    self.log(f"导出账号(占位): {acc['phone']}.session")
-            
-            # 打包成zip
-            if file_path.endswith('.zip'):
-                import zipfile
-                with zipfile.ZipFile(file_path, 'w') as zipf:
-                    for root_dir, dirs, files in os.walk(temp_folder):
-                        for file in files:
-                            file_full_path = os.path.join(root_dir, file)
-                            arcname = os.path.relpath(file_full_path, temp_folder)
-                            zipf.write(file_full_path, arcname)
-                # 删除临时文件夹
-                shutil.rmtree(temp_folder)
-                self.log(f"导出完成，共导出 {export_count} 个账号到 {file_path}")
-                messagebox.showinfo("导出完成", f"成功导出 {export_count} 个账号到:\n{file_path}")
-            else:
-                # 如果不打包，直接提示文件夹位置
-                self.log(f"导出完成，共导出 {export_count} 个账号到 {temp_folder}")
-                messagebox.showinfo("导出完成", f"成功导出 {export_count} 个账号到:\n{temp_folder}")
+            if session_path and os.path.exists(session_path) and os.path.isfile(session_path):
+                # 如果是.session文件，直接复制
+                filename = os.path.basename(session_path)
+                dest = os.path.join(export_folder, filename)
+                shutil.copy2(session_path, dest)
+                export_count += 1
+                exported_files.append(filename)
+                self.log(f"导出账号: {filename}")
+            elif phone:
+                # 创建.session文件
+                session_file = os.path.join(export_folder, f"{phone}.session")
+                with open(session_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# 账号: {phone}\n")
+                    f.write(f"# 分组: {acc.get('group', '默认分组')}\n")
+                    f.write(f"# 导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write("# 请将真实的.session文件替换此文件\n")
+                export_count += 1
+                exported_files.append(f"{phone}.session")
+                self.log(f"导出账号(占位): {phone}.session")
+        
+        if export_count > 0:
+            self.log(f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
+            messagebox.showinfo("导出完成", f"成功导出 {export_count} 个账号到:\n{export_folder}\n\n导出文件:\n" + "\n".join(exported_files[:10]) + ("\n..." if len(exported_files) > 10 else ""))
+        else:
+            self.log("导出失败：没有找到可导出的账号文件")
+            messagebox.showwarning("导出失败", "没有找到可导出的账号文件")
     
     def delete_selected_accounts(self):
         """删除选中的账号"""
@@ -623,7 +623,9 @@ class TelegramFullGUI:
         dialog.title("添加代理")
         dialog.geometry("400x300")
         dialog.resizable(False, False)
-        self.center_window(dialog, 400, 300)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.center_toplevel(dialog, 400, 300)
         
         ttk.Label(dialog, text="代理类型:").grid(row=0, column=0, padx=5, pady=5)
         proxy_type = ttk.Combobox(dialog, values=["http", "https", "socks4", "socks5"], width=20)
