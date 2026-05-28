@@ -774,201 +774,200 @@ class TelegramFullGUI:
             self.show_centered_info("提示", "没有发现已失效的账号")
     
     # ==================== 代理IP页面 ====================
-    def create_proxy_page(self):
-        page = ttk.Frame(self.notebook)
-        self.notebook.add(page, text="代理IP")
-        
-        toolbar = ttk.Frame(page)
-        toolbar.pack(fill="x", padx=10, pady=5)
-        
-        self.proxy_count_label = ttk.Label(toolbar, text=f"IP数: {len(self.proxies)}/10", font=("微软雅黑", 10))
-        self.proxy_count_label.pack(side="left", padx=10)
-        
-        ttk.Button(toolbar, text="添加代理", command=self.add_proxy).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="删除选中代理", command=self.delete_proxy).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="检测所有代理", command=self.check_proxies).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
-        
-        frame = ttk.LabelFrame(page, text="代理列表")
-        frame.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        columns = ("序号", "代理类型", "代理地址", "状态")
-        self.proxy_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
-        for col in columns:
-            self.proxy_tree.heading(col, text=col)
-        
-        self.proxy_tree.column("序号", anchor="center", width=50)
-        self.proxy_tree.column("代理类型", anchor="center", width=100)
-        self.proxy_tree.column("代理地址", anchor="center", width=350)
-        self.proxy_tree.column("状态", anchor="center", width=150)
-        
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.proxy_tree.yview)
-        self.proxy_tree.configure(yscrollcommand=scrollbar.set)
-        self.proxy_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        scrollbar.pack(side="right", fill="y")
+def create_proxy_page(self):
+    page = ttk.Frame(self.notebook)
+    self.notebook.add(page, text="代理IP")
     
-    def add_proxy(self):
-        """添加代理 - 支持批量导入"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("添加代理")
-        dialog.geometry("500x450")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
-        self.center_window(dialog, 500, 450)
-        
-        main_frame = ttk.Frame(dialog)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        ttk.Label(main_frame, text="代理类型:", font=("微软雅黑", 10)).grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        proxy_type = ttk.Combobox(main_frame, values=["socks5", "socks4", "http", "https"], width=15)
-        proxy_type.set("socks5")
-        proxy_type.grid(row=0, column=1, sticky="w", padx=5, pady=5)
-        
-        ttk.Label(main_frame, text="代理列表:", font=("微软雅黑", 10)).grid(row=1, column=0, sticky="nw", padx=5, pady=5)
-        
-        text_frame = ttk.Frame(main_frame)
-        text_frame.grid(row=1, column=1, columnspan=2, pady=5, sticky="nsew")
-        
-        proxy_text = scrolledtext.ScrolledText(text_frame, width=45, height=12, font=("Consolas", 9))
-        proxy_text.pack(fill="both", expand=True)
-        
-        ttk.Label(main_frame, text="格式: IP:端口 或 IP:端口:用户名:密码", font=("微软雅黑", 9), foreground="gray").grid(row=2, column=1, sticky="w", padx=5)
-        
-        ttk.Label(main_frame, text="示例:", font=("微软雅黑", 9), foreground="gray").grid(row=3, column=1, sticky="w", padx=5)
-        ttk.Label(main_frame, text="  192.168.1.1:1080", font=("微软雅黑", 9), foreground="gray").grid(row=4, column=1, sticky="w", padx=5)
-        ttk.Label(main_frame, text="  192.168.1.2:1080:user:pass", font=("微软雅黑", 9), foreground="gray").grid(row=5, column=1, sticky="w", padx=5)
-        
-        def save_proxies():
-            text_content = proxy_text.get("1.0", tk.END).strip()
-            if not text_content:
-                self.show_centered_warning("提示", "请输入代理列表")
-                return
-            
-            lines = text_content.strip().split('\n')
-            added_count = 0
-            skipped_count = 0
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                if len(self.proxies) + added_count >= 10:
-                    self.show_centered_warning("提示", f"最多添加10个代理，已达到上限")
-                    break
-                
-                p_type = proxy_type.get()
-                parts = line.split(':')
-                
-                if len(parts) >= 2:
-                    host = parts[0]
-                    port = parts[1]
-                    user = parts[2] if len(parts) >= 3 else ""
-                    password = parts[3] if len(parts) >= 4 else ""
-                    
-                    proxy_addr = f"{host}:{port}"
-                    if user and password:
-                        proxy_addr = f"{host}:{port} ({user}:****)"
-                    
-                    self.proxies.append({
-                        "type": p_type,
-                        "host": host,
-                        "port": port,
-                        "user": user,
-                        "password": password,
-                        "address": f"{host}:{port}",
-                        "status": "未检测"
-                    })
-                    added_count += 1
-                    self.log(f"添加代理: {p_type}://{host}:{port}")
-                else:
-                    skipped_count += 1
-            
-            self.refresh_proxy_list()
-            self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
-            dialog.destroy()
-            
-            if added_count > 0:
-                self.show_centered_info("添加完成", f"成功添加 {added_count} 个代理\n跳过 {skipped_count} 个无效格式")
-        
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=6, column=0, columnspan=3, pady=15)
-        
-        ttk.Button(button_frame, text="确定", command=save_proxies, width=12).pack(side="left", padx=10)
-        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
+    toolbar = ttk.Frame(page)
+    toolbar.pack(fill="x", padx=10, pady=5)
     
-    def delete_proxy(self):
-        selected = self.proxy_tree.selection()
-        if selected:
-            indices = sorted([int(self.proxy_tree.item(item)['values'][0]) - 1 for item in selected], reverse=True)
-            for idx in indices:
-                self.proxies.pop(idx)
-            self.refresh_proxy_list()
-            self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
-            self.log(f"删除 {len(selected)} 个代理")
+    self.proxy_count_label = ttk.Label(toolbar, text=f"IP数: {len(self.proxies)}/10", font=("微软雅黑", 10))
+    self.proxy_count_label.pack(side="left", padx=10)
     
-    def clear_all_proxies(self):
-        if self.proxies:
-            def do_clear():
-                self.proxies.clear()
-                self.refresh_proxy_list()
-                self.proxy_count_label.config(text=f"IP数: 0/10")
-                self.log("清空所有代理")
-            self.show_centered_yesno("确认", "确定要清空所有代理吗？", do_clear)
+    ttk.Button(toolbar, text="导入代理", command=self.import_proxies).pack(side="left", padx=2)
+    ttk.Button(toolbar, text="删除选中代理", command=self.delete_proxy).pack(side="left", padx=2)
+    ttk.Button(toolbar, text="检测所有代理", command=self.check_proxies).pack(side="left", padx=2)
+    ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
+    
+    frame = ttk.LabelFrame(page, text="代理列表")
+    frame.pack(fill="both", expand=True, padx=10, pady=5)
+    
+    columns = ("序号", "代理类型", "代理地址", "状态")
+    self.proxy_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
+    for col in columns:
+        self.proxy_tree.heading(col, text=col)
+    
+    self.proxy_tree.column("序号", anchor="center", width=50)
+    self.proxy_tree.column("代理类型", anchor="center", width=100)
+    self.proxy_tree.column("代理地址", anchor="center", width=350)
+    self.proxy_tree.column("状态", anchor="center", width=150)
+    
+    scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.proxy_tree.yview)
+    self.proxy_tree.configure(yscrollcommand=scrollbar.set)
+    self.proxy_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+    scrollbar.pack(side="right", fill="y")
+
+def import_proxies(self):
+    """导入代理 - 从文件导入"""
+    file_path = filedialog.askopenfilename(
+        title="选择代理文件",
+        filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")]
+    )
+    if not file_path:
+        return
+    
+    # 先选择代理类型
+    type_dialog = tk.Toplevel(self.root)
+    type_dialog.title("选择代理类型")
+    type_dialog.geometry("300x150")
+    type_dialog.resizable(False, False)
+    type_dialog.transient(self.root)
+    type_dialog.grab_set()
+    self.center_window(type_dialog, 300, 150)
+    
+    ttk.Label(type_dialog, text="请选择代理类型:", font=("微软雅黑", 11)).pack(pady=20)
+    proxy_type = ttk.Combobox(type_dialog, values=["socks5", "socks4", "http", "https"], width=15)
+    proxy_type.set("socks5")
+    proxy_type.pack(pady=10)
+    
+    result = [None]
+    
+    def confirm():
+        result[0] = proxy_type.get()
+        type_dialog.destroy()
+    
+    ttk.Button(type_dialog, text="确定", command=confirm, width=12).pack(pady=15)
+    
+    self.root.wait_window(type_dialog)
+    
+    if not result[0]:
+        return
+    
+    p_type = result[0]
+    
+    # 读取文件
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        self.show_centered_error("错误", f"读取文件失败: {str(e)}")
+        return
+    
+    lines = content.strip().split('\n')
+    added_count = 0
+    skipped_count = 0
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        if len(self.proxies) + added_count >= 10:
+            self.show_centered_warning("提示", f"最多添加10个代理，已达到上限")
+            break
+        
+        # 解析格式: IP:端口 或 IP:端口:用户名:密码
+        parts = line.split(':')
+        
+        if len(parts) >= 2:
+            host = parts[0]
+            port = parts[1]
+            user = parts[2] if len(parts) >= 3 else ""
+            password = parts[3] if len(parts) >= 4 else ""
+            
+            self.proxies.append({
+                "type": p_type,
+                "host": host,
+                "port": port,
+                "user": user,
+                "password": password,
+                "address": f"{host}:{port}",
+                "status": "未检测"
+            })
+            added_count += 1
+            self.log(f"导入代理: {p_type}://{host}:{port}")
         else:
-            self.show_centered_info("提示", "没有代理需要清空")
+            skipped_count += 1
     
-    def check_proxies(self):
-        if not self.proxies:
-            self.log("没有代理需要检测")
-            self.show_centered_warning("提示", "没有代理需要检测")
-            return
-        
-        self.log(f"开始检测 {len(self.proxies)} 个代理...")
-        
-        def do_check():
-            for i, p in enumerate(self.proxies):
-                proxy_str = f"{p.get('host')}:{p.get('port')}"
-                try:
-                    proxy_url = f"{p.get('type')}://"
-                    if p.get('user') and p.get('password'):
-                        proxy_url += f"{p.get('user')}:{p.get('password')}@"
-                    proxy_url += f"{p.get('host')}:{p.get('port')}"
-                    
-                    proxies = {p.get('type'): proxy_url}
-                    start_time = time.time()
-                    resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
-                    elapsed = time.time() - start_time
-                    
-                    if resp.status_code == 200:
-                        p['status'] = f"✅ 可用 ({elapsed:.1f}s) - IP: {resp.text}"
-                        self.log(f"✅ {p.get('type')}://{proxy_str}: 可用 ({elapsed:.1f}s)")
-                    else:
-                        p['status'] = "❌ 不可用"
-                        self.log(f"❌ {p.get('type')}://{proxy_str}: 不可用")
-                except Exception as e:
-                    p['status'] = f"❌ 不可用 - {str(e)[:30]}"
-                    self.log(f"❌ {p.get('type')}://{proxy_str}: 不可用 - {str(e)[:30]}")
+    self.refresh_proxy_list()
+    self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
+    
+    if added_count > 0:
+        self.show_centered_info("导入完成", f"成功导入 {added_count} 个代理\n跳过 {skipped_count} 个无效格式")
+    else:
+        self.show_centered_warning("导入失败", "未找到有效的代理格式\n\n正确格式: IP:端口 或 IP:端口:用户名:密码")
+
+def delete_proxy(self):
+    selected = self.proxy_tree.selection()
+    if selected:
+        indices = sorted([int(self.proxy_tree.item(item)['values'][0]) - 1 for item in selected], reverse=True)
+        for idx in indices:
+            self.proxies.pop(idx)
+        self.refresh_proxy_list()
+        self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
+        self.log(f"删除 {len(selected)} 个代理")
+
+def clear_all_proxies(self):
+    if self.proxies:
+        def do_clear():
+            self.proxies.clear()
+            self.refresh_proxy_list()
+            self.proxy_count_label.config(text=f"IP数: 0/10")
+            self.log("清空所有代理")
+        self.show_centered_yesno("确认", "确定要清空所有代理吗？", do_clear)
+    else:
+        self.show_centered_info("提示", "没有代理需要清空")
+
+def check_proxies(self):
+    if not self.proxies:
+        self.log("没有代理需要检测")
+        self.show_centered_warning("提示", "没有代理需要检测")
+        return
+    
+    self.log(f"开始检测 {len(self.proxies)} 个代理...")
+    
+    def do_check():
+        for i, p in enumerate(self.proxies):
+            proxy_str = f"{p.get('host')}:{p.get('port')}"
+            try:
+                proxy_url = f"{p.get('type')}://"
+                if p.get('user') and p.get('password'):
+                    proxy_url += f"{p.get('user')}:{p.get('password')}@"
+                proxy_url += f"{p.get('host')}:{p.get('port')}"
                 
-                self.root.after(0, self.refresh_proxy_list)
+                proxies = {p.get('type'): proxy_url}
+                start_time = time.time()
+                resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
+                elapsed = time.time() - start_time
+                
+                if resp.status_code == 200:
+                    p['status'] = f"✅ 可用 ({elapsed:.1f}s) - IP: {resp.text}"
+                    self.log(f"✅ {p.get('type')}://{proxy_str}: 可用 ({elapsed:.1f}s)")
+                else:
+                    p['status'] = "❌ 不可用"
+                    self.log(f"❌ {p.get('type')}://{proxy_str}: 不可用")
+            except Exception as e:
+                p['status'] = f"❌ 不可用 - {str(e)[:30]}"
+                self.log(f"❌ {p.get('type')}://{proxy_str}: 不可用 - {str(e)[:30]}")
             
-            self.log("代理检测完成")
-            self.root.after(0, lambda: self.show_centered_info("检测完成", f"已检测 {len(self.proxies)} 个代理"))
+            self.root.after(0, self.refresh_proxy_list)
         
-        threading.Thread(target=do_check, daemon=True).start()
+        self.log("代理检测完成")
+        self.root.after(0, lambda: self.show_centered_info("检测完成", f"已检测 {len(self.proxies)} 个代理"))
     
-    def refresh_proxy_list(self):
-        for item in self.proxy_tree.get_children():
-            self.proxy_tree.delete(item)
-        for i, p in enumerate(self.proxies, 1):
-            display_addr = p.get('address', f"{p.get('host')}:{p.get('port')}")
-            self.proxy_tree.insert("", "end", values=(
-                i,
-                p.get('type', 'socks5'),
-                display_addr,
-                p.get('status', '未检测')
-            ))
+    threading.Thread(target=do_check, daemon=True).start()
+
+def refresh_proxy_list(self):
+    for item in self.proxy_tree.get_children():
+        self.proxy_tree.delete(item)
+    for i, p in enumerate(self.proxies, 1):
+        display_addr = p.get('address', f"{p.get('host')}:{p.get('port')}")
+        self.proxy_tree.insert("", "end", values=(
+            i,
+            p.get('type', 'socks5'),
+            display_addr,
+            p.get('status', '未检测')
+        ))
     
     # ==================== 采集群成员页面 ====================
     def create_scrape_page(self):
