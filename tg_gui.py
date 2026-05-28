@@ -473,31 +473,46 @@ class TelegramFullGUI:
             self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
     
     def login_single_account(self, acc):
-        """登录单个账号"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         
         def do_login():
             try:
-                # 旧版Pyrogram直接使用session文件
+                # 先同步时间
+                import ntplib
+                try:
+                    ntp_client = ntplib.NTPClient()
+                    response = ntp_client.request('pool.ntp.org', version=3)
+                    current_time = time.time()
+                    time_offset = response.tx_time - current_time
+                    if abs(time_offset) > 5:
+                        self.log(f"⚠️ 时间偏差较大，建议同步系统时间")
+                except:
+                    pass
+                
                 client = Client(session_path, self.api_id, self.api_hash)
-                client.start()
+                client.connect()
                 
-                me = client.get_me()
-                nickname = me.first_name or me.username or phone
-                acc['nickname'] = nickname
-                acc['status'] = '正常'
-                self.clients[phone] = client
-                self.log(f"✅ {phone}: 登录成功 | 昵称: {nickname}")
-                return True
-                
-            except SessionPasswordNeeded:
-                self.log(f"🔐 {phone}: 需要2FA密码")
-                acc['status'] = '需要2FA'
-                return False
+                if client.is_user_authorized():
+                    me = client.get_me()
+                    nickname = me.first_name or me.username or phone
+                    acc['nickname'] = nickname
+                    acc['status'] = '正常'
+                    self.clients[phone] = client
+                    self.log(f"✅ {phone}: 登录成功 | 昵称: {nickname}")
+                    return True
+                else:
+                    self.log(f"❌ {phone}: session无效或已过期")
+                    acc['status'] = 'session无效'
+                    client.disconnect()
+                    return False
+                    
             except Exception as e:
                 error_msg = str(e)
-                if "AUTH_KEY_DUPLICATED" in error_msg:
+                if "msg_id is too low" in error_msg:
+                    self.log(f"❌ {phone}: 系统时间不同步，请同步时间后重试")
+                    acc['status'] = '时间不同步'
+                elif "AUTH_KEY_DUPLICATED" in error_msg:
                     self.log(f"⚠️ {phone}: 异地登录")
                     acc['status'] = '异地登录'
                 elif "FLOOD" in error_msg.upper():
@@ -572,16 +587,22 @@ class TelegramFullGUI:
                 
                 try:
                     client = Client(session_path, self.api_id, self.api_hash)
-                    client.start()
-                    me = client.get_me()
-                    nickname = me.first_name or me.username or phone
-                    acc['nickname'] = nickname
-                    acc['status'] = '正常'
-                    self.log(f"✅ {phone}: 正常 | 昵称: {nickname}")
-                    client.stop()
+                    client.connect()
+                    
+                    if client.is_user_authorized():
+                        me = client.get_me()
+                        nickname = me.first_name or me.username or phone
+                        acc['nickname'] = nickname
+                        acc['status'] = '正常'
+                        self.log(f"✅ {phone}: 正常 | 昵称: {nickname}")
+                    else:
+                        acc['status'] = '无效'
+                        self.log(f"❌ {phone}: session无效")
+                    
+                    client.disconnect()
                 except Exception as e:
                     acc['status'] = '无效'
-                    self.log(f"❌ {phone}: session无效 - {str(e)[:50]}")
+                    self.log(f"❌ {phone}: 检测失败 - {str(e)[:50]}")
                 
                 self.root.after(0, self.refresh_account_list)
                 time.sleep(0.5)
@@ -1260,7 +1281,6 @@ class TelegramFullGUI:
                     with open("keywords.json", "r") as f:
                         keywords = json.load(f)
                 
-                # 旧版Pyrogram的消息监听
                 @client.on_message()
                 def handle_message(client, message):
                     if not self.running_tasks.get('chat', False):
