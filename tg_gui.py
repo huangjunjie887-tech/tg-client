@@ -20,6 +20,7 @@ from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChanne
 from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline
+from telethon.tl.functions.messages import GetHistoryRequest
 
 # 内置服务器地址
 SERVER = "http://172.98.23.64:5000"
@@ -933,13 +934,15 @@ class TelegramFullGUI:
         # 刷新账号按钮
         ttk.Button(left_frame, text="刷新账号列表", command=self.refresh_scrape_accounts, width=12).grid(row=2, column=1, sticky="w", padx=5, pady=2)
         
-        # 公开群选项
-        self.is_public_group = tk.BooleanVar()
-        ttk.Checkbutton(left_frame, text="公开群选项", variable=self.is_public_group).grid(row=3, column=1, sticky="w", padx=5, pady=5)
+        # 采集模式选择
+        ttk.Label(left_frame, text="采集模式:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
+        self.scrape_mode = ttk.Combobox(left_frame, values=["获取全部成员(公开群)", "获取发言用户(隐藏群)"], width=30)
+        self.scrape_mode.set("获取全部成员(公开群)")
+        self.scrape_mode.grid(row=3, column=1, padx=5, pady=5, columnspan=2)
         
-        # 采集隐藏成员（强制采集所有成员）
-        self.scrape_hidden = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left_frame, text="采集隐藏成员（强制获取所有成员）", variable=self.scrape_hidden).grid(row=4, column=1, sticky="w", padx=5, pady=5)
+        # 采集隐藏成员（旧选项保留兼容）
+        self.scrape_hidden = tk.BooleanVar()
+        ttk.Checkbutton(left_frame, text="采集隐藏成员（私密群发言用户）", variable=self.scrape_hidden).grid(row=4, column=1, sticky="w", padx=5, pady=5)
         
         # 在线天数筛选
         ttk.Label(left_frame, text="在线天数筛选:").grid(row=5, column=0, sticky="w", padx=5, pady=5)
@@ -981,9 +984,15 @@ class TelegramFullGUI:
         
         ttk.Label(save_frame, text="请选择保存目录，采集完成或停止时自动保存", font=("微软雅黑", 8), foreground="blue").grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
         
+        # 发言消息数量（用于隐藏群采集）
+        ttk.Label(left_frame, text="获取消息数量(隐藏群):").grid(row=8, column=0, sticky="w", padx=5, pady=5)
+        self.message_limit = ttk.Entry(left_frame, width=15)
+        self.message_limit.insert(0, "500")
+        self.message_limit.grid(row=8, column=1, sticky="w", padx=5, pady=5)
+        
         # 按钮
         btn_frame = ttk.Frame(left_frame)
-        btn_frame.grid(row=8, column=0, columnspan=3, pady=15)
+        btn_frame.grid(row=9, column=0, columnspan=3, pady=15)
         ttk.Button(btn_frame, text="开始采集", command=self.start_scrape, width=15).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="停止采集", command=self.stop_scrape, width=15).pack(side="left", padx=10)
         
@@ -1031,6 +1040,7 @@ class TelegramFullGUI:
         
         save_dir = self.save_path.get().strip()
         if not save_dir:
+            self.log("请先选择保存目录")
             self.show_centered_warning("提示", "请先选择保存目录")
             return False
         
@@ -1074,7 +1084,6 @@ class TelegramFullGUI:
         if self.is_scraping:
             self.is_scraping = False
             self.log("用户停止采集，正在保存已采集的数据...")
-            # 注意：实际保存会在采集线程中完成，因为需要 group_username
 
     def get_online_status_text(self, user_status):
         """获取在线状态文本"""
@@ -1144,6 +1153,7 @@ class TelegramFullGUI:
         group = self.scrape_group.get().strip()
         account_phone = self.scrape_account.get()
         save_dir = self.save_path.get().strip()
+        scrape_mode = self.scrape_mode.get()
         
         if not group:
             self.log("请输入群组链接")
@@ -1208,6 +1218,12 @@ class TelegramFullGUI:
         elif online_filter_text == "30天内":
             online_days = 30
         
+        # 获取消息数量限制
+        try:
+            msg_limit = int(self.message_limit.get())
+        except:
+            msg_limit = 500
+        
         self.is_scraping = True
         self.scraped_members = []
         self.preview_tree.delete(*self.preview_tree.get_children())
@@ -1217,9 +1233,9 @@ class TelegramFullGUI:
         api_id, api_hash = self.get_account_api_credentials(acc)
         
         self.log(f"开始采集群成员: {group_username}")
+        self.log(f"采集模式: {scrape_mode}")
         self.log(f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
         self.log(f"保存目录: {save_dir}")
-        self.log("采集模式: 强制获取所有成员（包括隐藏成员）")
         self.log("采集规则: 只采集有用户名的成员（username不为空）")
         
         async def do_scrape():
@@ -1242,14 +1258,6 @@ class TelegramFullGUI:
                     self.log(f"获取群组失败: {str(e)}")
                     return
                 
-                # 获取群组信息
-                try:
-                    full_chat = await client(GetFullChannelRequest(entity))
-                    self.log(f"群组名称: {full_chat.chats[0].title}")
-                    self.log(f"成员总数: {full_chat.full_chat.participants_count}")
-                except Exception as e:
-                    self.log(f"获取群组信息失败: {str(e)}")
-                
                 # 获取管理员列表（用于过滤）
                 admin_ids = set()
                 if self.filter_admin.get():
@@ -1262,92 +1270,167 @@ class TelegramFullGUI:
                 
                 count = 0
                 skipped_no_username = 0
-                offset = 0
-                limit = 200  # 每次获取200个
+                collected_user_ids = set()  # 用于去重
                 
-                self.log("开始采集成员（使用偏移量分页，可获取隐藏成员）...")
-                
-                while self.is_scraping:
-                    try:
-                        # 使用 GetParticipantsRequest 获取成员，支持偏移量
-                        participants = await client(GetParticipantsRequest(
-                            channel=entity,
-                            filter=ChannelParticipantsSearch(''),
-                            offset=offset,
-                            limit=limit,
-                            hash=0
-                        ))
-                        
-                        if not participants.users:
+                if scrape_mode == "获取全部成员(公开群)":
+                    # 公开群模式：获取全部成员
+                    self.log("开始采集成员（获取全部成员）...")
+                    async for user in client.iter_participants(entity):
+                        if not self.is_scraping:
                             break
                         
-                        for user in participants.users:
-                            if not self.is_scraping:
+                        # 只采集有用户名的用户
+                        if not user.username:
+                            skipped_no_username += 1
+                            continue
+                        
+                        # 去重
+                        if user.id in collected_user_ids:
+                            continue
+                        collected_user_ids.add(user.id)
+                        
+                        # 过滤管理员
+                        if self.filter_admin.get() and user.id in admin_ids:
+                            continue
+                        
+                        # 过滤机器人
+                        if self.filter_bot.get() and user.bot:
+                            continue
+                        
+                        # 过滤已注销
+                        if self.filter_deleted.get() and user.deleted:
+                            continue
+                        
+                        # 过滤昵称含广告关键词
+                        if ad_keywords:
+                            name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
+                            if any(kw in name_lower for kw in ad_keywords):
+                                continue
+                        
+                        # 在线天数筛选
+                        if online_days is not None:
+                            if not self.check_online_days(user.status, online_days):
+                                continue
+                        
+                        # 获取在线状态文本
+                        online_status = self.get_online_status_text(user.status)
+                        
+                        member_info = {
+                            'id': user.id,
+                            'username': user.username,
+                            'first_name': user.first_name or "",
+                            'last_name': user.last_name or "",
+                            'phone': user.phone if hasattr(user, 'phone') and user.phone else "",
+                            'online_status': online_status,
+                            'is_admin': user.id in admin_ids,
+                            'is_bot': user.bot if hasattr(user, 'bot') else False,
+                            'deleted': user.deleted if hasattr(user, 'deleted') else False
+                        }
+                        
+                        self.scraped_members.append(member_info)
+                        count += 1
+                        
+                        # 更新预览
+                        self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
+                        
+                        await asyncio.sleep(0.05)
+                    
+                    self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
+                    self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
+                
+                else:
+                    # 隐藏群模式：通过获取最近消息来采集发言用户
+                    self.log(f"开始采集发言用户（获取最近 {msg_limit} 条消息）...")
+                    
+                    offset_id = 0
+                    total_messages = 0
+                    
+                    while self.is_scraping and total_messages < msg_limit:
+                        try:
+                            # 获取历史消息
+                            history = await client(GetHistoryRequest(
+                                peer=entity,
+                                offset_id=offset_id,
+                                offset_date=None,
+                                add_offset=0,
+                                limit=100,
+                                max_id=0,
+                                min_id=0,
+                                hash=0
+                            ))
+                            
+                            if not history.messages:
                                 break
                             
-                            # 只采集有用户名的用户
-                            if not user.username:
-                                skipped_no_username += 1
-                                continue
+                            for msg in history.messages:
+                                if not self.is_scraping:
+                                    break
+                                
+                                sender_id = msg.sender_id
+                                if sender_id and sender_id not in collected_user_ids:
+                                    try:
+                                        # 获取发送者信息
+                                        sender = await client.get_entity(sender_id)
+                                        
+                                        # 只采集有用户名的用户
+                                        if not sender.username:
+                                            skipped_no_username += 1
+                                            continue
+                                        
+                                        collected_user_ids.add(sender_id)
+                                        
+                                        # 过滤机器人
+                                        if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
+                                            continue
+                                        
+                                        # 过滤昵称含广告关键词
+                                        if ad_keywords:
+                                            name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                            if any(kw in name_lower for kw in ad_keywords):
+                                                continue
+                                        
+                                        # 获取在线状态
+                                        online_status = "未知"
+                                        if hasattr(sender, 'status'):
+                                            online_status = self.get_online_status_text(sender.status)
+                                        
+                                        member_info = {
+                                            'id': sender.id,
+                                            'username': sender.username or "",
+                                            'first_name': sender.first_name or "",
+                                            'last_name': sender.last_name or "",
+                                            'phone': sender.phone if hasattr(sender, 'phone') and sender.phone else "",
+                                            'online_status': online_status,
+                                            'is_admin': sender.id in admin_ids,
+                                            'is_bot': sender.bot if hasattr(sender, 'bot') else False,
+                                            'deleted': sender.deleted if hasattr(sender, 'deleted') else False
+                                        }
+                                        
+                                        self.scraped_members.append(member_info)
+                                        count += 1
+                                        
+                                        # 更新预览
+                                        self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
+                                        
+                                    except Exception as e:
+                                        self.log(f"获取用户信息失败: {str(e)}")
+                                
+                                total_messages += 1
                             
-                            # 过滤管理员
-                            if self.filter_admin.get() and user.id in admin_ids:
-                                continue
+                            # 更新偏移量
+                            if history.messages:
+                                offset_id = history.messages[-1].id
+                            else:
+                                break
                             
-                            # 过滤机器人
-                            if self.filter_bot.get() and user.bot:
-                                continue
+                            await asyncio.sleep(0.5)
                             
-                            # 过滤已注销
-                            if self.filter_deleted.get() and user.deleted:
-                                continue
-                            
-                            # 过滤昵称含广告关键词
-                            if ad_keywords:
-                                name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
-                                if any(kw in name_lower for kw in ad_keywords):
-                                    continue
-                            
-                            # 在线天数筛选
-                            if online_days is not None:
-                                if not self.check_online_days(user.status, online_days):
-                                    continue
-                            
-                            # 获取在线状态文本
-                            online_status = self.get_online_status_text(user.status)
-                            
-                            member_info = {
-                                'id': user.id,
-                                'username': user.username,
-                                'first_name': user.first_name or "",
-                                'last_name': user.last_name or "",
-                                'phone': user.phone if hasattr(user, 'phone') and user.phone else "",
-                                'online_status': online_status,
-                                'is_admin': user.id in admin_ids,
-                                'is_bot': user.bot if hasattr(user, 'bot') else False,
-                                'deleted': user.deleted if hasattr(user, 'deleted') else False
-                            }
-                            
-                            self.scraped_members.append(member_info)
-                            count += 1
-                            
-                            # 更新预览
-                            self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
-                        
-                        offset += len(participants.users)
-                        self.log(f"已处理 {offset} 个成员，已采集 {count} 个有效成员，跳过 {skipped_no_username} 个无用户名成员")
-                        
-                        if len(participants.users) < limit:
+                        except Exception as e:
+                            self.log(f"获取消息失败: {str(e)}")
                             break
-                            
-                        await asyncio.sleep(0.5)  # 避免请求过快
-                        
-                    except Exception as e:
-                        self.log(f"分页获取成员失败: {str(e)}")
-                        break
-                
-                self.log(f"采集{'停止' if not self.is_scraping else '完成'}！共采集 {len(self.scraped_members)} 个有用户名的成员")
-                self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
+                    
+                    self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的发言用户")
+                    self.log(f"处理了 {total_messages} 条消息，跳过了 {skipped_no_username} 个无用户名用户")
                 
                 # 保存文件（无论采集完成还是停止，都自动保存）
                 if self.scraped_members:
@@ -1362,7 +1445,6 @@ class TelegramFullGUI:
                 
             except Exception as e:
                 self.log(f"采集失败: {str(e)}")
-                # 出错时也尝试保存已采集的数据
                 if self.scraped_members:
                     self.save_scraped_members(group_username, True)
             finally:
