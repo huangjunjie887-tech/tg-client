@@ -912,8 +912,8 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
         
-        # 创建默认保存目录（使用用户文档目录，避免权限问题）
-        self.default_save_dir = os.path.join(os.path.expanduser("~"), "TG_Scraped_Data")
+        # 固定保存目录
+        self.default_save_dir = r"C:\Users\Administrator\TG_Scraped_Data"
         os.makedirs(self.default_save_dir, exist_ok=True)
         
         # 主设置框架
@@ -978,13 +978,7 @@ class TelegramFullGUI:
         self.save_format.set("JSON")
         self.save_format.grid(row=0, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Label(save_frame, text="保存路径:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.save_path = ttk.Entry(save_frame, width=35)
-        self.save_path.insert(0, self.default_save_dir)
-        self.save_path.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(save_frame, text="浏览", command=self.select_save_path, width=8).grid(row=1, column=2, padx=5)
-        
-        ttk.Label(save_frame, text=f"默认路径: {self.default_save_dir}", font=("微软雅黑", 8), foreground="gray").grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
+        ttk.Label(save_frame, text=f"保存路径: {self.default_save_dir}", font=("微软雅黑", 9), foreground="blue").grid(row=1, column=0, columnspan=3, sticky="w", padx=5, pady=5)
         
         # 按钮
         btn_frame = ttk.Frame(left_frame)
@@ -1019,10 +1013,8 @@ class TelegramFullGUI:
         self.refresh_scrape_accounts()
     
     def select_save_path(self):
-        folder = filedialog.askdirectory(title="选择保存目录")
-        if folder:
-            self.save_path.delete(0, tk.END)
-            self.save_path.insert(0, folder)
+        # 此方法保留但不再使用，因为路径已固定
+        pass
     
     def stop_scrape(self):
         self.is_scraping = False
@@ -1126,21 +1118,9 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "请先登录账号")
             return
         
-        # 获取保存路径
-        save_dir = self.save_path.get().strip()
-        if not save_dir:
-            save_dir = self.default_save_dir
-            self.save_path.insert(0, save_dir)
-        
-        # 确保目录存在
-        try:
-            os.makedirs(save_dir, exist_ok=True)
-        except PermissionError:
-            save_dir = self.default_save_dir
-            self.save_path.delete(0, tk.END)
-            self.save_path.insert(0, save_dir)
-            os.makedirs(save_dir, exist_ok=True)
-            self.log(f"权限不足，已切换默认保存路径: {save_dir}")
+        # 固定保存路径
+        save_dir = self.default_save_dir
+        os.makedirs(save_dir, exist_ok=True)
         
         # 解析群组链接
         if 't.me/' in group:
@@ -1181,6 +1161,7 @@ class TelegramFullGUI:
         self.log(f"开始采集群成员: {group_username}")
         self.log(f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
         self.log(f"保存路径: {save_dir}")
+        self.log("采集规则: 只采集有用户名的成员（username不为空）")
         
         async def do_scrape():
             client = None
@@ -1213,12 +1194,18 @@ class TelegramFullGUI:
                         self.log(f"获取管理员列表失败: {str(e)}")
                 
                 count = 0
+                skipped_no_username = 0
                 
-                # 采集成员 - 无数量限制，直到采集完为止
-                self.log("开始采集成员（无数量限制，直到采集完毕）...")
+                # 采集成员 - 无数量限制，直到采集完为止，只采集有用户名的
+                self.log("开始采集成员（只采集有用户名的成员）...")
                 async for user in client.iter_participants(entity):
                     if not self.is_scraping:
                         break
+                    
+                    # 只采集有用户名的用户
+                    if not user.username:
+                        skipped_no_username += 1
+                        continue
                     
                     # 过滤管理员
                     if self.filter_admin.get() and user.id in admin_ids:
@@ -1266,12 +1253,15 @@ class TelegramFullGUI:
                     
                     await asyncio.sleep(0.05)  # 避免请求过快
                 
-                self.log(f"采集完成，共采集 {len(self.scraped_members)} 个成员")
+                self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
+                self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
-                # 保存文件
+                # 保存文件 - 文件名包含采集日期
                 if self.scraped_members and self.is_scraping:
                     save_format = self.save_format.get()
-                    base_name = f"members_{group_username}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    current_date = datetime.now().strftime('%Y%m%d')
+                    current_time = datetime.now().strftime('%H%M%S')
+                    base_name = f"members_{group_username}_{current_date}_{current_time}"
                     
                     if save_format == "JSON":
                         save_path = os.path.join(save_dir, f"{base_name}.json")
@@ -1281,12 +1271,18 @@ class TelegramFullGUI:
                     else:
                         save_path = os.path.join(save_dir, f"{base_name}.txt")
                         with open(save_path, 'w', encoding='utf-8') as f:
+                            # 写入文件头
+                            f.write(f"# 采集时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                            f.write(f"# 群组: {group_username}\n")
+                            f.write(f"# 采集数量: {len(self.scraped_members)}\n")
+                            f.write("# 格式: 用户ID | 用户名 | 昵称 | 手机号 | 在线状态\n")
+                            f.write("#" * 80 + "\n")
                             for m in self.scraped_members:
-                                line = f"{m['id']}\t{m['username']}\t{m['first_name']} {m['last_name']}\t{m['phone']}\t{m['online_status']}"
+                                line = f"{m['id']}\t@{m['username']}\t{m['first_name']} {m['last_name']}\t{m['phone']}\t{m['online_status']}"
                                 f.write(line + "\n")
                         self.log(f"已保存TXT文件: {save_path}")
                     
-                    self.root.after(0, lambda: self.show_centered_info("采集完成", f"共采集 {len(self.scraped_members)} 个成员\n保存路径: {save_path}"))
+                    self.root.after(0, lambda: self.show_centered_info("采集完成", f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存路径: {save_path}"))
                 
                 await client.disconnect()
                 
@@ -1369,7 +1365,7 @@ class TelegramFullGUI:
             return
         
         # 查找最新的采集文件
-        save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') and self.save_path.get() else self.default_save_dir
+        save_dir = self.default_save_dir
         if os.path.exists(save_dir):
             json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
         else:
@@ -1408,7 +1404,7 @@ class TelegramFullGUI:
                             for m in members[:int(limit)]:
                                 try:
                                     await client.invite_to_channel(entity, [m['id']])
-                                    self.log(f"[{phone}] 拉人成功: {m.get('first_name', m.get('username', m['id']))}")
+                                    self.log(f"[{phone}] 拉人成功: @{m.get('username', m.get('first_name', m['id']))}")
                                     await asyncio.sleep(delay)
                                 except FloodWaitError as e:
                                     self.log(f"请求频繁，等待{e.seconds}秒")
@@ -1448,7 +1444,7 @@ class TelegramFullGUI:
                     for m in members[:int(limit)]:
                         try:
                             await client.invite_to_channel(entity, [m['id']])
-                            self.log(f"拉人成功: {m.get('first_name', m.get('username', m['id']))}")
+                            self.log(f"拉人成功: @{m.get('username', m.get('first_name', m['id']))}")
                             await asyncio.sleep(delay)
                         except FloodWaitError as e:
                             self.log(f"请求频繁，等待{e.seconds}秒")
@@ -1525,7 +1521,7 @@ class TelegramFullGUI:
             return
         
         # 查找最新的采集文件
-        save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') and self.save_path.get() else self.default_save_dir
+        save_dir = self.default_save_dir
         if os.path.exists(save_dir):
             json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
         else:
@@ -1558,7 +1554,7 @@ class TelegramFullGUI:
                             for m in members:
                                 try:
                                     await client.send_message(m['id'], ad_content)
-                                    self.log(f"[{phone}] 发送成功: {m.get('first_name', m.get('username', m['id']))}")
+                                    self.log(f"[{phone}] 发送成功: @{m.get('username', m.get('first_name', m['id']))}")
                                     await asyncio.sleep(delay)
                                 except FloodWaitError as e:
                                     self.log(f"请求频繁，等待{e.seconds}秒")
@@ -1592,7 +1588,7 @@ class TelegramFullGUI:
                     for m in members:
                         try:
                             await client.send_message(m['id'], ad_content)
-                            self.log(f"发送成功: {m.get('first_name', m.get('username', m['id']))}")
+                            self.log(f"发送成功: @{m.get('username', m.get('first_name', m['id']))}")
                             await asyncio.sleep(delay)
                         except FloodWaitError as e:
                             self.log(f"请求频繁，等待{e.seconds}秒")
