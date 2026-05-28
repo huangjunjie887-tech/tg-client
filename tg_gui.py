@@ -43,6 +43,11 @@ class TelegramFullGUI:
         self.groups = ["默认分组"]
         self.running_tasks = {}
         
+        # 设置选项卡样式 - 大字体
+        style = ttk.Style()
+        style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
+        style.configure("TNotebook", tabmargins=[5, 5, 5, 5])
+        
         self.machine_id = self.get_machine_id()
         self.show_card_login()
     
@@ -819,14 +824,14 @@ class TelegramFullGUI:
         # 先选择代理类型
         type_dialog = tk.Toplevel(self.root)
         type_dialog.title("选择代理类型")
-        type_dialog.geometry("300x150")
+        type_dialog.geometry("350x200")
         type_dialog.resizable(False, False)
         type_dialog.transient(self.root)
         type_dialog.grab_set()
-        self.center_window(type_dialog, 300, 150)
+        self.center_window(type_dialog, 350, 200)
         
-        ttk.Label(type_dialog, text="请选择代理类型:", font=("微软雅黑", 11)).pack(pady=20)
-        proxy_type = ttk.Combobox(type_dialog, values=["socks5", "socks4", "http", "https"], width=15)
+        ttk.Label(type_dialog, text="请选择代理类型:", font=("微软雅黑", 12)).pack(pady=25)
+        proxy_type = ttk.Combobox(type_dialog, values=["socks5", "socks4", "http", "https"], width=15, font=("微软雅黑", 11))
         proxy_type.set("socks5")
         proxy_type.pack(pady=10)
         
@@ -836,7 +841,10 @@ class TelegramFullGUI:
             result[0] = proxy_type.get()
             type_dialog.destroy()
         
-        ttk.Button(type_dialog, text="确定", command=confirm, width=12).pack(pady=15)
+        button_frame = ttk.Frame(type_dialog)
+        button_frame.pack(pady=20)
+        ttk.Button(button_frame, text="确定", command=confirm, width=12).pack(side="left", padx=15)
+        ttk.Button(button_frame, text="取消", command=type_dialog.destroy, width=12).pack(side="left", padx=15)
         
         self.root.wait_window(type_dialog)
         
