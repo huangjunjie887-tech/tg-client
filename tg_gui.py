@@ -10,7 +10,6 @@ import uuid
 import hashlib
 from datetime import datetime
 import shutil
-import sqlite3
 import random
 
 # 内置服务器地址
@@ -220,35 +219,26 @@ class TelegramFullGUI:
             info_text = f"天师府TG全能营销系统\n\n卡密状态: 已激活\n有效期至: {self.card_info.get('expire_date', '永久')}\n设备绑定: 已绑定\n\n联系客服: @Tian2547"
             self.show_centered_info("卡密信息", info_text)
     
-    def check_session_valid(self, session_path):
-        """检测session文件是否有效"""
+    def read_account_from_json(self, json_path):
+        """读取JSON文件中的账号信息"""
         try:
-            conn = sqlite3.connect(session_path)
-            cursor = conn.cursor()
-            
-            # 检查sessions表是否有auth_key
-            cursor.execute("SELECT auth_key FROM sessions")
-            auth_row = cursor.fetchone()
-            
-            if not auth_row or not auth_row[0]:
-                conn.close()
-                return {'valid': False, 'reason': 'auth_key为空，session已失效'}
-            
-            # 检查entities表是否有数据
-            cursor.execute("SELECT name FROM entities")
-            name_row = cursor.fetchone()
-            
-            conn.close()
-            
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
             return {
                 'valid': True,
-                'name': name_row[0] if name_row else None,
-                'reason': '有效'
+                'phone': data.get('phone', ''),
+                'first_name': data.get('first_name', ''),
+                'last_name': data.get('last_name', ''),
+                'register_time': data.get('register_time', 0),
+                'twoFA': data.get('twoFA', ''),
+                'proxy': data.get('proxy', ''),
+                'app_id': data.get('app_id', 0),
+                'app_hash': data.get('app_hash', ''),
+                'avatar': data.get('avatar', ''),
+                'block': data.get('block', False)
             }
-        except sqlite3.DatabaseError as e:
-            return {'valid': False, 'reason': f'数据库损坏: {str(e)}'}
         except Exception as e:
-            return {'valid': False, 'reason': f'读取失败: {str(e)}'}
+            return {'valid': False, 'error': str(e)}
     
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
@@ -451,12 +441,17 @@ class TelegramFullGUI:
         
         self.log(f"开始扫描账号文件夹: {folder}")
         
+        # 查找所有 .session 和 .json 文件对
         session_files = []
+        json_files = {}
+        
         for root_dir, dirs, files in os.walk(folder):
             for file in files:
                 if file.endswith(".session"):
                     session_files.append(os.path.join(root_dir, file))
-                    self.log(f"发现session文件: {file}")
+                elif file.endswith(".json"):
+                    phone = file.replace(".json", "")
+                    json_files[phone] = os.path.join(root_dir, file)
         
         if not session_files:
             self.log("未找到任何.session文件")
@@ -468,8 +463,15 @@ class TelegramFullGUI:
             filename = os.path.basename(session_path)
             phone = filename.replace(".session", "")
             
-            # 检测session有效性
-            valid_info = self.check_session_valid(session_path)
+            # 查找对应的json文件
+            json_path = json_files.get(phone)
+            account_info = None
+            
+            if json_path:
+                account_info = self.read_account_from_json(json_path)
+                self.log(f"找到JSON文件: {phone}.json")
+            else:
+                self.log(f"警告: 未找到 {phone}.json 文件，部分信息可能缺失")
             
             exists = False
             for acc in self.accounts:
@@ -481,20 +483,29 @@ class TelegramFullGUI:
                 self.log(f"跳过重复账号: {phone}")
                 continue
             
+            nickname = ""
+            register_time = ""
+            if account_info and account_info.get('valid'):
+                first_name = account_info.get('first_name', '')
+                last_name = account_info.get('last_name', '')
+                nickname = f"{first_name} {last_name}".strip() if first_name or last_name else phone
+                reg_ts = account_info.get('register_time', 0)
+                if reg_ts:
+                    register_time = datetime.fromtimestamp(reg_ts).strftime("%Y-%m-%d")
+            
             self.accounts.append({
                 "phone": phone,
-                "nickname": valid_info.get('name', '待获取') if valid_info.get('valid') else '无效',
+                "nickname": nickname if nickname else "待获取",
                 "group": target_group,
-                "status": "有效" if valid_info.get('valid') else valid_info.get('reason', '无效'),
-                "register_time": "未知",
+                "status": "有效",
+                "register_time": register_time if register_time else "未知",
                 "session_path": session_path,
-                "proxy": ""
+                "json_path": json_path,
+                "account_info": account_info,
+                "proxy": account_info.get('proxy', '') if account_info else ''
             })
             count += 1
-            if valid_info.get('valid'):
-                self.log(f"导入账号: {phone} - 有效, 昵称: {valid_info.get('name', '无')}")
-            else:
-                self.log(f"导入账号: {phone} - {valid_info.get('reason', '无效')}")
+            self.log(f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
         
         self.refresh_account_list()
         self.log(f"导入 {count} 个账号到分组「{target_group}」")
@@ -502,37 +513,39 @@ class TelegramFullGUI:
             self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
     
     def read_all_accounts(self):
-        """读取所有账号信息并检测有效性"""
-        self.log(f"开始检测 {len(self.accounts)} 个账号...")
+        """读取所有账号信息"""
+        self.log(f"开始读取 {len(self.accounts)} 个账号信息...")
         
         for idx, acc in enumerate(self.accounts, 1):
             phone = acc.get('phone', '')
-            session_path = acc.get('session_path', '')
+            json_path = acc.get('json_path', '')
             
-            self.log(f"[{idx}/{len(self.accounts)}] 正在检测账号: {phone}")
+            self.log(f"[{idx}/{len(self.accounts)}] 正在读取账号: {phone}")
             
-            if not session_path or not os.path.exists(session_path):
-                acc['status'] = '文件不存在'
-                self.log(f"❌ {phone}: session文件不存在")
-                self.refresh_account_list()
-                continue
-            
-            valid_info = self.check_session_valid(session_path)
-            
-            if valid_info.get('valid'):
-                acc['nickname'] = valid_info.get('name', phone)
-                acc['status'] = '有效'
-                self.log(f"✅ {phone}: 有效, 昵称: {valid_info.get('name', '无')}")
+            if json_path and os.path.exists(json_path):
+                account_info = self.read_account_from_json(json_path)
+                if account_info and account_info.get('valid'):
+                    first_name = account_info.get('first_name', '')
+                    last_name = account_info.get('last_name', '')
+                    nickname = f"{first_name} {last_name}".strip() if first_name or last_name else phone
+                    acc['nickname'] = nickname
+                    reg_ts = account_info.get('register_time', 0)
+                    if reg_ts:
+                        acc['register_time'] = datetime.fromtimestamp(reg_ts).strftime("%Y-%m-%d")
+                    acc['proxy'] = account_info.get('proxy', '')
+                    acc['account_info'] = account_info
+                    acc['status'] = '有效'
+                    self.log(f"✅ {phone}: 昵称: {nickname}")
+                else:
+                    self.log(f"⚠️ {phone}: JSON文件无效")
             else:
-                acc['nickname'] = '无效'
-                acc['status'] = valid_info.get('reason', '已过期')
-                self.log(f"❌ {phone}: {valid_info.get('reason', '已过期')}")
+                self.log(f"⚠️ {phone}: 未找到JSON文件")
             
             self.refresh_account_list()
             time.sleep(0.1)
         
-        self.log("账号检测完成")
-        self.show_centered_info("检测完成", f"已检测 {len(self.accounts)} 个账号")
+        self.log("账号信息读取完成")
+        self.show_centered_info("读取完成", f"已读取 {len(self.accounts)} 个账号信息")
     
     def refresh_account_list(self):
         for item in self.account_tree.get_children():
@@ -545,7 +558,7 @@ class TelegramFullGUI:
                 acc.get('nickname', ''),
                 acc.get('current_task', ''),
                 acc.get('last_action', ''),
-                acc.get('status', '待检测'), 
+                acc.get('status', '待读取'), 
                 acc.get('register_time', '未知'),
                 acc.get('proxy', '未设置')
             ))
@@ -562,16 +575,16 @@ class TelegramFullGUI:
             self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
     
     def delete_dead_accounts(self):
-        dead_indices = [i for i, acc in enumerate(self.accounts) if acc.get('status') == '销号' or acc.get('status') == '已过期']
+        dead_indices = [i for i, acc in enumerate(self.accounts) if acc.get('status') == '销号']
         if dead_indices:
             def do_delete():
                 for idx in sorted(dead_indices, reverse=True):
                     self.accounts.pop(idx)
                 self.refresh_account_list()
-                self.log(f"删除 {len(dead_indices)} 个已失效账号")
-            self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已失效账号？", do_delete)
+                self.log(f"删除 {len(dead_indices)} 个已销号账号")
+            self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已销号账号？", do_delete)
         else:
-            self.show_centered_info("提示", "没有发现已失效的账号")
+            self.show_centered_info("提示", "没有发现已销号的账号")
     
     # ==================== 代理IP页面 ====================
     def create_proxy_page(self):
@@ -759,11 +772,6 @@ class TelegramFullGUI:
             self.log("未找到账号")
             return
         
-        if acc.get('status') != '有效':
-            self.log(f"账号无效: {acc.get('status')}，无法采集")
-            self.show_centered_warning("提示", f"账号无效: {acc.get('status')}\n请使用有效的session文件")
-            return
-        
         self.log(f"开始采集: {group} (数量: {limit}) 使用账号: {account_phone}")
         
         # 模拟采集（实际使用时替换为真实API调用）
@@ -837,11 +845,6 @@ class TelegramFullGUI:
         
         if not acc:
             self.log("未找到账号")
-            return
-        
-        if acc.get('status') != '有效':
-            self.log(f"账号无效: {acc.get('status')}，无法拉人")
-            self.show_centered_warning("提示", f"账号无效: {acc.get('status')}\n请使用有效的session文件")
             return
         
         with open("members.json", "r") as f:
@@ -936,11 +939,6 @@ class TelegramFullGUI:
             self.log("未找到账号")
             return
         
-        if acc.get('status') != '有效':
-            self.log(f"账号无效: {acc.get('status')}，无法群发")
-            self.show_centered_warning("提示", f"账号无效: {acc.get('status')}\n请使用有效的session文件")
-            return
-        
         with open("members.json", "r") as f:
             members = json.load(f)
         
@@ -1018,11 +1016,6 @@ class TelegramFullGUI:
         
         if not acc:
             self.log("未找到账号")
-            return
-        
-        if acc.get('status') != '有效':
-            self.log(f"账号无效: {acc.get('status')}，无法启动炒群")
-            self.show_centered_warning("提示", f"账号无效: {acc.get('status')}\n请使用有效的session文件")
             return
         
         self.log(f"启动炒群: {group} 使用账号: {account_phone}")
@@ -1234,7 +1227,7 @@ class TelegramFullGUI:
     
     def export_config(self):
         config = {
-            "accounts": [{"phone": a.get('phone'), "group": a.get('group'), "session_path": a.get('session_path')} for a in self.accounts],
+            "accounts": [{"phone": a.get('phone'), "group": a.get('group'), "session_path": a.get('session_path'), "json_path": a.get('json_path')} for a in self.accounts],
             "proxies": self.proxies,
             "groups": self.groups
         }
