@@ -262,6 +262,16 @@ class TelegramFullGUI:
         account_info = acc.get('account_info', {})
         return account_info.get('twoFA', '')
     
+    def refresh_scrape_accounts(self):
+        """刷新采集页面账号下拉框"""
+        if hasattr(self, 'scrape_account'):
+            account_list = [a.get('phone', '') for a in self.accounts if a.get('status') == '正常']
+            self.scrape_account['values'] = account_list
+            if account_list:
+                self.scrape_account.set(account_list[0])
+            else:
+                self.scrape_account.set('')
+    
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
@@ -531,6 +541,7 @@ class TelegramFullGUI:
             self.log(f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
         
         self.refresh_account_list()
+        self.refresh_scrape_accounts()
         self.log(f"导入 {count} 个账号到分组「{target_group}」")
         if count > 0:
             self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
@@ -638,6 +649,7 @@ class TelegramFullGUI:
         loop.close()
         
         self.root.after(0, self.refresh_account_list)
+        self.root.after(0, self.refresh_scrape_accounts)
         return result
     
     def login_and_check_all(self):
@@ -686,6 +698,7 @@ class TelegramFullGUI:
                 for idx in indices:
                     self.accounts.pop(idx)
                 self.refresh_account_list()
+                self.refresh_scrape_accounts()
                 self.log(f"删除 {len(selected)} 个选中账号")
             self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
     
@@ -697,6 +710,7 @@ class TelegramFullGUI:
                 for idx in sorted(dead_indices, reverse=True):
                     self.accounts.pop(idx)
                 self.refresh_account_list()
+                self.refresh_scrape_accounts()
                 self.log(f"删除 {len(dead_indices)} 个已失效账号")
             self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已失效账号？", do_delete)
         else:
@@ -897,6 +911,10 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
         
+        # 创建默认保存目录
+        self.default_save_dir = os.path.join(os.getcwd(), "scraped_data")
+        os.makedirs(self.default_save_dir, exist_ok=True)
+        
         # 主设置框架
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -912,26 +930,29 @@ class TelegramFullGUI:
         
         # 选择采集账号
         ttk.Label(left_frame, text="选择采集账号:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.scrape_account = ttk.Combobox(left_frame, values=[a.get('phone', '') for a in self.accounts], width=40)
+        self.scrape_account = ttk.Combobox(left_frame, width=40)
         self.scrape_account.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
+        
+        # 刷新账号按钮
+        ttk.Button(left_frame, text="刷新账号列表", command=self.refresh_scrape_accounts, width=12).grid(row=2, column=1, sticky="w", padx=5, pady=2)
         
         # 公开群选项
         self.is_public_group = tk.BooleanVar()
-        ttk.Checkbutton(left_frame, text="公开群选项", variable=self.is_public_group).grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        ttk.Checkbutton(left_frame, text="公开群选项", variable=self.is_public_group).grid(row=3, column=1, sticky="w", padx=5, pady=5)
         
         # 采集隐藏成员
         self.scrape_hidden = tk.BooleanVar()
-        ttk.Checkbutton(left_frame, text="采集隐藏成员（私密群发言用户）", variable=self.scrape_hidden).grid(row=3, column=1, sticky="w", padx=5, pady=5)
+        ttk.Checkbutton(left_frame, text="采集隐藏成员（私密群发言用户）", variable=self.scrape_hidden).grid(row=4, column=1, sticky="w", padx=5, pady=5)
         
         # 在线天数筛选
-        ttk.Label(left_frame, text="在线天数筛选:").grid(row=4, column=0, sticky="w", padx=5, pady=5)
+        ttk.Label(left_frame, text="在线天数筛选:").grid(row=5, column=0, sticky="w", padx=5, pady=5)
         self.online_filter = ttk.Combobox(left_frame, values=["不限", "1天内", "3天内", "7天内", "15天内", "30天内"], width=15)
         self.online_filter.set("不限")
-        self.online_filter.grid(row=4, column=1, sticky="w", padx=5, pady=5)
+        self.online_filter.grid(row=5, column=1, sticky="w", padx=5, pady=5)
         
         # 过滤选项框架
         filter_frame = ttk.LabelFrame(left_frame, text="过滤选项")
-        filter_frame.grid(row=5, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
+        filter_frame.grid(row=6, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
         
         self.filter_admin = tk.BooleanVar()
         ttk.Checkbutton(filter_frame, text="过滤管理员", variable=self.filter_admin).grid(row=0, column=0, sticky="w", padx=10, pady=5)
@@ -949,7 +970,7 @@ class TelegramFullGUI:
         
         # 保存设置
         save_frame = ttk.LabelFrame(left_frame, text="保存设置")
-        save_frame.grid(row=6, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
+        save_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
         
         ttk.Label(save_frame, text="保存格式:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.save_format = ttk.Combobox(save_frame, values=["TXT", "JSON"], width=10)
@@ -958,14 +979,11 @@ class TelegramFullGUI:
         
         ttk.Label(save_frame, text="保存路径:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.save_path = ttk.Entry(save_frame, width=35)
+        self.save_path.insert(0, self.default_save_dir)
         self.save_path.grid(row=1, column=1, padx=5, pady=5)
         ttk.Button(save_frame, text="浏览", command=self.select_save_path, width=8).grid(row=1, column=2, padx=5)
         
-        # 采集数量
-        ttk.Label(left_frame, text="采集数量:").grid(row=7, column=0, sticky="w", padx=5, pady=5)
-        self.scrape_limit = ttk.Entry(left_frame, width=15)
-        self.scrape_limit.insert(0, "500")
-        self.scrape_limit.grid(row=7, column=1, sticky="w", padx=5, pady=5)
+        ttk.Label(save_frame, text="提示: 不选路径则默认保存到软件目录下的 scraped_data 文件夹", font=("微软雅黑", 8), foreground="gray").grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
         
         # 按钮
         btn_frame = ttk.Frame(left_frame)
@@ -995,6 +1013,9 @@ class TelegramFullGUI:
         
         self.is_scraping = False
         self.scraped_members = []
+        
+        # 初始刷新账号列表
+        self.refresh_scrape_accounts()
     
     def select_save_path(self):
         folder = filedialog.askdirectory(title="选择保存目录")
@@ -1021,7 +1042,7 @@ class TelegramFullGUI:
         
         if not account_phone:
             self.log("请选择采集账号")
-            self.show_centered_warning("提示", "请选择采集账号")
+            self.show_centered_warning("提示", "请先登录账号并刷新账号列表")
             return
         
         # 查找账号
@@ -1032,7 +1053,8 @@ class TelegramFullGUI:
                 break
         
         if not acc:
-            self.log("未找到账号")
+            self.log("未找到账号，请刷新账号列表")
+            self.show_centered_warning("提示", "未找到账号，请刷新账号列表")
             return
         
         if acc.get('status') != '正常':
@@ -1043,8 +1065,11 @@ class TelegramFullGUI:
         # 获取保存路径
         save_dir = self.save_path.get().strip()
         if not save_dir:
-            save_dir = os.getcwd()
+            save_dir = self.default_save_dir
             self.save_path.insert(0, save_dir)
+        
+        # 确保目录存在
+        os.makedirs(save_dir, exist_ok=True)
         
         # 解析群组链接
         if 't.me/' in group:
@@ -1074,12 +1099,6 @@ class TelegramFullGUI:
         elif online_filter_text == "30天内":
             online_days = 30
         
-        # 获取采集数量限制
-        try:
-            limit = int(self.scrape_limit.get())
-        except:
-            limit = 500
-        
         self.is_scraping = True
         self.scraped_members = []
         self.preview_tree.delete(*self.preview_tree.get_children())
@@ -1090,6 +1109,7 @@ class TelegramFullGUI:
         
         self.log(f"开始采集群成员: {group_username}")
         self.log(f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
+        self.log(f"保存路径: {save_dir}")
         
         async def do_scrape():
             client = None
@@ -1111,12 +1131,6 @@ class TelegramFullGUI:
                     self.log(f"获取群组失败: {str(e)}")
                     return
                 
-                # 获取群组信息
-                try:
-                    full_chat = await client(GetFullUserRequest(entity.id)) if hasattr(entity, 'id') else None
-                except:
-                    pass
-                
                 # 获取管理员列表（用于过滤）
                 admin_ids = set()
                 if self.filter_admin.get():
@@ -1128,10 +1142,10 @@ class TelegramFullGUI:
                         self.log(f"获取管理员列表失败: {str(e)}")
                 
                 count = 0
-                offset = 0
                 
-                # 采集成员
-                async for user in client.iter_participants(entity, limit=limit):
+                # 采集成员 - 无数量限制，直到采集完为止
+                self.log("开始采集成员（无数量限制，直到采集完毕）...")
+                async for user in client.iter_participants(entity):
                     if not self.is_scraping:
                         break
                     
@@ -1204,10 +1218,14 @@ class TelegramFullGUI:
                     self.scraped_members.append(member_info)
                     count += 1
                     
-                    # 更新预览
-                    self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
+                    # 更新预览（每10个更新一次，避免界面卡顿）
+                    if count % 10 == 0:
+                        self.root.after(0, lambda c=count: self.scrape_stats.config(text=f"已采集: {c} 人"))
+                        self.root.after(0, lambda info=member_info, c=count: self.update_preview(c, info))
+                    else:
+                        self.root.after(0, lambda info=member_info, c=count: self.update_preview(c, info))
                     
-                    await asyncio.sleep(0.1)  # 避免请求过快
+                    await asyncio.sleep(0.05)  # 避免请求过快
                 
                 self.log(f"采集完成，共采集 {len(self.scraped_members)} 个成员")
                 
@@ -1312,7 +1330,7 @@ class TelegramFullGUI:
             return
         
         # 查找最新的采集文件
-        save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') else os.getcwd()
+        save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') and self.save_path.get() else self.default_save_dir
         json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
         if not json_files:
             self.log("请先采集群成员")
@@ -1464,7 +1482,7 @@ class TelegramFullGUI:
             return
         
         # 查找最新的采集文件
-        save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') else os.getcwd()
+        save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') and self.save_path.get() else self.default_save_dir
         json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
         if not json_files:
             self.log("请先采集群成员")
@@ -1902,6 +1920,7 @@ class TelegramFullGUI:
                 self.groups = ["默认分组"]
             self.refresh_account_list()
             self.refresh_proxy_list()
+            self.refresh_scrape_accounts()
             self.log("配置已导入")
     
     def about(self):
