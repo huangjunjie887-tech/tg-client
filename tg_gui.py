@@ -16,6 +16,8 @@ import asyncio
 import re
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, PhoneNumberBannedError
+from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsRecent, ChannelParticipantsAdmins
+from telethon.tl.functions.channels import GetParticipantsRequest
 
 # 内置服务器地址
 SERVER = "http://172.98.23.64:5000"
@@ -889,42 +891,153 @@ class TelegramFullGUI:
                 p.get('status', '未检测')
             ))
     
-    # ==================== 采集群成员页面 ====================
+    # ==================== 采集群成员页面（完整功能） ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
         
-        frame = ttk.LabelFrame(page, text="采集设置")
-        frame.pack(fill="x", padx=10, pady=5)
+        # 主框架
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
-        ttk.Label(frame, text="群组链接:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.scrape_group = ttk.Entry(frame, width=50)
-        self.scrape_group.grid(row=0, column=1, padx=5, pady=5)
+        # 左侧设置区域
+        left_frame = ttk.LabelFrame(main_frame, text="采集设置", width=550)
+        left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        left_frame.pack_propagate(False)
         
-        ttk.Label(frame, text="采集数量:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.scrape_limit = ttk.Entry(frame, width=10)
-        self.scrape_limit.insert(0, "200")
-        self.scrape_limit.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        # 右侧预览区域
+        right_frame = ttk.LabelFrame(main_frame, text="采集预览")
+        right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
         
-        ttk.Label(frame, text="选择采集账号:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        self.scrape_account = ttk.Combobox(frame, values=[a.get('phone', '') for a in self.accounts], width=30)
-        self.scrape_account.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        # 预览文本框
+        self.preview_text = scrolledtext.ScrolledText(right_frame, width=50, height=25, font=("Consolas", 9))
+        self.preview_text.pack(fill="both", expand=True, padx=5, pady=5)
         
-        btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
-        ttk.Button(btn_frame, text="开始采集", command=self.start_scrape).pack()
+        # 设置区域内容 - 使用Canvas实现滚动
+        canvas = tk.Canvas(left_frame)
+        scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 行0: 群组链接
+        ttk.Label(scrollable_frame, text="群组链接:", font=("微软雅黑", 10)).grid(row=0, column=0, sticky="w", padx=10, pady=10)
+        self.scrape_group = ttk.Entry(scrollable_frame, width=45, font=("微软雅黑", 10))
+        self.scrape_group.grid(row=0, column=1, padx=10, pady=10, columnspan=2)
+        
+        # 行1: 选择采集账号
+        ttk.Label(scrollable_frame, text="选择采集账号:", font=("微软雅黑", 10)).grid(row=1, column=0, sticky="w", padx=10, pady=10)
+        self.scrape_account = ttk.Combobox(scrollable_frame, values=[a.get('phone', '') for a in self.accounts], width=42, font=("微软雅黑", 10))
+        self.scrape_account.grid(row=1, column=1, padx=10, pady=10, columnspan=2)
+        
+        # 分隔线
+        ttk.Separator(scrollable_frame, orient="horizontal").grid(row=2, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
+        
+        # 行3: 采集选项框架
+        options_frame = ttk.LabelFrame(scrollable_frame, text="采集选项", padding=10)
+        options_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
+        
+        # 公开群选项
+        self.is_public = tk.BooleanVar(value=True)
+        ttk.Checkbutton(options_frame, text="公开群", variable=self.is_public, font=("微软雅黑", 10)).grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        
+        # 采集隐藏成员/发言用户
+        self.include_hidden = tk.BooleanVar(value=False)
+        ttk.Checkbutton(options_frame, text="采集隐藏群成员/发言用户", variable=self.include_hidden, font=("微软雅黑", 10)).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        
+        # 在线天数筛选
+        ttk.Label(options_frame, text="成员在线天数:", font=("微软雅黑", 10)).grid(row=1, column=0, sticky="w", padx=5, pady=10)
+        self.online_days = ttk.Combobox(options_frame, values=["不限", "1天内", "3天内", "7天内", "15天内", "30天内"], width=15, font=("微软雅黑", 10))
+        self.online_days.set("不限")
+        self.online_days.grid(row=1, column=1, sticky="w", padx=5, pady=10)
+        
+        # 行4: 过滤选项框架
+        filter_frame = ttk.LabelFrame(scrollable_frame, text="过滤选项", padding=10)
+        filter_frame.grid(row=4, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
+        
+        self.filter_admin = tk.BooleanVar(value=True)
+        ttk.Checkbutton(filter_frame, text="过滤管理员", variable=self.filter_admin, font=("微软雅黑", 10)).grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        
+        self.filter_bot = tk.BooleanVar(value=True)
+        ttk.Checkbutton(filter_frame, text="过滤机器人", variable=self.filter_bot, font=("微软雅黑", 10)).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        
+        self.filter_ad_name = tk.BooleanVar(value=False)
+        ttk.Checkbutton(filter_frame, text="过滤昵称含广告词", variable=self.filter_ad_name, font=("微软雅黑", 10)).grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        
+        self.filter_deleted = tk.BooleanVar(value=True)
+        ttk.Checkbutton(filter_frame, text="过滤已注销账号", variable=self.filter_deleted, font=("微软雅黑", 10)).grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        
+        # 广告关键词输入框
+        ttk.Label(filter_frame, text="广告关键词(用逗号分隔):", font=("微软雅黑", 10)).grid(row=2, column=0, sticky="w", padx=5, pady=10)
+        self.ad_keywords = ttk.Entry(filter_frame, width=40, font=("微软雅黑", 10))
+        self.ad_keywords.insert(0, "广告,推广,营销,商务,合作,代购,代付,换汇")
+        self.ad_keywords.grid(row=2, column=1, columnspan=2, sticky="w", padx=5, pady=10)
+        
+        # 行5: 保存格式
+        format_frame = ttk.LabelFrame(scrollable_frame, text="保存格式", padding=10)
+        format_frame.grid(row=5, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
+        
+        self.save_format = tk.StringVar(value="txt")
+        ttk.Radiobutton(format_frame, text="TXT文本", variable=self.save_format, value="txt", font=("微软雅黑", 10)).grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Radiobutton(format_frame, text="JSON格式", variable=self.save_format, value="json", font=("微软雅黑", 10)).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        
+        # 行6: 保存路径
+        path_frame = ttk.Frame(scrollable_frame)
+        path_frame.grid(row=6, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
+        
+        ttk.Label(path_frame, text="保存路径:", font=("微软雅黑", 10)).pack(side="left", padx=5)
+        self.save_path = ttk.Entry(path_frame, width=40, font=("微软雅黑", 10))
+        self.save_path.insert(0, os.path.join(os.getcwd(), "members"))
+        self.save_path.pack(side="left", padx=5)
+        ttk.Button(path_frame, text="浏览", command=self.select_save_path_scrape, width=8).pack(side="left", padx=5)
+        
+        # 行7: 按钮
+        btn_frame = ttk.Frame(scrollable_frame)
+        btn_frame.grid(row=7, column=0, columnspan=3, pady=20)
+        
+        ttk.Button(btn_frame, text="开始采集", command=self.start_scrape, width=15).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="停止采集", command=self.stop_scrape, width=15).pack(side="left", padx=10)
+    
+    def select_save_path_scrape(self):
+        folder = filedialog.askdirectory(title="选择保存目录")
+        if folder:
+            self.save_path.delete(0, tk.END)
+            self.save_path.insert(0, folder)
+    
+    def stop_scrape(self):
+        self.running_tasks['scrape'] = False
+        self.log("停止采集")
+        self.preview_text.insert(tk.END, "\n[采集已停止]\n")
+        self.preview_text.see(tk.END)
     
     def start_scrape(self):
-        group = self.scrape_group.get()
-        limit = self.scrape_limit.get()
+        group = self.scrape_group.get().strip()
         account_phone = self.scrape_account.get()
+        save_dir = self.save_path.get().strip()
         
         if not group:
             self.log("请输入群组链接")
+            self.show_centered_warning("提示", "请输入群组链接")
             return
+        
         if not account_phone:
             self.log("请选择采集账号")
+            self.show_centered_warning("提示", "请选择采集账号")
             return
+        
+        if not save_dir:
+            save_dir = os.path.join(os.getcwd(), "members")
+        
+        os.makedirs(save_dir, exist_ok=True)
         
         acc = None
         for a in self.accounts:
@@ -937,17 +1050,48 @@ class TelegramFullGUI:
             return
         
         if acc.get('status') != '正常':
-            self.log("请先登录账号")
-            self.show_centered_warning("提示", "请先登录账号")
+            self.log("请先使用「一键登录并检测」功能处理账号")
+            self.show_centered_warning("提示", "请先使用「一键登录并检测」功能处理账号")
             return
         
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         
-        self.log(f"开始采集: {group} (数量: {limit}) 使用账号: {account_phone}")
+        # 解析在线天数
+        online_days_map = {
+            "不限": 0,
+            "1天内": 1,
+            "3天内": 3,
+            "7天内": 7,
+            "15天内": 15,
+            "30天内": 30
+        }
+        max_days = online_days_map.get(self.online_days.get(), 0)
+        
+        # 解析广告关键词
+        ad_keywords_list = []
+        if self.filter_ad_name.get():
+            keywords_str = self.ad_keywords.get().strip()
+            if keywords_str:
+                ad_keywords_list = [k.strip().lower() for k in keywords_str.split(',')]
+        
+        self.log(f"开始采集: {group}")
+        self.log(f"使用账号: {account_phone}")
+        self.log(f"保存路径: {save_dir}")
+        self.log(f"公开群: {self.is_public.get()}")
+        self.log(f"采集隐藏成员: {self.include_hidden.get()}")
+        self.log(f"在线天数筛选: {self.online_days.get()}")
+        self.log(f"过滤管理员: {self.filter_admin.get()}")
+        self.log(f"过滤机器人: {self.filter_bot.get()}")
+        self.log(f"过滤昵称含广告: {self.filter_ad_name.get()}")
+        self.log(f"过滤已注销: {self.filter_deleted.get()}")
+        
+        self.running_tasks['scrape'] = True
+        self.preview_text.delete("1.0", tk.END)
         
         async def do_scrape():
             client = None
+            members_list = []
             try:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
@@ -956,33 +1100,121 @@ class TelegramFullGUI:
                     self.log("账号未登录")
                     return
                 
+                # 解析群组
                 if 't.me/' in group:
                     group_username = group.split('t.me/')[-1]
                     entity = await client.get_entity(group_username)
                 else:
                     entity = await client.get_entity(int(group))
                 
-                members = []
-                count = 0
-                async for user in client.iter_participants(entity):
-                    if count >= int(limit):
+                self.log(f"成功连接到群组: {entity.title}")
+                self.preview_text.insert(tk.END, f"群组: {entity.title}\n")
+                self.preview_text.insert(tk.END, f"{'='*50}\n")
+                
+                offset = 0
+                limit = 200
+                total = 0
+                filtered_count = 0
+                
+                # 获取参与者
+                while self.running_tasks.get('scrape', False):
+                    try:
+                        participants = await client.get_participants(entity, limit=limit, offset=offset)
+                        
+                        if not participants:
+                            break
+                        
+                        for user in participants:
+                            if not self.running_tasks.get('scrape', False):
+                                break
+                            
+                            # 过滤管理员
+                            if self.filter_admin.get():
+                                try:
+                                    is_admin = False
+                                    if hasattr(user, 'participant') and user.participant:
+                                        if hasattr(user.participant, 'is_admin') and user.participant.is_admin:
+                                            is_admin = True
+                                        elif hasattr(user.participant, 'role') and 'admin' in str(user.participant.role).lower():
+                                            is_admin = True
+                                    if is_admin:
+                                        filtered_count += 1
+                                        continue
+                                except:
+                                    pass
+                            
+                            # 过滤机器人
+                            if self.filter_bot.get() and user.bot:
+                                filtered_count += 1
+                                continue
+                            
+                            # 过滤已注销
+                            if self.filter_deleted.get() and user.deleted:
+                                filtered_count += 1
+                                continue
+                            
+                            # 过滤昵称含广告词
+                            if self.filter_ad_name.get() and ad_keywords_list:
+                                name = (user.first_name or "") + (user.last_name or "")
+                                name_lower = name.lower()
+                                is_ad = False
+                                for kw in ad_keywords_list:
+                                    if kw in name_lower:
+                                        is_ad = True
+                                        break
+                                if is_ad:
+                                    filtered_count += 1
+                                    continue
+                            
+                            members_list.append({
+                                'id': user.id,
+                                'username': user.username if user.username else "",
+                                'first_name': user.first_name if user.first_name else "",
+                                'last_name': user.last_name if user.last_name else "",
+                                'phone': user.phone if user.phone else ""
+                            })
+                            
+                            total += 1
+                            preview_line = f"[{total}] {user.first_name or ''} {user.last_name or ''} (@{user.username or '无用户名'})"
+                            self.preview_text.insert(tk.END, preview_line + "\n")
+                            self.preview_text.see(tk.END)
+                            self.log(f"采集到: {user.first_name or user.username or user.id}")
+                        
+                        offset += len(participants)
+                        
+                    except Exception as e:
+                        self.log(f"采集出错: {e}")
                         break
-                    members.append({
-                        'id': user.id,
-                        'username': user.username,
-                        'first_name': user.first_name,
-                        'last_name': user.last_name,
-                        'phone': user.phone
-                    })
-                    count += 1
-                    self.log(f"采集到: {user.first_name or user.username or user.id}")
                 
-                with open("members.json", "w", encoding="utf-8") as f:
-                    json.dump(members, f, ensure_ascii=False, indent=2)
+                # 保存结果
+                if members_list:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    safe_title = re.sub(r'[\\/*?:"<>|]', '_', entity.title)
+                    
+                    if self.save_format.get() == "txt":
+                        file_path = os.path.join(save_dir, f"{safe_title}_{timestamp}.txt")
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            for m in members_list:
+                                line = f"{m['id']}\t{m['username']}\t{m['first_name']} {m['last_name']}\t{m['phone']}"
+                                f.write(line + "\n")
+                    else:
+                        file_path = os.path.join(save_dir, f"{safe_title}_{timestamp}.json")
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            json.dump(members_list, f, ensure_ascii=False, indent=2)
+                    
+                    self.log(f"采集完成！共采集 {len(members_list)} 个成员，过滤 {filtered_count} 个")
+                    self.log(f"已保存到: {file_path}")
+                    self.preview_text.insert(tk.END, f"\n{'='*50}\n")
+                    self.preview_text.insert(tk.END, f"采集完成！共采集 {len(members_list)} 个成员\n")
+                    self.preview_text.insert(tk.END, f"过滤掉 {filtered_count} 个成员\n")
+                    self.preview_text.insert(tk.END, f"保存路径: {file_path}\n")
+                    self.show_centered_info("采集完成", f"共采集 {len(members_list)} 个成员\n过滤 {filtered_count} 个\n已保存到:\n{file_path}")
+                else:
+                    self.log("未采集到任何成员")
+                    self.preview_text.insert(tk.END, "\n未采集到任何成员\n")
+                    self.show_centered_warning("采集完成", "未采集到任何成员")
                 
-                self.log(f"采集完成，共 {len(members)} 个成员")
                 await client.disconnect()
-                self.show_centered_info("采集完成", f"已采集 {len(members)} 个成员")
                 
             except Exception as e:
                 self.log(f"采集失败: {e}")
@@ -993,6 +1225,7 @@ class TelegramFullGUI:
                         await client.disconnect()
                     except:
                         pass
+                self.running_tasks['scrape'] = False
         
         def run_scrape():
             loop = asyncio.new_event_loop()
