@@ -16,8 +16,8 @@ import asyncio
 import re
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, PhoneNumberBannedError
-from telethon.tl.functions.channels import GetParticipantsRequest
-from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots
+from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
+from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline
 
@@ -912,10 +912,6 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
         
-        # 固定保存目录
-        self.default_save_dir = r"C:\Users\Administrator\TG_Scraped_Data"
-        os.makedirs(self.default_save_dir, exist_ok=True)
-        
         # 主设置框架
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -941,9 +937,9 @@ class TelegramFullGUI:
         self.is_public_group = tk.BooleanVar()
         ttk.Checkbutton(left_frame, text="公开群选项", variable=self.is_public_group).grid(row=3, column=1, sticky="w", padx=5, pady=5)
         
-        # 采集隐藏成员
-        self.scrape_hidden = tk.BooleanVar()
-        ttk.Checkbutton(left_frame, text="采集隐藏成员（私密群发言用户）", variable=self.scrape_hidden).grid(row=4, column=1, sticky="w", padx=5, pady=5)
+        # 采集隐藏成员（强制采集所有成员）
+        self.scrape_hidden = tk.BooleanVar(value=True)
+        ttk.Checkbutton(left_frame, text="采集隐藏成员（强制获取所有成员）", variable=self.scrape_hidden).grid(row=4, column=1, sticky="w", padx=5, pady=5)
         
         # 在线天数筛选
         ttk.Label(left_frame, text="在线天数筛选:").grid(row=5, column=0, sticky="w", padx=5, pady=5)
@@ -978,7 +974,12 @@ class TelegramFullGUI:
         self.save_format.set("JSON")
         self.save_format.grid(row=0, column=1, sticky="w", padx=5, pady=5)
         
-        ttk.Label(save_frame, text=f"保存路径: {self.default_save_dir}", font=("微软雅黑", 9), foreground="blue").grid(row=1, column=0, columnspan=3, sticky="w", padx=5, pady=5)
+        ttk.Label(save_frame, text="保存目录:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.save_path = ttk.Entry(save_frame, width=35)
+        self.save_path.grid(row=1, column=1, padx=5, pady=5)
+        ttk.Button(save_frame, text="浏览", command=self.select_save_path, width=8).grid(row=1, column=2, padx=5)
+        
+        ttk.Label(save_frame, text="请选择保存目录，采集完成或停止时自动保存", font=("微软雅黑", 8), foreground="blue").grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
         
         # 按钮
         btn_frame = ttk.Frame(left_frame)
@@ -1008,24 +1009,78 @@ class TelegramFullGUI:
         
         self.is_scraping = False
         self.scraped_members = []
+        self.scrape_task = None
         
         # 初始刷新账号列表
         self.refresh_scrape_accounts()
     
     def select_save_path(self):
-        # 此方法保留但不再使用，因为路径已固定
-        pass
+        """选择保存目录"""
+        folder = filedialog.askdirectory(title="选择保存目录")
+        if folder:
+            self.save_path.delete(0, tk.END)
+            self.save_path.insert(0, folder)
+            self.log(f"已设置保存目录: {folder}")
+    
+    def save_scraped_members(self, group_username, is_stop=False):
+        """保存采集的成员到文件"""
+        if not self.scraped_members:
+            if is_stop:
+                self.log("没有采集到任何成员，不保存文件")
+            return False
+        
+        save_dir = self.save_path.get().strip()
+        if not save_dir:
+            self.show_centered_warning("提示", "请先选择保存目录")
+            return False
+        
+        # 确保目录存在
+        os.makedirs(save_dir, exist_ok=True)
+        
+        save_format = self.save_format.get()
+        current_date = datetime.now().strftime('%Y%m%d')
+        current_time = datetime.now().strftime('%H%M%S')
+        action = "stop" if is_stop else "complete"
+        base_name = f"members_{group_username}_{current_date}_{current_time}_{action}"
+        
+        try:
+            if save_format == "JSON":
+                save_path = os.path.join(save_dir, f"{base_name}.json")
+                with open(save_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.scraped_members, f, ensure_ascii=False, indent=2)
+                self.log(f"已保存JSON文件: {save_path}")
+            else:
+                save_path = os.path.join(save_dir, f"{base_name}.txt")
+                with open(save_path, 'w', encoding='utf-8') as f:
+                    # 写入文件头
+                    f.write(f"# 采集时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"# 群组: {group_username}\n")
+                    f.write(f"# 采集数量: {len(self.scraped_members)}\n")
+                    f.write(f"# 状态: {'用户停止' if is_stop else '采集完成'}\n")
+                    f.write("# 格式: 用户ID | 用户名 | 昵称 | 手机号 | 在线状态\n")
+                    f.write("#" * 80 + "\n")
+                    for m in self.scraped_members:
+                        line = f"{m['id']}\t@{m['username']}\t{m['first_name']} {m['last_name']}\t{m['phone']}\t{m['online_status']}"
+                        f.write(line + "\n")
+                self.log(f"已保存TXT文件: {save_path}")
+            
+            return True
+        except Exception as e:
+            self.log(f"保存文件失败: {str(e)}")
+            return False
     
     def stop_scrape(self):
-        self.is_scraping = False
-        self.log("用户停止采集")
-    
+        """停止采集"""
+        if self.is_scraping:
+            self.is_scraping = False
+            self.log("用户停止采集，正在保存已采集的数据...")
+            # 注意：实际保存会在采集线程中完成，因为需要 group_username
+
     def get_online_status_text(self, user_status):
         """获取在线状态文本"""
         if user_status is None:
             return "未知"
         
-        # 检查是否是 UserStatusRecently 类型
         if hasattr(user_status, '__class__'):
             class_name = user_status.__class__.__name__
             if class_name == 'UserStatusRecently':
@@ -1039,7 +1094,6 @@ class TelegramFullGUI:
             elif class_name == 'UserStatusOffline':
                 return "离线"
         
-        # 兼容性检查
         if isinstance(user_status, UserStatusRecently):
             return "最近在线"
         elif isinstance(user_status, UserStatusLastWeek):
@@ -1054,7 +1108,7 @@ class TelegramFullGUI:
         return "未知"
     
     def check_online_days(self, user_status, online_days):
-        """检查用户在线天数是否符合条件，返回True表示符合"""
+        """检查用户在线天数是否符合条件"""
         if online_days is None:
             return True
         
@@ -1064,7 +1118,6 @@ class TelegramFullGUI:
         class_name = user_status.__class__.__name__
         
         if class_name == 'UserStatusRecently':
-            # 最近在线，通常表示1-3天内
             return online_days >= 1
         elif class_name == 'UserStatusLastWeek':
             return online_days >= 7
@@ -1090,6 +1143,7 @@ class TelegramFullGUI:
         
         group = self.scrape_group.get().strip()
         account_phone = self.scrape_account.get()
+        save_dir = self.save_path.get().strip()
         
         if not group:
             self.log("请输入群组链接")
@@ -1099,6 +1153,11 @@ class TelegramFullGUI:
         if not account_phone:
             self.log("请选择采集账号")
             self.show_centered_warning("提示", "请先登录账号并刷新账号列表")
+            return
+        
+        if not save_dir:
+            self.log("请先选择保存目录")
+            self.show_centered_warning("提示", "请先选择保存目录")
             return
         
         # 查找账号
@@ -1118,8 +1177,7 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "请先登录账号")
             return
         
-        # 固定保存路径
-        save_dir = self.default_save_dir
+        # 确保目录存在
         os.makedirs(save_dir, exist_ok=True)
         
         # 解析群组链接
@@ -1160,7 +1218,8 @@ class TelegramFullGUI:
         
         self.log(f"开始采集群成员: {group_username}")
         self.log(f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
-        self.log(f"保存路径: {save_dir}")
+        self.log(f"保存目录: {save_dir}")
+        self.log("采集模式: 强制获取所有成员（包括隐藏成员）")
         self.log("采集规则: 只采集有用户名的成员（username不为空）")
         
         async def do_scrape():
@@ -1183,6 +1242,14 @@ class TelegramFullGUI:
                     self.log(f"获取群组失败: {str(e)}")
                     return
                 
+                # 获取群组信息
+                try:
+                    full_chat = await client(GetFullChannelRequest(entity))
+                    self.log(f"群组名称: {full_chat.chats[0].title}")
+                    self.log(f"成员总数: {full_chat.full_chat.participants_count}")
+                except Exception as e:
+                    self.log(f"获取群组信息失败: {str(e)}")
+                
                 # 获取管理员列表（用于过滤）
                 admin_ids = set()
                 if self.filter_admin.get():
@@ -1195,99 +1262,109 @@ class TelegramFullGUI:
                 
                 count = 0
                 skipped_no_username = 0
+                offset = 0
+                limit = 200  # 每次获取200个
                 
-                # 采集成员 - 无数量限制，直到采集完为止，只采集有用户名的
-                self.log("开始采集成员（只采集有用户名的成员）...")
-                async for user in client.iter_participants(entity):
-                    if not self.is_scraping:
+                self.log("开始采集成员（使用偏移量分页，可获取隐藏成员）...")
+                
+                while self.is_scraping:
+                    try:
+                        # 使用 GetParticipantsRequest 获取成员，支持偏移量
+                        participants = await client(GetParticipantsRequest(
+                            channel=entity,
+                            filter=ChannelParticipantsSearch(''),
+                            offset=offset,
+                            limit=limit,
+                            hash=0
+                        ))
+                        
+                        if not participants.users:
+                            break
+                        
+                        for user in participants.users:
+                            if not self.is_scraping:
+                                break
+                            
+                            # 只采集有用户名的用户
+                            if not user.username:
+                                skipped_no_username += 1
+                                continue
+                            
+                            # 过滤管理员
+                            if self.filter_admin.get() and user.id in admin_ids:
+                                continue
+                            
+                            # 过滤机器人
+                            if self.filter_bot.get() and user.bot:
+                                continue
+                            
+                            # 过滤已注销
+                            if self.filter_deleted.get() and user.deleted:
+                                continue
+                            
+                            # 过滤昵称含广告关键词
+                            if ad_keywords:
+                                name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
+                                if any(kw in name_lower for kw in ad_keywords):
+                                    continue
+                            
+                            # 在线天数筛选
+                            if online_days is not None:
+                                if not self.check_online_days(user.status, online_days):
+                                    continue
+                            
+                            # 获取在线状态文本
+                            online_status = self.get_online_status_text(user.status)
+                            
+                            member_info = {
+                                'id': user.id,
+                                'username': user.username,
+                                'first_name': user.first_name or "",
+                                'last_name': user.last_name or "",
+                                'phone': user.phone if hasattr(user, 'phone') and user.phone else "",
+                                'online_status': online_status,
+                                'is_admin': user.id in admin_ids,
+                                'is_bot': user.bot if hasattr(user, 'bot') else False,
+                                'deleted': user.deleted if hasattr(user, 'deleted') else False
+                            }
+                            
+                            self.scraped_members.append(member_info)
+                            count += 1
+                            
+                            # 更新预览
+                            self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
+                        
+                        offset += len(participants.users)
+                        self.log(f"已处理 {offset} 个成员，已采集 {count} 个有效成员，跳过 {skipped_no_username} 个无用户名成员")
+                        
+                        if len(participants.users) < limit:
+                            break
+                            
+                        await asyncio.sleep(0.5)  # 避免请求过快
+                        
+                    except Exception as e:
+                        self.log(f"分页获取成员失败: {str(e)}")
                         break
-                    
-                    # 只采集有用户名的用户
-                    if not user.username:
-                        skipped_no_username += 1
-                        continue
-                    
-                    # 过滤管理员
-                    if self.filter_admin.get() and user.id in admin_ids:
-                        continue
-                    
-                    # 过滤机器人
-                    if self.filter_bot.get() and user.bot:
-                        continue
-                    
-                    # 过滤已注销
-                    if self.filter_deleted.get() and user.deleted:
-                        continue
-                    
-                    # 过滤昵称含广告关键词
-                    if ad_keywords:
-                        name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
-                        if any(kw in name_lower for kw in ad_keywords):
-                            continue
-                    
-                    # 在线天数筛选
-                    if online_days is not None:
-                        if not self.check_online_days(user.status, online_days):
-                            continue
-                    
-                    # 获取在线状态文本
-                    online_status = self.get_online_status_text(user.status)
-                    
-                    member_info = {
-                        'id': user.id,
-                        'username': user.username if user.username else "",
-                        'first_name': user.first_name if user.first_name else "",
-                        'last_name': user.last_name if user.last_name else "",
-                        'phone': user.phone if hasattr(user, 'phone') and user.phone else "",
-                        'online_status': online_status,
-                        'is_admin': user.id in admin_ids,
-                        'is_bot': user.bot if hasattr(user, 'bot') else False,
-                        'deleted': user.deleted if hasattr(user, 'deleted') else False
-                    }
-                    
-                    self.scraped_members.append(member_info)
-                    count += 1
-                    
-                    # 更新预览
-                    self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
-                    
-                    await asyncio.sleep(0.05)  # 避免请求过快
                 
-                self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
+                self.log(f"采集{'停止' if not self.is_scraping else '完成'}！共采集 {len(self.scraped_members)} 个有用户名的成员")
                 self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
-                # 保存文件 - 文件名包含采集日期
-                if self.scraped_members and self.is_scraping:
-                    save_format = self.save_format.get()
-                    current_date = datetime.now().strftime('%Y%m%d')
-                    current_time = datetime.now().strftime('%H%M%S')
-                    base_name = f"members_{group_username}_{current_date}_{current_time}"
-                    
-                    if save_format == "JSON":
-                        save_path = os.path.join(save_dir, f"{base_name}.json")
-                        with open(save_path, 'w', encoding='utf-8') as f:
-                            json.dump(self.scraped_members, f, ensure_ascii=False, indent=2)
-                        self.log(f"已保存JSON文件: {save_path}")
-                    else:
-                        save_path = os.path.join(save_dir, f"{base_name}.txt")
-                        with open(save_path, 'w', encoding='utf-8') as f:
-                            # 写入文件头
-                            f.write(f"# 采集时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                            f.write(f"# 群组: {group_username}\n")
-                            f.write(f"# 采集数量: {len(self.scraped_members)}\n")
-                            f.write("# 格式: 用户ID | 用户名 | 昵称 | 手机号 | 在线状态\n")
-                            f.write("#" * 80 + "\n")
-                            for m in self.scraped_members:
-                                line = f"{m['id']}\t@{m['username']}\t{m['first_name']} {m['last_name']}\t{m['phone']}\t{m['online_status']}"
-                                f.write(line + "\n")
-                        self.log(f"已保存TXT文件: {save_path}")
-                    
-                    self.root.after(0, lambda: self.show_centered_info("采集完成", f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存路径: {save_path}"))
+                # 保存文件（无论采集完成还是停止，都自动保存）
+                if self.scraped_members:
+                    is_stop = not self.is_scraping
+                    self.save_scraped_members(group_username, is_stop)
+                    self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", 
+                                                                       f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
+                else:
+                    self.log("没有采集到任何成员")
                 
                 await client.disconnect()
                 
             except Exception as e:
                 self.log(f"采集失败: {str(e)}")
+                # 出错时也尝试保存已采集的数据
+                if self.scraped_members:
+                    self.save_scraped_members(group_username, True)
             finally:
                 self.is_scraping = False
                 if client:
@@ -1302,7 +1379,8 @@ class TelegramFullGUI:
             loop.run_until_complete(do_scrape())
             loop.close()
         
-        threading.Thread(target=run_scrape, daemon=True).start()
+        self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
+        self.scrape_task.start()
     
     def update_preview(self, count, member_info):
         """更新预览列表"""
@@ -1365,7 +1443,12 @@ class TelegramFullGUI:
             return
         
         # 查找最新的采集文件
-        save_dir = self.default_save_dir
+        save_dir = self.save_path.get().strip()
+        if not save_dir:
+            self.log("请先在采集页面选择保存目录")
+            self.show_centered_warning("提示", "请先在采集页面选择保存目录")
+            return
+        
         if os.path.exists(save_dir):
             json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
         else:
@@ -1521,7 +1604,12 @@ class TelegramFullGUI:
             return
         
         # 查找最新的采集文件
-        save_dir = self.default_save_dir
+        save_dir = self.save_path.get().strip()
+        if not save_dir:
+            self.log("请先在采集页面选择保存目录")
+            self.show_centered_warning("提示", "请先在采集页面选择保存目录")
+            return
+        
         if os.path.exists(save_dir):
             json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
         else:
