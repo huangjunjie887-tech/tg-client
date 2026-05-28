@@ -12,7 +12,7 @@ from datetime import datetime
 import shutil
 import asyncio
 from pyrogram import Client
-from pyrogram.errors import FloodWait, UserDeactivated, PhoneNumberBanned, SessionPasswordNeeded, AuthKeyDuplicated
+from pyrogram.errors import FloodWait, UserDeactivated, SessionPasswordNeeded, AuthKeyDuplicated
 
 # 内置服务器地址
 SERVER = "http://172.98.23.64:5000"
@@ -480,7 +480,6 @@ class TelegramFullGUI:
         
         async def do_login():
             try:
-                # 使用已有的session文件，no_updates=True 避免交互
                 client = Client(
                     session_path, 
                     self.api_id, 
@@ -500,21 +499,23 @@ class TelegramFullGUI:
                 self.log(f"✅ {phone}: 登录成功 | 昵称: {nickname}")
                 return True
                 
-            except SessionPasswordNeededError:
+            except SessionPasswordNeeded:
                 self.log(f"🔐 {phone}: 需要2FA密码，但session可能有效")
                 acc['status'] = '需要2FA'
                 return False
+            except AuthKeyDuplicated:
+                self.log(f"⚠️ {phone}: 异地登录")
+                acc['status'] = '异地登录'
+                return False
+            except UserDeactivated:
+                self.log(f"💀 {phone}: 账号已注销")
+                acc['status'] = '销号'
+                return False
             except Exception as e:
                 error_msg = str(e)
-                if "AUTH_KEY_DUPLICATED" in error_msg:
-                    self.log(f"⚠️ {phone}: 异地登录")
-                    acc['status'] = '异地登录'
-                elif "FLOOD" in error_msg.upper():
+                if "FLOOD" in error_msg.upper():
                     self.log(f"⛔ {phone}: 被限制")
                     acc['status'] = '被限制'
-                elif "DEACTIVATED" in error_msg.upper():
-                    self.log(f"💀 {phone}: 账号已注销")
-                    acc['status'] = '销号'
                 elif "RPCError" in error_msg:
                     self.log(f"❌ {phone}: session无效或已过期")
                     acc['status'] = 'session无效'
