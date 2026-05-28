@@ -13,6 +13,7 @@ import shutil
 import random
 import sqlite3
 import asyncio
+import re
 from telethon import TelegramClient
 from telethon.errors import (
     FloodWaitError, UserDeactivatedError, SessionPasswordNeededError,
@@ -24,9 +25,6 @@ from telethon.errors.rpcerrorlist import (
     UserKickedError, InviteHashExpiredError, InviteHashInvalidError,
     UsersTooMuchError
 )
-from telethon.tl.types import ChannelParticipantsRecent, ChannelParticipantsAdmins, ChannelParticipantsSearch
-from telethon.tl.functions.channels import GetParticipantsRequest
-from telethon.tl.types import TypeChannelParticipantsFilter
 
 # 内置服务器地址
 SERVER = "http://172.98.23.64:5000"
@@ -816,7 +814,6 @@ class TelegramFullGUI:
         scrollbar.pack(side="right", fill="y")
     
     def import_proxies(self):
-        """导入代理 - 从文件导入，不限数量"""
         file_path = filedialog.askopenfilename(
             title="选择代理文件",
             filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")]
@@ -824,7 +821,6 @@ class TelegramFullGUI:
         if not file_path:
             return
         
-        # 先选择代理类型
         type_dialog = tk.Toplevel(self.root)
         type_dialog.title("选择代理类型")
         type_dialog.geometry("350x200")
@@ -856,7 +852,6 @@ class TelegramFullGUI:
         
         p_type = result[0]
         
-        # 读取文件
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -873,7 +868,6 @@ class TelegramFullGUI:
             if not line:
                 continue
             
-            # 解析格式: IP:端口 或 IP:端口:用户名:密码
             parts = line.split(':')
             
             if len(parts) >= 2:
@@ -1074,7 +1068,7 @@ class TelegramFullGUI:
         self.save_path = ttk.Entry(path_frame, width=40, font=("微软雅黑", 10))
         self.save_path.insert(0, os.path.join(os.getcwd(), "members"))
         self.save_path.pack(side="left", padx=5)
-        ttk.Button(path_frame, text="浏览", command=self.select_save_path, width=8).pack(side="left", padx=5)
+        ttk.Button(path_frame, text="浏览", command=self.select_save_path_scrape, width=8).pack(side="left", padx=5)
         
         # 按钮框架
         btn_frame = ttk.Frame(scrollable_frame)
@@ -1090,7 +1084,7 @@ class TelegramFullGUI:
         self.preview_text = scrolledtext.ScrolledText(right_frame, width=50, height=25, font=("Consolas", 9))
         self.preview_text.pack(fill="both", expand=True, padx=5, pady=5)
     
-    def select_save_path(self):
+    def select_save_path_scrape(self):
         folder = filedialog.askdirectory(title="选择保存目录")
         if folder:
             self.save_path.delete(0, tk.END)
@@ -1190,39 +1184,24 @@ class TelegramFullGUI:
                 
                 self.log(f"成功连接到群组: {entity.title}")
                 
-                # 获取群成员
-                filter_type = ChannelParticipantsRecent()
                 offset = 0
                 limit = 200
                 total = 0
-                filtered = 0
                 
                 while self.running_tasks.get('scrape', False):
                     try:
-                        participants = await client(GetParticipantsRequest(
-                            channel=entity,
-                            filter=filter_type,
-                            offset=offset,
-                            limit=limit,
-                            hash=0
-                        ))
+                        participants = await client.get_participants(entity, limit=limit, offset=offset)
                         
-                        if not participants.users:
+                        if not participants:
                             break
                         
-                        for user in participants.users:
+                        for user in participants:
                             if not self.running_tasks.get('scrape', False):
                                 break
                             
                             # 过滤管理员
-                            if self.filter_admin.get():
-                                is_admin = False
-                                for participant in participants.participants:
-                                    if hasattr(participant, 'user_id') and participant.user_id == user.id:
-                                        if hasattr(participant, 'role') and 'admin' in str(participant.role).lower():
-                                            is_admin = True
-                                            break
-                                if is_admin:
+                            if self.filter_admin.get() and hasattr(user, 'participant') and hasattr(user.participant, 'role'):
+                                if 'admin' in str(user.participant.role).lower():
                                     continue
                             
                             # 过滤机器人
@@ -1245,28 +1224,12 @@ class TelegramFullGUI:
                                 if is_ad:
                                     continue
                             
-                            # 在线天数筛选（通过最后在线时间判断）
-                            if max_days > 0:
-                                if hasattr(user, 'status') and user.status:
-                                    if hasattr(user.status, 'was_online'):
-                                        online_time = user.status.was_online
-                                    elif hasattr(user.status, 'expires'):
-                                        online_time = user.status.expires
-                                    else:
-                                        online_time = None
-                                    
-                                    if online_time:
-                                        days_ago = (datetime.now().timestamp() - online_time.timestamp()) / 86400
-                                        if days_ago > max_days:
-                                            continue
-                            
                             members_list.append({
                                 'id': user.id,
                                 'username': user.username if user.username else "",
                                 'first_name': user.first_name if user.first_name else "",
                                 'last_name': user.last_name if user.last_name else "",
-                                'phone': user.phone if user.phone else "",
-                                'access_hash': user.access_hash if hasattr(user, 'access_hash') else 0
+                                'phone': user.phone if user.phone else ""
                             })
                             
                             total += 1
@@ -1275,7 +1238,7 @@ class TelegramFullGUI:
                             self.preview_text.see(tk.END)
                             self.log(f"采集到: {user.first_name or user.username or user.id}")
                         
-                        offset += len(participants.users)
+                        offset += len(participants)
                         
                     except Exception as e:
                         self.log(f"采集出错: {e}")
@@ -1284,16 +1247,16 @@ class TelegramFullGUI:
                 # 保存结果
                 if members_list:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    group_name = re.sub(r'[\\/*?:"<>|]', '_', entity.title)
+                    safe_title = re.sub(r'[\\/*?:"<>|]', '_', entity.title)
                     
                     if self.save_format.get() == "txt":
-                        file_path = os.path.join(save_dir, f"{group_name}_{timestamp}.txt")
+                        file_path = os.path.join(save_dir, f"{safe_title}_{timestamp}.txt")
                         with open(file_path, 'w', encoding='utf-8') as f:
                             for m in members_list:
                                 line = f"{m['id']}\t{m['username']}\t{m['first_name']} {m['last_name']}\t{m['phone']}"
                                 f.write(line + "\n")
                     else:
-                        file_path = os.path.join(save_dir, f"{group_name}_{timestamp}.json")
+                        file_path = os.path.join(save_dir, f"{safe_title}_{timestamp}.json")
                         with open(file_path, 'w', encoding='utf-8') as f:
                             json.dump(members_list, f, ensure_ascii=False, indent=2)
                     
@@ -1534,8 +1497,7 @@ class TelegramFullGUI:
         if not os.path.exists("members.json"):
             self.log("请先导入用户列表")
             self.show_centered_warning("提示", "请先导入用户列表")
-            return
-        
+            return        
         with open("members.json", "r") as f:
             members = json.load(f)
         
@@ -1997,7 +1959,6 @@ class TelegramFullGUI:
         self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
 
 if __name__ == "__main__":
-    import re
     from telethon import events
     root = tk.Tk()
     app = TelegramFullGUI(root)
