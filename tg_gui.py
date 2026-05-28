@@ -204,7 +204,52 @@ class TelegramFullGUI:
         self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 联系@Tian2547", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
         
+        # ==================== 窗口唤醒修复 ====================
+        # 强制窗口置顶并保持响应
+        self.root.attributes('-topmost', True)
+        self.root.after(100, lambda: self.root.attributes('-topmost', False))
+        
+        # 绑定窗口恢复事件
+        self.root.bind("<Map>", lambda e: self.root.focus_force())
+        self.root.bind("<Visibility>", lambda e: self.root.update())
+        
+        # 定期强制刷新窗口状态，防止长时间后台后无法唤醒
+        def force_update():
+            try:
+                if self.root.winfo_exists():
+                    self.root.update()
+                    self.root.update_idletasks()
+            except:
+                pass
+            self.root.after(3000, force_update)
+        self.root.after(3000, force_update)
+        
+        # 注册全局热键 (Ctrl+Shift+T 唤出窗口)
+        self.register_hotkey()
+        
         self.log("系统启动完成")
+    
+    def register_hotkey(self):
+        """注册全局热键"""
+        try:
+            import keyboard
+            keyboard.add_hotkey('ctrl+shift+t', self.restore_window)
+            self.log("已注册全局热键 Ctrl+Shift+T 唤出窗口")
+        except ImportError:
+            pass
+    
+    def restore_window(self):
+        """恢复窗口"""
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+            self.root.state('normal')
+            self.root.attributes('-topmost', True)
+            self.root.after(100, lambda: self.root.attributes('-topmost', False))
+            self.root.update()
+        except:
+            pass
     
     def create_menu(self):
         menubar = tk.Menu(self.root)
@@ -215,10 +260,19 @@ class TelegramFullGUI:
         file_menu.add_command(label="导入配置", command=self.import_config)
         file_menu.add_separator()
         file_menu.add_command(label="卡密信息", command=self.show_card_info)
-        file_menu.add_command(label="退出", command=self.root.quit)
+        file_menu.add_command(label="退出", command=self.quit_app)
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="帮助", menu=help_menu)
         help_menu.add_command(label="关于", command=self.about)
+    
+    def quit_app(self):
+        """退出程序"""
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except:
+            pass
+        os._exit(0)
     
     def show_card_info(self):
         if self.card_info:
@@ -657,7 +711,7 @@ class TelegramFullGUI:
                 self.log(f"[{idx}/{len(self.accounts)}] 正在登录账号: {phone}")
                 if self.login_single_account(acc):
                     success_count += 1
-                time.sleep(2)  # 避免请求过快
+                time.sleep(2)
             
             self.log(f"批量登录完成: 成功 {success_count}/{len(self.accounts)}")
             self.root.after(0, lambda: self.show_centered_info("登录完成", f"成功登录 {success_count} 个账号"))
@@ -1068,7 +1122,6 @@ class TelegramFullGUI:
                     self.log("账号未登录")
                     return
                 
-                # 解析群组
                 if 't.me/' in group:
                     group_username = group.split('t.me/')[-1]
                     entity = await client.get_entity(group_username)
@@ -1468,7 +1521,6 @@ class TelegramFullGUI:
         self.log(f"启动炒群: {group} 使用账号: {account_phone}")
         self.running_tasks['chat'] = True
         
-        # 加载话术
         scripts = []
         if os.path.exists("scripts.txt"):
             with open("scripts.txt", "r", encoding="utf-8") as f:
@@ -1477,7 +1529,6 @@ class TelegramFullGUI:
         if not scripts:
             scripts = ["Hello!", "Good morning!", "Nice to meet you!"]
         
-        # 加载关键词回复
         keywords = {}
         if os.path.exists("keywords.json"):
             with open("keywords.json", "r") as f:
@@ -1494,14 +1545,12 @@ class TelegramFullGUI:
                     self.log("账号未登录")
                     return
                 
-                # 解析群组
                 if 't.me/' in group:
                     group_username = group.split('t.me/')[-1]
                     entity = await client.get_entity(group_username)
                 else:
                     entity = await client.get_entity(int(group))
                 
-                # 自动回复
                 @client.on(events.NewMessage(chats=entity))
                 async def handle_reply(event):
                     if not self.running_tasks.get('chat', False):
@@ -1513,7 +1562,6 @@ class TelegramFullGUI:
                             self.log(f"自动回复: {reply[:30]}...")
                             break
                 
-                # 定时发言
                 async def auto_speak():
                     import random
                     count = 0
@@ -1524,10 +1572,7 @@ class TelegramFullGUI:
                         count += 1
                         await asyncio.sleep(interval)
                 
-                # 启动定时发言
                 asyncio.create_task(auto_speak())
-                
-                # 保持运行
                 await client.run_until_disconnected()
                 
             except Exception as e:
