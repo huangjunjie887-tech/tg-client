@@ -773,7 +773,7 @@ class TelegramFullGUI:
         else:
             self.show_centered_info("提示", "没有发现已失效的账号")
     
-    # ==================== 代理IP页面 ====================
+   # ==================== 代理IP页面 ====================
 def create_proxy_page(self):
     page = ttk.Frame(self.notebook)
     self.notebook.add(page, text="代理IP")
@@ -781,7 +781,7 @@ def create_proxy_page(self):
     toolbar = ttk.Frame(page)
     toolbar.pack(fill="x", padx=10, pady=5)
     
-    self.proxy_count_label = ttk.Label(toolbar, text=f"IP数: {len(self.proxies)}/10", font=("微软雅黑", 10))
+    self.proxy_count_label = ttk.Label(toolbar, text=f"代理数量: {len(self.proxies)}", font=("微软雅黑", 10))
     self.proxy_count_label.pack(side="left", padx=10)
     
     ttk.Button(toolbar, text="导入代理", command=self.import_proxies).pack(side="left", padx=2)
@@ -800,7 +800,7 @@ def create_proxy_page(self):
     self.proxy_tree.column("序号", anchor="center", width=50)
     self.proxy_tree.column("代理类型", anchor="center", width=100)
     self.proxy_tree.column("代理地址", anchor="center", width=350)
-    self.proxy_tree.column("状态", anchor="center", width=150)
+    self.proxy_tree.column("状态", anchor="center", width=200)
     
     scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.proxy_tree.yview)
     self.proxy_tree.configure(yscrollcommand=scrollbar.set)
@@ -808,7 +808,7 @@ def create_proxy_page(self):
     scrollbar.pack(side="right", fill="y")
 
 def import_proxies(self):
-    """导入代理 - 从文件导入"""
+    """导入代理 - 从文件导入，不限数量"""
     file_path = filedialog.askopenfilename(
         title="选择代理文件",
         filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")]
@@ -862,10 +862,6 @@ def import_proxies(self):
         if not line:
             continue
         
-        if len(self.proxies) + added_count >= 10:
-            self.show_centered_warning("提示", f"最多添加10个代理，已达到上限")
-            break
-        
         # 解析格式: IP:端口 或 IP:端口:用户名:密码
         parts = line.split(':')
         
@@ -890,7 +886,7 @@ def import_proxies(self):
             skipped_count += 1
     
     self.refresh_proxy_list()
-    self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
+    self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
     
     if added_count > 0:
         self.show_centered_info("导入完成", f"成功导入 {added_count} 个代理\n跳过 {skipped_count} 个无效格式")
@@ -904,7 +900,7 @@ def delete_proxy(self):
         for idx in indices:
             self.proxies.pop(idx)
         self.refresh_proxy_list()
-        self.proxy_count_label.config(text=f"IP数: {len(self.proxies)}/10")
+        self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
         self.log(f"删除 {len(selected)} 个代理")
 
 def clear_all_proxies(self):
@@ -912,7 +908,7 @@ def clear_all_proxies(self):
         def do_clear():
             self.proxies.clear()
             self.refresh_proxy_list()
-            self.proxy_count_label.config(text=f"IP数: 0/10")
+            self.proxy_count_label.config(text=f"代理数量: 0")
             self.log("清空所有代理")
         self.show_centered_yesno("确认", "确定要清空所有代理吗？", do_clear)
     else:
