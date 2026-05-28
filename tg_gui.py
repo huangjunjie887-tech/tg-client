@@ -19,6 +19,7 @@ from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswor
 from telethon.tl.functions.channels import GetParticipantsRequest
 from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots
 from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline
 
 # 内置服务器地址
 SERVER = "http://172.98.23.64:5000"
@@ -911,8 +912,8 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
         
-        # 创建默认保存目录
-        self.default_save_dir = os.path.join(os.getcwd(), "scraped_data")
+        # 创建默认保存目录（使用用户文档目录，避免权限问题）
+        self.default_save_dir = os.path.join(os.path.expanduser("~"), "TG_Scraped_Data")
         os.makedirs(self.default_save_dir, exist_ok=True)
         
         # 主设置框架
@@ -983,7 +984,7 @@ class TelegramFullGUI:
         self.save_path.grid(row=1, column=1, padx=5, pady=5)
         ttk.Button(save_frame, text="浏览", command=self.select_save_path, width=8).grid(row=1, column=2, padx=5)
         
-        ttk.Label(save_frame, text="提示: 不选路径则默认保存到软件目录下的 scraped_data 文件夹", font=("微软雅黑", 8), foreground="gray").grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
+        ttk.Label(save_frame, text=f"默认路径: {self.default_save_dir}", font=("微软雅黑", 8), foreground="gray").grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
         
         # 按钮
         btn_frame = ttk.Frame(left_frame)
@@ -1027,6 +1028,69 @@ class TelegramFullGUI:
         self.is_scraping = False
         self.log("用户停止采集")
     
+    def get_online_status_text(self, user_status):
+        """获取在线状态文本"""
+        if user_status is None:
+            return "未知"
+        
+        # 检查是否是 UserStatusRecently 类型
+        if hasattr(user_status, '__class__'):
+            class_name = user_status.__class__.__name__
+            if class_name == 'UserStatusRecently':
+                return "最近在线"
+            elif class_name == 'UserStatusLastWeek':
+                return "7天内在线"
+            elif class_name == 'UserStatusLastMonth':
+                return "30天内在线"
+            elif class_name == 'UserStatusOnline':
+                return "在线"
+            elif class_name == 'UserStatusOffline':
+                return "离线"
+        
+        # 兼容性检查
+        if isinstance(user_status, UserStatusRecently):
+            return "最近在线"
+        elif isinstance(user_status, UserStatusLastWeek):
+            return "7天内在线"
+        elif isinstance(user_status, UserStatusLastMonth):
+            return "30天内在线"
+        elif isinstance(user_status, UserStatusOnline):
+            return "在线"
+        elif isinstance(user_status, UserStatusOffline):
+            return "离线"
+        
+        return "未知"
+    
+    def check_online_days(self, user_status, online_days):
+        """检查用户在线天数是否符合条件，返回True表示符合"""
+        if online_days is None:
+            return True
+        
+        if user_status is None:
+            return False
+        
+        class_name = user_status.__class__.__name__
+        
+        if class_name == 'UserStatusRecently':
+            # 最近在线，通常表示1-3天内
+            return online_days >= 1
+        elif class_name == 'UserStatusLastWeek':
+            return online_days >= 7
+        elif class_name == 'UserStatusLastMonth':
+            return online_days >= 30
+        elif class_name == 'UserStatusOnline':
+            return True
+        elif class_name == 'UserStatusOffline':
+            if hasattr(user_status, 'was_online') and user_status.was_online:
+                try:
+                    days_ago = (datetime.now().replace(tzinfo=user_status.was_online.tzinfo) - user_status.was_online).days
+                    return days_ago <= online_days
+                except:
+                    pass
+            return False
+        
+        return False
+    
     def start_scrape(self):
         if self.is_scraping:
             self.log("采集任务正在进行中")
@@ -1069,7 +1133,14 @@ class TelegramFullGUI:
             self.save_path.insert(0, save_dir)
         
         # 确保目录存在
-        os.makedirs(save_dir, exist_ok=True)
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+        except PermissionError:
+            save_dir = self.default_save_dir
+            self.save_path.delete(0, tk.END)
+            self.save_path.insert(0, save_dir)
+            os.makedirs(save_dir, exist_ok=True)
+            self.log(f"权限不足，已切换默认保存路径: {save_dir}")
         
         # 解析群组链接
         if 't.me/' in group:
@@ -1169,39 +1240,11 @@ class TelegramFullGUI:
                     
                     # 在线天数筛选
                     if online_days is not None:
-                        if hasattr(user, 'status'):
-                            if isinstance(user.status, UserStatusRecently):
-                                # 最近在线，通常表示1-3天内
-                                if online_days < 1:
-                                    continue
-                            elif isinstance(user.status, UserStatusLastWeek):
-                                if online_days < 7:
-                                    continue
-                            elif isinstance(user.status, UserStatusLastMonth):
-                                if online_days < 30:
-                                    continue
-                            elif isinstance(user.status, UserStatusOffline):
-                                if user.status.was_online:
-                                    days_ago = (datetime.now().replace(tzinfo=user.status.was_online.tzinfo) - user.status.was_online).days
-                                    if days_ago > online_days:
-                                        continue
-                            else:
-                                # 无法判断在线状态
-                                pass
+                        if not self.check_online_days(user.status, online_days):
+                            continue
                     
                     # 获取在线状态文本
-                    online_status = "未知"
-                    if hasattr(user, 'status'):
-                        if isinstance(user.status, UserStatusRecently):
-                            online_status = "最近在线"
-                        elif isinstance(user.status, UserStatusLastWeek):
-                            online_status = "7天内在线"
-                        elif isinstance(user.status, UserStatusLastMonth):
-                            online_status = "30天内在线"
-                        elif isinstance(user.status, UserStatusOffline):
-                            online_status = f"离线"
-                        else:
-                            online_status = "在线"
+                    online_status = self.get_online_status_text(user.status)
                     
                     member_info = {
                         'id': user.id,
@@ -1218,12 +1261,8 @@ class TelegramFullGUI:
                     self.scraped_members.append(member_info)
                     count += 1
                     
-                    # 更新预览（每10个更新一次，避免界面卡顿）
-                    if count % 10 == 0:
-                        self.root.after(0, lambda c=count: self.scrape_stats.config(text=f"已采集: {c} 人"))
-                        self.root.after(0, lambda info=member_info, c=count: self.update_preview(c, info))
-                    else:
-                        self.root.after(0, lambda info=member_info, c=count: self.update_preview(c, info))
+                    # 更新预览
+                    self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
                     
                     await asyncio.sleep(0.05)  # 避免请求过快
                 
@@ -1331,7 +1370,11 @@ class TelegramFullGUI:
         
         # 查找最新的采集文件
         save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') and self.save_path.get() else self.default_save_dir
-        json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
+        if os.path.exists(save_dir):
+            json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
+        else:
+            json_files = []
+        
         if not json_files:
             self.log("请先采集群成员")
             self.show_centered_warning("提示", "请先采集群成员")
@@ -1483,7 +1526,11 @@ class TelegramFullGUI:
         
         # 查找最新的采集文件
         save_dir = self.save_path.get().strip() if hasattr(self, 'save_path') and self.save_path.get() else self.default_save_dir
-        json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
+        if os.path.exists(save_dir):
+            json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
+        else:
+            json_files = []
+        
         if not json_files:
             self.log("请先采集群成员")
             self.show_centered_warning("提示", "请先采集群成员")
