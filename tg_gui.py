@@ -22,7 +22,7 @@ from telethon.errors import (
 from telethon.errors.rpcerrorlist import (
     UserBannedInChannelError, ChatAdminRequiredError, UserNotMutualContactError,
     UserKickedError, InviteHashExpiredError, InviteHashInvalidError,
-    UsersTooMuchError, InviteHashRevokedError
+    UsersTooMuchError
 )
 
 # 内置服务器地址
@@ -123,7 +123,6 @@ class TelegramFullGUI:
         self.root.update()
     
     def restore_window(self):
-        """恢复窗口"""
         try:
             self.root.deiconify()
             self.root.lift()
@@ -225,7 +224,6 @@ class TelegramFullGUI:
         self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 联系@Tian2547", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
         
-        # 窗口唤醒修复
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
         self.root.bind("<Map>", lambda e: self.root.focus_force())
@@ -709,7 +707,6 @@ class TelegramFullGUI:
         threading.Thread(target=do_login, daemon=True).start()
     
     def check_accounts(self):
-        """真实账号检测 - 检测双向、冻结、销号等状态"""
         if not self.accounts:
             self.log("没有账号可检测")
             self.show_centered_warning("提示", "请先导入账号")
@@ -731,7 +728,6 @@ class TelegramFullGUI:
                     self.log(f"⚠️ {phone}: session未授权")
                     return
                 
-                # 尝试获取用户信息
                 try:
                     me = await client.get_me()
                     nickname = me.first_name or me.username or phone
@@ -739,7 +735,6 @@ class TelegramFullGUI:
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     
-                    # 尝试发送一条消息给自己检测是否有发送限制
                     try:
                         await client.send_message('me', '状态检测')
                         acc['status'] = '正常'
