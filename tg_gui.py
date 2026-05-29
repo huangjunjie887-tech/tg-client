@@ -333,11 +333,11 @@ class TelegramFullGUI:
     def batch_edit_profile(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("批量修改资料")
-        dialog.geometry("650x600")
+        dialog.geometry("650x700")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        self.center_window(dialog, 650, 600)
+        self.center_window(dialog, 650, 700)
         
         ttk.Label(dialog, text="批量修改资料", font=("微软雅黑", 12, "bold")).pack(pady=10)
         
@@ -360,7 +360,7 @@ class TelegramFullGUI:
         listbox_frame = ttk.Frame(account_frame)
         listbox_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=6)
+        account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=6, exportselection=False)
         scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=account_listbox.yview)
         account_listbox.configure(yscrollcommand=scrollbar.set)
         account_listbox.pack(side="left", fill="both", expand=True)
@@ -421,6 +421,7 @@ class TelegramFullGUI:
         ttk.Button(bio_row, text="导入TXT文件", command=self.select_bio_file, width=15).pack(side="left", padx=5)
         ttk.Label(bio_frame, text="每行一个简介，按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
         
+        # 按钮
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=15)
         
@@ -1034,11 +1035,11 @@ class TelegramFullGUI:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("分配代理IP")
-        dialog.geometry("750x600")
+        dialog.geometry("780x650")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        self.center_window(dialog, 750, 600)
+        self.center_window(dialog, 780, 650)
         
         ttk.Label(dialog, text="分配代理IP", font=("微软雅黑", 12, "bold")).pack(pady=10)
         
@@ -1062,7 +1063,7 @@ class TelegramFullGUI:
         ttk.Checkbutton(account_select_all_frame, text="全选", variable=account_select_all_var,
                        command=lambda: self.toggle_listbox_select(account_listbox, account_select_all_var)).pack(side="left")
         
-        account_listbox = tk.Listbox(left_frame, selectmode=tk.MULTIPLE, height=15)
+        account_listbox = tk.Listbox(left_frame, selectmode=tk.MULTIPLE, height=15, exportselection=False)
         account_scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=account_listbox.yview)
         account_listbox.configure(yscrollcommand=account_scrollbar.set)
         account_listbox.pack(side="left", fill="both", expand=True, padx=5, pady=5)
@@ -1080,7 +1081,7 @@ class TelegramFullGUI:
         ttk.Checkbutton(proxy_select_all_frame, text="全选", variable=proxy_select_all_var,
                        command=lambda: self.toggle_listbox_select(proxy_listbox, proxy_select_all_var)).pack(side="left")
         
-        proxy_listbox = tk.Listbox(right_frame, selectmode=tk.MULTIPLE, height=15)
+        proxy_listbox = tk.Listbox(right_frame, selectmode=tk.MULTIPLE, height=15, exportselection=False)
         proxy_scrollbar = ttk.Scrollbar(right_frame, orient="vertical", command=proxy_listbox.yview)
         proxy_listbox.configure(yscrollcommand=proxy_scrollbar.set)
         proxy_listbox.pack(side="left", fill="both", expand=True, padx=5, pady=5)
@@ -1117,12 +1118,14 @@ class TelegramFullGUI:
         refresh_account_list()
         refresh_proxy_list()
         
+        # 分配模式
         mode_frame = ttk.LabelFrame(dialog, text="分配模式")
         mode_frame.pack(fill="x", padx=10, pady=5)
         assign_mode = tk.StringVar(value="round_robin")
         ttk.Radiobutton(mode_frame, text="轮流分配（账号轮流使用选中的代理）", variable=assign_mode, value="round_robin").pack(anchor="w", padx=10, pady=2)
         ttk.Radiobutton(mode_frame, text="一对一分配（按顺序一一对应）", variable=assign_mode, value="one_to_one").pack(anchor="w", padx=10, pady=2)
         
+        # 按钮
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=15)
         
