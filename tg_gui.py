@@ -1340,7 +1340,7 @@ class TelegramFullGUI:
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式：正确采集（通过get_entity获取完整用户信息）
+                    # 隐藏群模式：正确采集（通过get_entity获取完整用户信息，去重放在最前面）
                     self.log("开始采集发言用户（优化模式）...")
                     
                     offset_id = 0
@@ -1366,14 +1366,14 @@ class TelegramFullGUI:
                                 self.log("已获取全部历史消息")
                                 break
                             
-                            # 收集本批消息中的所有唯一用户ID
+                            # 收集本批消息中的所有唯一用户ID（先去重）
                             unique_user_ids = []
                             for msg in history.messages:
                                 if not self.is_scraping:
                                     break
                                 if hasattr(msg, 'sender_id') and msg.sender_id:
                                     user_id = msg.sender_id
-                                    # 只处理未采集过且未缓存的用户
+                                    # 关键：先检查是否已经采集过，避免重复处理
                                     if user_id not in collected_user_ids and user_id not in user_cache:
                                         unique_user_ids.append(user_id)
                             
@@ -1392,6 +1392,9 @@ class TelegramFullGUI:
                                         sender = await client.get_entity(user_id)
                                         user_cache[user_id] = sender
                                     
+                                    # 先加入去重集合（无论后续是否过滤，都标记为已处理，避免重复）
+                                    collected_user_ids.add(sender.id)
+                                    
                                     # 必须有用户名
                                     if not sender.username:
                                         skipped_no_username += 1
@@ -1400,8 +1403,6 @@ class TelegramFullGUI:
                                     # 过滤管理员
                                     if self.filter_admin.get() and sender.id in admin_ids:
                                         continue
-                                    
-                                    collected_user_ids.add(sender.id)
                                     
                                     # 过滤机器人
                                     if self.filter_bot.get() and sender.bot:
