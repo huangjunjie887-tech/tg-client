@@ -1135,7 +1135,19 @@ class TelegramFullGUI:
         """批量更新预览（极速模式）"""
         self.scrape_stats.config(text=f"已采集: {count} 人")
         
+        # 先获取当前预览中已有的用户ID，避免重复显示
+        existing_ids = set()
+        for item in self.preview_tree.get_children():
+            values = self.preview_tree.item(item, 'values')
+            if values and len(values) > 1:
+                existing_ids.add(int(values[1]))
+        
         for info in member_infos:
+            # 跳过已经显示过的用户
+            if info['id'] in existing_ids:
+                continue
+            existing_ids.add(info['id'])
+            
             display_name = info['first_name'] or info['username'] or str(info['id'])
             if len(display_name) > 20:
                 display_name = display_name[:20] + "..."
@@ -1393,6 +1405,8 @@ class TelegramFullGUI:
                                         user_cache[user_id] = sender
                                     
                                     # 先加入去重集合（无论后续是否过滤，都标记为已处理，避免重复）
+                                    if sender.id in collected_user_ids:
+                                        continue
                                     collected_user_ids.add(sender.id)
                                     
                                     # 必须有用户名
@@ -1433,9 +1447,9 @@ class TelegramFullGUI:
                                 except Exception as e:
                                     continue
                             
-                            # 批量更新UI
+                            # 批量更新UI（只添加新用户）
                             if batch_infos:
-                                self.root.after(0, lambda c=count, infos=batch_infos: self.batch_update_preview(c, infos))
+                                self.root.after(0, lambda c=count, infos=batch_infos.copy(): self.batch_update_preview(c, infos))
                                 self.log(f"⚡ 已处理 {total_messages} 条消息 | 新增 {len(batch_infos)} 人 | 累计 {count} 人")
                             elif total_messages % 500 == 0:
                                 self.log(f"⚡ 已处理 {total_messages} 条消息 | 累计 {count} 人")
@@ -1493,6 +1507,12 @@ class TelegramFullGUI:
     def update_preview(self, count, member_info):
         """更新预览列表"""
         self.scrape_stats.config(text=f"已采集: {count} 人")
+        
+        # 检查是否已存在
+        for item in self.preview_tree.get_children():
+            values = self.preview_tree.item(item, 'values')
+            if values and len(values) > 1 and int(values[1]) == member_info['id']:
+                return
         
         display_name = member_info['first_name'] or member_info['username'] or str(member_info['id'])
         if len(display_name) > 20:
