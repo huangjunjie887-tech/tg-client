@@ -1131,6 +1131,26 @@ class TelegramFullGUI:
         
         return False
     
+    def batch_update_preview(self, count, member_infos):
+        """批量更新预览（极速模式）"""
+        self.scrape_stats.config(text=f"已采集: {count} 人")
+        
+        for info in member_infos:
+            display_name = info['first_name'] or info['username'] or str(info['id'])
+            if len(display_name) > 20:
+                display_name = display_name[:20] + "..."
+            
+            self.preview_tree.insert("", "end", values=(
+                count,
+                info['id'],
+                info['username'][:20] if info['username'] else "-",
+                display_name,
+                info['online_status'],
+                "是" if info['is_admin'] else "否",
+                "是" if info['is_bot'] else "否"
+            ))
+        self.preview_tree.yview_moveto(1)
+    
     def start_scrape(self):
         if self.is_scraping:
             self.log("采集任务正在进行中")
@@ -1320,15 +1340,14 @@ class TelegramFullGUI:
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式：通过获取聊天记录采集有用户名的发言用户
-                    self.log("开始采集发言用户（从聊天记录中获取有用户名的用户）...")
+                    # 隐藏群模式：极速采集（无延迟、无逐条UI更新）
+                    self.log("开始采集发言用户（极速模式）...")
                     
                     offset_id = 0
-                    batch_size = 500  # 每次获取500条消息
+                    batch_size = 2000  # 最大批量
                     
                     while self.is_scraping:
                         try:
-                            # 获取历史消息，每次500条
                             history = await client(GetHistoryRequest(
                                 peer=entity,
                                 offset_id=offset_id,
@@ -1341,8 +1360,11 @@ class TelegramFullGUI:
                             ))
                             
                             if not history.messages:
-                                self.log("已获取全部历史消息，采集完成")
+                                self.log("已获取全部历史消息")
                                 break
+                            
+                            batch_new = 0
+                            batch_infos = []
                             
                             for msg in history.messages:
                                 if not self.is_scraping:
@@ -1350,23 +1372,13 @@ class TelegramFullGUI:
                                 
                                 total_messages += 1
                                 
-                                # 直接从消息对象中获取发送者信息
-                                sender = None
-                                if hasattr(msg, 'sender') and msg.sender:
-                                    sender = msg.sender
-                                elif hasattr(msg, 'from_id') and msg.from_id:
-                                    try:
-                                        sender = await client.get_entity(msg.sender_id)
-                                    except:
-                                        continue
-                                else:
-                                    continue
-                                
+                                # 直接从msg获取sender
+                                sender = msg.sender if hasattr(msg, 'sender') and msg.sender else None
                                 if not sender:
                                     continue
                                 
-                                # 只采集有用户名的用户
-                                if not hasattr(sender, 'username') or not sender.username:
+                                # 必须有用户名
+                                if not sender.username:
                                     skipped_no_username += 1
                                     continue
                                 
@@ -1381,48 +1393,50 @@ class TelegramFullGUI:
                                 collected_user_ids.add(sender.id)
                                 
                                 # 过滤机器人
-                                if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
+                                if self.filter_bot.get() and sender.bot:
                                     continue
                                 
-                                # 过滤昵称含广告关键词
+                                # 过滤广告关键词
                                 if ad_keywords:
-                                    name_lower = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".lower()
+                                    name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
                                     if any(kw in name_lower for kw in ad_keywords):
                                         continue
                                 
-                                # 注意：隐藏群模式下无法获取用户的在线状态，设为未知
                                 member_info = {
                                     'id': sender.id,
-                                    'username': sender.username or "",
-                                    'first_name': getattr(sender, 'first_name', '') or "",
-                                    'last_name': getattr(sender, 'last_name', '') or "",
-                                    'phone': getattr(sender, 'phone', '') or "",
+                                    'username': sender.username,
+                                    'first_name': sender.first_name or "",
+                                    'last_name': sender.last_name or "",
+                                    'phone': "",
                                     'online_status': "未知",
                                     'is_admin': sender.id in admin_ids,
-                                    'is_bot': getattr(sender, 'bot', False),
+                                    'is_bot': sender.bot,
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
                                 
                                 self.scraped_members.append(member_info)
+                                batch_infos.append(member_info)
                                 count += 1
-                                
-                                # 更新预览
-                                self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
+                                batch_new += 1
                             
-                            # 更新偏移量，继续获取下一条消息
+                            # 每批更新一次UI
+                            if batch_infos:
+                                self.root.after(0, lambda c=count, infos=batch_infos: self.batch_update_preview(c, infos))
+                            
+                            if total_messages % 500 == 0 or batch_new > 0:
+                                self.log(f"⚡ 已处理 {total_messages} 条消息 | 采集 {count} 人")
+                            
+                            # 更新偏移量，继续下一批（无延迟）
                             if history.messages:
                                 offset_id = history.messages[-1].id
                             else:
                                 break
-                            
-                            # 每批消息后输出进度
-                            self.log(f"已处理 {total_messages} 条消息，已采集 {count} 个有效用户")
-                            
+                                
                         except FloodWaitError as e:
-                            self.log(f"请求频繁，等待 {e.seconds} 秒...")
+                            self.log(f"⏳ 等待 {e.seconds} 秒...")
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
-                            self.log(f"获取消息失败: {str(e)}")
+                            self.log(f"错误: {str(e)}")
                             break
                     
                     self.log(f"采集完成！共处理 {total_messages} 条消息，采集 {len(self.scraped_members)} 个有用户名的发言用户")
