@@ -341,7 +341,6 @@ class TelegramFullGUI:
         
         ttk.Label(dialog, text="批量修改资料", font=("微软雅黑", 12, "bold")).pack(pady=10)
         
-        # 第一排：选择分组和账号
         account_frame = ttk.LabelFrame(dialog, text="选择账号")
         account_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
@@ -381,7 +380,6 @@ class TelegramFullGUI:
         group_filter.bind("<<ComboboxSelected>>", on_filter_change)
         refresh_account_listbox()
         
-        # 第二排：头像
         photo_frame = ttk.LabelFrame(dialog, text="头像")
         photo_frame.pack(fill="x", padx=10, pady=5)
         photo_row = ttk.Frame(photo_frame)
@@ -391,7 +389,6 @@ class TelegramFullGUI:
         ttk.Button(photo_row, text="选择头像文件夹", command=self.select_photo_folder, width=15).pack(side="left", padx=5)
         ttk.Label(photo_frame, text="支持格式: jpg, jpeg, png, gif, bmp | 按文件名排序后依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
         
-        # 第三排：用户名
         username_frame = ttk.LabelFrame(dialog, text="用户名（不带@）")
         username_frame.pack(fill="x", padx=10, pady=5)
         username_row = ttk.Frame(username_frame)
@@ -401,7 +398,6 @@ class TelegramFullGUI:
         ttk.Button(username_row, text="导入TXT文件", command=self.select_username_file, width=15).pack(side="left", padx=5)
         ttk.Label(username_frame, text="每行一个用户名（不带@），按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
         
-        # 第四排：昵称
         firstname_frame = ttk.LabelFrame(dialog, text="昵称")
         firstname_frame.pack(fill="x", padx=10, pady=5)
         firstname_row = ttk.Frame(firstname_frame)
@@ -411,7 +407,6 @@ class TelegramFullGUI:
         ttk.Button(firstname_row, text="导入TXT文件", command=self.select_firstname_file, width=15).pack(side="left", padx=5)
         ttk.Label(firstname_frame, text="每行一个昵称，按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
         
-        # 第五排：简介
         bio_frame = ttk.LabelFrame(dialog, text="简介")
         bio_frame.pack(fill="x", padx=10, pady=5)
         bio_row = ttk.Frame(bio_frame)
@@ -421,7 +416,6 @@ class TelegramFullGUI:
         ttk.Button(bio_row, text="导入TXT文件", command=self.select_bio_file, width=15).pack(side="left", padx=5)
         ttk.Label(bio_frame, text="每行一个简介，按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
         
-        # 按钮
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=15)
         
@@ -537,7 +531,7 @@ class TelegramFullGUI:
                 
                 if first_name:
                     try:
-                        await client(UpdateProfileRequest(first_name=first_name))
+                        await client(UpdateProfileRequest(first_name=first_name, last_name=""))
                         self.log("多账号管理", f"[{phone}] 昵称修改成功: {first_name}")
                         acc['nickname'] = first_name
                     except Exception as e:
@@ -554,7 +548,7 @@ class TelegramFullGUI:
                     try:
                         photos = await client.get_profile_photos('me')
                         if photos:
-                            await client(DeletePhotosRequest(id=[photos[0].id]))
+                            await client(DeletePhotosRequest(id=[photos[0]]))
                         await client(UploadProfilePhotoRequest(file=await client.upload_file(photo_path)))
                         self.log("多账号管理", f"[{phone}] 头像修改成功")
                     except Exception as e:
@@ -1051,7 +1045,6 @@ class TelegramFullGUI:
         right_frame = ttk.LabelFrame(main_paned, text="选择代理")
         right_frame.pack(side="right", fill="both", expand=True, padx=5)
         
-        # 左侧 - 账号
         ttk.Label(left_frame, text="账号分组筛选:").pack(anchor="w", padx=5, pady=5)
         account_group_filter = ttk.Combobox(left_frame, values=["全部"] + self.groups, width=20)
         account_group_filter.set("全部")
@@ -1069,7 +1062,6 @@ class TelegramFullGUI:
         account_listbox.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         account_scrollbar.pack(side="right", fill="y")
         
-        # 右侧 - 代理
         ttk.Label(right_frame, text="代理分组筛选:").pack(anchor="w", padx=5, pady=5)
         proxy_group_filter = ttk.Combobox(right_frame, values=["全部"] + self.proxy_groups, width=20)
         proxy_group_filter.set("全部")
@@ -1118,14 +1110,12 @@ class TelegramFullGUI:
         refresh_account_list()
         refresh_proxy_list()
         
-        # 分配模式
         mode_frame = ttk.LabelFrame(dialog, text="分配模式")
         mode_frame.pack(fill="x", padx=10, pady=5)
         assign_mode = tk.StringVar(value="round_robin")
         ttk.Radiobutton(mode_frame, text="轮流分配（账号轮流使用选中的代理）", variable=assign_mode, value="round_robin").pack(anchor="w", padx=10, pady=2)
         ttk.Radiobutton(mode_frame, text="一对一分配（按顺序一一对应）", variable=assign_mode, value="one_to_one").pack(anchor="w", padx=10, pady=2)
         
-        # 按钮
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=15)
         
