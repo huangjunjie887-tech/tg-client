@@ -39,14 +39,12 @@ class TelegramFullGUI:
         self.card_info = None
         self.accounts = []
         self.proxies = []
-        self.proxy_groups = ["默认分组"]  # 代理分组
+        self.proxy_groups = ["默认分组"]
         self.groups = ["默认分组"]
         self.running_tasks = {}
         
-        # 存储各个页面的日志文本框
         self.log_widgets = {}
         
-        # 设置选项卡样式
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
         
@@ -288,6 +286,12 @@ class TelegramFullGUI:
             else:
                 self.scrape_account.set('')
     
+    def toggle_listbox_select(self, listbox, var):
+        if var.get():
+            listbox.selection_set(0, tk.END)
+        else:
+            listbox.selection_clear(0, tk.END)
+    
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
@@ -337,43 +341,41 @@ class TelegramFullGUI:
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def batch_edit_profile(self):
-        """批量修改资料 - 选择分组+勾选账号模式"""
-        # 创建选择账号窗口
+        """批量修改资料 - 一体化窗口"""
+        # 创建主窗口
         dialog = tk.Toplevel(self.root)
-        dialog.title("选择要修改资料的账号")
-        dialog.geometry("500x450")
+        dialog.title("批量修改资料")
+        dialog.geometry("650x600")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        self.center_window(dialog, 500, 450)
+        self.center_window(dialog, 650, 600)
         
-        ttk.Label(dialog, text="选择要修改资料的账号", font=("微软雅黑", 10, "bold")).pack(pady=10)
+        ttk.Label(dialog, text="批量修改资料", font=("微软雅黑", 12, "bold")).pack(pady=10)
+        
+        # ========== 第一排：选择分组和账号 ==========
+        account_frame = ttk.LabelFrame(dialog, text="选择账号")
+        account_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         # 分组筛选
-        filter_frame = ttk.Frame(dialog)
-        filter_frame.pack(fill="x", padx=10, pady=5)
+        filter_row = ttk.Frame(account_frame)
+        filter_row.pack(fill="x", padx=5, pady=5)
         
-        ttk.Label(filter_frame, text="按分组筛选:").pack(side="left", padx=5)
-        group_filter = ttk.Combobox(filter_frame, values=["全部"] + self.groups, width=20)
+        ttk.Label(filter_row, text="按分组筛选:").pack(side="left", padx=5)
+        group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=20)
         group_filter.set("全部")
         group_filter.pack(side="left", padx=5)
         
-        # 账号列表框架
-        accounts_frame = ttk.LabelFrame(dialog, text="账号列表")
-        accounts_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        # 全选框架
-        select_all_frame = ttk.Frame(accounts_frame)
-        select_all_frame.pack(fill="x", padx=5, pady=5)
+        # 全选
         select_all_var = tk.BooleanVar()
-        ttk.Checkbutton(select_all_frame, text="全选", variable=select_all_var, 
-                        command=lambda: self.toggle_select_all(account_listbox, select_all_var)).pack(side="left")
+        ttk.Checkbutton(filter_row, text="全选", variable=select_all_var,
+                       command=lambda: self.toggle_listbox_select(account_listbox, select_all_var)).pack(side="left", padx=20)
         
-        # 列表框和滚动条
-        listbox_frame = ttk.Frame(accounts_frame)
+        # 账号列表框
+        listbox_frame = ttk.Frame(account_frame)
         listbox_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=10)
+        account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=6)
         scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=account_listbox.yview)
         account_listbox.configure(yscrollcommand=scrollbar.set)
         account_listbox.pack(side="left", fill="both", expand=True)
@@ -390,13 +392,75 @@ class TelegramFullGUI:
         
         def on_filter_change(event):
             refresh_account_listbox()
+            select_all_var.set(False)
         
         group_filter.bind("<<ComboboxSelected>>", on_filter_change)
         refresh_account_listbox()
         
-        def confirm_selection():
+        # ========== 第二排：头像 ==========
+        photo_frame = ttk.LabelFrame(dialog, text="头像")
+        photo_frame.pack(fill="x", padx=10, pady=5)
+        
+        photo_row = ttk.Frame(photo_frame)
+        photo_row.pack(fill="x", padx=5, pady=5)
+        
+        self.photo_folder_path = tk.StringVar()
+        ttk.Entry(photo_row, textvariable=self.photo_folder_path, width=50).pack(side="left", padx=5)
+        ttk.Button(photo_row, text="选择头像文件夹", command=self.select_photo_folder, width=15).pack(side="left", padx=5)
+        
+        ttk.Label(photo_frame, text="支持格式: jpg, jpeg, png, gif, bmp | 按文件名排序后依次分配给选中的账号", 
+                  font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
+        
+        # ========== 第三排：用户名 ==========
+        username_frame = ttk.LabelFrame(dialog, text="用户名（不带@）")
+        username_frame.pack(fill="x", padx=10, pady=5)
+        
+        username_row = ttk.Frame(username_frame)
+        username_row.pack(fill="x", padx=5, pady=5)
+        
+        self.username_file_path = tk.StringVar()
+        ttk.Entry(username_row, textvariable=self.username_file_path, width=50).pack(side="left", padx=5)
+        ttk.Button(username_row, text="导入TXT文件", command=self.select_username_file, width=15).pack(side="left", padx=5)
+        
+        ttk.Label(username_frame, text="每行一个用户名（不带@），按行依次分配给选中的账号", 
+                  font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
+        
+        # ========== 第四排：昵称 ==========
+        firstname_frame = ttk.LabelFrame(dialog, text="昵称")
+        firstname_frame.pack(fill="x", padx=10, pady=5)
+        
+        firstname_row = ttk.Frame(firstname_frame)
+        firstname_row.pack(fill="x", padx=5, pady=5)
+        
+        self.firstname_file_path = tk.StringVar()
+        ttk.Entry(firstname_row, textvariable=self.firstname_file_path, width=50).pack(side="left", padx=5)
+        ttk.Button(firstname_row, text="导入TXT文件", command=self.select_firstname_file, width=15).pack(side="left", padx=5)
+        
+        ttk.Label(firstname_frame, text="每行一个昵称，按行依次分配给选中的账号", 
+                  font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
+        
+        # ========== 第五排：简介 ==========
+        bio_frame = ttk.LabelFrame(dialog, text="简介")
+        bio_frame.pack(fill="x", padx=10, pady=5)
+        
+        bio_row = ttk.Frame(bio_frame)
+        bio_row.pack(fill="x", padx=5, pady=5)
+        
+        self.bio_file_path = tk.StringVar()
+        ttk.Entry(bio_row, textvariable=self.bio_file_path, width=50).pack(side="left", padx=5)
+        ttk.Button(bio_row, text="导入TXT文件", command=self.select_bio_file, width=15).pack(side="left", padx=5)
+        
+        ttk.Label(bio_frame, text="每行一个简介，按行依次分配给选中的账号", 
+                  font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
+        
+        # ========== 按钮 ==========
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=15)
+        
+        def do_edit():
             selected_indices = account_listbox.curselection()
             if not selected_indices:
+                self.log("多账号管理", "请至少选择一个账号")
                 self.show_centered_warning("提示", "请至少选择一个账号")
                 return
             
@@ -406,76 +470,6 @@ class TelegramFullGUI:
                 phone = text.split(" - ")[0]
                 selected_phones.append(phone)
             
-            dialog.destroy()
-            self.show_edit_profile_dialog(selected_phones)
-        
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text="下一步", command=confirm_selection, width=12).pack(side="left", padx=10)
-        ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
-    
-    def toggle_select_all(self, listbox, var):
-        if var.get():
-            listbox.selection_set(0, tk.END)
-        else:
-            listbox.selection_clear(0, tk.END)
-    
-    def show_edit_profile_dialog(self, selected_phones):
-        """显示编辑资料对话框"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("批量修改资料")
-        dialog.geometry("550x550")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
-        self.center_window(dialog, 550, 550)
-        
-        ttk.Label(dialog, text=f"将修改 {len(selected_phones)} 个账号的资料", font=("微软雅黑", 10, "bold")).pack(pady=10)
-        
-        notebook = ttk.Notebook(dialog)
-        notebook.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        # 头像标签页
-        photo_frame = ttk.Frame(notebook)
-        notebook.add(photo_frame, text="头像")
-        
-        ttk.Label(photo_frame, text="头像文件夹:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
-        self.photo_folder_path = tk.StringVar()
-        ttk.Entry(photo_frame, textvariable=self.photo_folder_path, width=40).grid(row=0, column=1, padx=5, pady=10)
-        ttk.Button(photo_frame, text="选择文件夹", command=self.select_photo_folder, width=12).grid(row=0, column=2, padx=5)
-        ttk.Label(photo_frame, text="支持格式: jpg, jpeg, png, gif, bmp\n将按文件名排序后依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=0, columnspan=3, padx=5, pady=5)
-        
-        # 用户名标签页
-        username_frame = ttk.Frame(notebook)
-        notebook.add(username_frame, text="用户名")
-        
-        ttk.Label(username_frame, text="用户名TXT文件:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
-        self.username_file_path = tk.StringVar()
-        ttk.Entry(username_frame, textvariable=self.username_file_path, width=40).grid(row=0, column=1, padx=5, pady=10)
-        ttk.Button(username_frame, text="选择文件", command=self.select_username_file, width=12).grid(row=0, column=2, padx=5)
-        ttk.Label(username_frame, text="每行一个用户名（不带@），按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=0, columnspan=3, padx=5, pady=5)
-        
-        # 昵称标签页
-        firstname_frame = ttk.Frame(notebook)
-        notebook.add(firstname_frame, text="昵称")
-        
-        ttk.Label(firstname_frame, text="昵称TXT文件:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
-        self.firstname_file_path = tk.StringVar()
-        ttk.Entry(firstname_frame, textvariable=self.firstname_file_path, width=40).grid(row=0, column=1, padx=5, pady=10)
-        ttk.Button(firstname_frame, text="选择文件", command=self.select_firstname_file, width=12).grid(row=0, column=2, padx=5)
-        ttk.Label(firstname_frame, text="每行一个昵称，按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=0, columnspan=3, padx=5, pady=5)
-        
-        # 简介标签页
-        bio_frame = ttk.Frame(notebook)
-        notebook.add(bio_frame, text="简介")
-        
-        ttk.Label(bio_frame, text="简介TXT文件:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
-        self.bio_file_path = tk.StringVar()
-        ttk.Entry(bio_frame, textvariable=self.bio_file_path, width=40).grid(row=0, column=1, padx=5, pady=10)
-        ttk.Button(bio_frame, text="选择文件", command=self.select_bio_file, width=12).grid(row=0, column=2, padx=5)
-        ttk.Label(bio_frame, text="每行一个简介，按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=0, columnspan=3, padx=5, pady=5)
-        
-        def do_edit():
             photo_folder = self.photo_folder_path.get().strip()
             username_file = self.username_file_path.get().strip()
             firstname_file = self.firstname_file_path.get().strip()
@@ -490,25 +484,28 @@ class TelegramFullGUI:
             if username_file and os.path.exists(username_file):
                 with open(username_file, 'r', encoding='utf-8') as f:
                     usernames = [line.strip() for line in f if line.strip()]
+                self.log("多账号管理", f"读取用户名文件: {len(usernames)} 个")
             
             if firstname_file and os.path.exists(firstname_file):
                 with open(firstname_file, 'r', encoding='utf-8') as f:
                     firstnames = [line.strip() for line in f if line.strip()]
+                self.log("多账号管理", f"读取昵称文件: {len(firstnames)} 个")
             
             if bio_file and os.path.exists(bio_file):
                 with open(bio_file, 'r', encoding='utf-8') as f:
                     bios = [line.strip() for line in f if line.strip()]
+                self.log("多账号管理", f"读取简介文件: {len(bios)} 个")
             
             if photo_folder and os.path.exists(photo_folder):
                 valid_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp')
                 photos = [os.path.join(photo_folder, f) for f in os.listdir(photo_folder) 
                          if f.lower().endswith(valid_extensions)]
                 photos.sort()
+                self.log("多账号管理", f"读取头像文件夹: {len(photos)} 张图片")
             
             dialog.destroy()
             
             self.log("多账号管理", f"开始批量修改 {len(selected_phones)} 个账号的资料")
-            self.log("多账号管理", f"头像数量: {len(photos)}, 用户名数量: {len(usernames)}, 昵称数量: {len(firstnames)}, 简介数量: {len(bios)}")
             
             def edit_thread():
                 for i, phone in enumerate(selected_phones):
@@ -530,8 +527,6 @@ class TelegramFullGUI:
             
             threading.Thread(target=edit_thread, daemon=True).start()
         
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.pack(pady=20)
         ttk.Button(btn_frame, text="开始修改", command=do_edit, width=12).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
     
@@ -539,21 +534,25 @@ class TelegramFullGUI:
         folder = filedialog.askdirectory(title="选择头像文件夹")
         if folder:
             self.photo_folder_path.set(folder)
+            self.log("多账号管理", f"选择头像文件夹: {folder}")
     
     def select_username_file(self):
         file_path = filedialog.askopenfilename(title="选择用户名文件", filetypes=[("文本文件", "*.txt")])
         if file_path:
             self.username_file_path.set(file_path)
+            self.log("多账号管理", f"选择用户名文件: {file_path}")
     
     def select_firstname_file(self):
         file_path = filedialog.askopenfilename(title="选择昵称文件", filetypes=[("文本文件", "*.txt")])
         if file_path:
             self.firstname_file_path.set(file_path)
+            self.log("多账号管理", f"选择昵称文件: {file_path}")
     
     def select_bio_file(self):
         file_path = filedialog.askopenfilename(title="选择简介文件", filetypes=[("文本文件", "*.txt")])
         if file_path:
             self.bio_file_path.set(file_path)
+            self.log("多账号管理", f"选择简介文件: {file_path}")
     
     def edit_single_account_profile(self, acc, photo_path, username, first_name, bio):
         phone = acc.get('phone', '')
@@ -693,7 +692,7 @@ class TelegramFullGUI:
             self.accounts[idx]['group'] = target_group
             self.refresh_account_list()
             refresh_account_combo()
-            self.log("多账号管理", f"移动账号到分组「{target_group}」")
+            self.log("多账号管理", f"移动账号 {self.accounts[idx].get('phone')} 到分组「{target_group}」")
         
         def refresh_all():
             refresh_account_combo()
@@ -980,7 +979,7 @@ class TelegramFullGUI:
                 self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在处理账号: {phone}")
                 self.login_single_account(acc)
                 time.sleep(2)
-            self.log("多账号管理", f"登录检测完成")
+            self.log("多账号管理", "登录检测完成")
         
         threading.Thread(target=do_login, daemon=True).start()
     
@@ -1024,6 +1023,7 @@ class TelegramFullGUI:
                 self.log("多账号管理", f"删除 {len(dead_indices)} 个已失效账号")
             self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已失效账号？", do_delete)
         else:
+            self.log("多账号管理", "没有发现已失效的账号")
             self.show_centered_info("提示", "没有发现已失效的账号")
     
     # ==================== 代理IP页面 ====================
@@ -1047,7 +1047,6 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="分配代理IP", command=self.assign_proxies_to_accounts).pack(side="left", padx=2)
         
-        # 代理列表带分组
         frame = ttk.LabelFrame(main_frame, text="代理列表")
         frame.pack(fill="both", expand=True, pady=5)
         
@@ -1081,7 +1080,7 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "分组已存在")
     
     def assign_proxies_to_accounts(self):
-        """分配代理IP - 选择账号分组+IP分组，支持多选全选"""
+        """分配代理IP - 一体化窗口，包含确定按钮"""
         if not self.proxies:
             self.log("代理IP", "没有可用的代理")
             self.show_centered_warning("提示", "请先导入代理")
@@ -1089,16 +1088,16 @@ class TelegramFullGUI:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("分配代理IP")
-        dialog.geometry("750x550")
+        dialog.geometry("750x600")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        self.center_window(dialog, 750, 550)
+        self.center_window(dialog, 750, 600)
         
         ttk.Label(dialog, text="分配代理IP", font=("微软雅黑", 12, "bold")).pack(pady=10)
         
         # 左右两个框架
-        main_paned = ttk.Frame(dialog)
+                main_paned = ttk.Frame(dialog)
         main_paned.pack(fill="both", expand=True, padx=10, pady=10)
         
         left_frame = ttk.LabelFrame(main_paned, text="选择账号")
@@ -1168,9 +1167,11 @@ class TelegramFullGUI:
         
         def on_account_filter_change(event):
             refresh_account_list()
+            account_select_all_var.set(False)
         
         def on_proxy_filter_change(event):
             refresh_proxy_list()
+            proxy_select_all_var.set(False)
         
         account_group_filter.bind("<<ComboboxSelected>>", on_account_filter_change)
         proxy_group_filter.bind("<<ComboboxSelected>>", on_proxy_filter_change)
@@ -1186,14 +1187,20 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="轮流分配（账号轮流使用选中的代理）", variable=assign_mode, value="round_robin").pack(anchor="w", padx=10, pady=2)
         ttk.Radiobutton(mode_frame, text="一对一分配（按顺序一一对应）", variable=assign_mode, value="one_to_one").pack(anchor="w", padx=10, pady=2)
         
+        # 确定和取消按钮
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=15)
+        
         def do_assign():
             selected_account_indices = account_listbox.curselection()
             selected_proxy_indices = proxy_listbox.curselection()
             
             if not selected_account_indices:
+                self.log("代理IP", "请至少选择一个账号")
                 self.show_centered_warning("提示", "请至少选择一个账号")
                 return
             if not selected_proxy_indices:
+                self.log("代理IP", "请至少选择一个代理")
                 self.show_centered_warning("提示", "请至少选择一个代理")
                 return
             
@@ -1259,22 +1266,18 @@ class TelegramFullGUI:
                             acc['proxy'] = proxy_str
                             break
                     self.log("代理IP", f"账号 {phone} 分配代理: {proxy_str}")
+                if len(selected_accounts) > len(selected_proxies):
+                    self.log("代理IP", f"警告: 账号数量({len(selected_accounts)})多于代理数量({len(selected_proxies)})，多余账号未分配")
+                elif len(selected_proxies) > len(selected_accounts):
+                    self.log("代理IP", f"信息: 代理数量({len(selected_proxies)})多于账号数量({len(selected_accounts)})，剩余代理未使用")
             
             self.refresh_account_list()
             self.refresh_proxy_list()
-            self.log("代理IP", "分配完成")
+            self.log("代理IP", f"分配完成，共为 {len(selected_accounts)} 个账号分配代理")
             self.show_centered_info("完成", f"已为 {len(selected_accounts)} 个账号分配代理")
         
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.pack(pady=15)
         ttk.Button(btn_frame, text="确定分配", command=do_assign, width=12).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
-    
-    def toggle_listbox_select(self, listbox, var):
-        if var.get():
-            listbox.selection_set(0, tk.END)
-        else:
-            listbox.selection_clear(0, tk.END)
     
     def import_proxies(self):
         # 先选择分组
@@ -1385,8 +1388,10 @@ class TelegramFullGUI:
         self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
         
         if added_count > 0:
+            self.log("代理IP", f"导入完成，共导入 {added_count} 个代理")
             self.show_centered_info("导入完成", f"成功导入 {added_count} 个代理")
         else:
+            self.log("代理IP", "导入失败：未找到有效的代理格式")
             self.show_centered_warning("导入失败", "未找到有效的代理格式")
     
     def delete_proxy(self):
@@ -1408,6 +1413,7 @@ class TelegramFullGUI:
                 self.log("代理IP", "清空所有代理")
             self.show_centered_yesno("确认", "确定要清空所有代理吗？", do_clear)
         else:
+            self.log("代理IP", "没有代理需要清空")
             self.show_centered_info("提示", "没有代理需要清空")
     
     def check_proxies(self):
@@ -1462,7 +1468,7 @@ class TelegramFullGUI:
                 p.get('status', '未检测')
             ))
     
-    # ==================== 采集群成员页面（保持原有完整功能） ====================
+    # ==================== 采集群成员页面 ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
@@ -1780,8 +1786,6 @@ class TelegramFullGUI:
         async def do_scrape():
             client = None
             admin_ids = set()
-            final_count = 0
-            final_total_messages = 0
             try:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
@@ -1954,10 +1958,8 @@ class TelegramFullGUI:
                     if pending_infos:
                         self.root.after(0, lambda c=count, infos=pending_infos: self.batch_update_preview(c, infos))
                     
-                    final_count = len(self.scraped_members)
-                    final_total_messages = total_messages
-                    self.log("采集群成员", f"⚡ 已处理 {total_messages} 条消息 | 累计 {final_count} 人")
-                    self.log("采集群成员", f"采集完成！共处理 {total_messages} 条消息，采集 {final_count} 个唯一用户")
+                    self.log("采集群成员", f"⚡ 已处理 {total_messages} 条消息 | 累计 {count} 人")
+                    self.log("采集群成员", f"采集完成！共处理 {total_messages} 条消息，采集 {count} 个唯一用户")
                 
                 if self.scraped_members:
                     is_stop = not self.is_scraping
@@ -1992,7 +1994,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（保持原有完整功能） ====================
+    # ==================== 批量拉人页面 ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2162,7 +2164,7 @@ class TelegramFullGUI:
         
         threading.Thread(target=run_invite, daemon=True).start()
     
-    # ==================== 群发广告页面（保持原有完整功能） ====================
+    # ==================== 群发广告页面 ====================
     def create_send_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="群发广告")
@@ -2327,7 +2329,7 @@ class TelegramFullGUI:
         
         threading.Thread(target=run_send, daemon=True).start()
     
-    # ==================== 自动群聊页面（保持原有完整功能） ====================
+    # ==================== 自动群聊页面 ====================
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
@@ -2510,7 +2512,7 @@ class TelegramFullGUI:
             self.keyword_text.insert("1.0", content)
             self.log("自动群聊", "关键词配置已加载")
     
-    # ==================== 自动注册页面（保持原有完整功能） ====================
+    # ==================== 自动注册页面 ====================
     def create_auto_register_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动注册账号")
@@ -2553,12 +2555,13 @@ class TelegramFullGUI:
         if folder:
             self.save_path_register.delete(0, tk.END)
             self.save_path_register.insert(0, folder)
+            self.log("自动注册", f"设置保存路径: {folder}")
     
     def start_register(self):
         self.log("自动注册", "批量注册功能需要对接具体接码平台API")
         self.show_centered_info("提示", "请先配置接码平台API")
     
-    # ==================== 监听页面（保持原有完整功能） ====================
+    # ==================== 监听页面 ====================
     def create_monitor_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="监听群组")
@@ -2608,7 +2611,7 @@ class TelegramFullGUI:
         self.log("监听群组", "停止监听")
         self.running_tasks['monitor'] = False
     
-    # ==================== 话术配置页面（保持原有完整功能） ====================
+    # ==================== 话术配置页面 ====================
     def create_script_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="话术配置")
