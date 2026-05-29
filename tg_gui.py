@@ -17,7 +17,7 @@ import re
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, PhoneNumberBannedError
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
-from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message
+from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message, InputPeerChannel
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -1217,6 +1217,7 @@ class TelegramFullGUI:
         account_phone = acc.get('phone', '')
         
         async def do_scrape():
+            nonlocal entity
             client = None
             local_count = 0
             local_skipped = 0
@@ -1229,6 +1230,16 @@ class TelegramFullGUI:
                 
                 if not await client.is_user_authorized():
                     self.log(f"[{account_phone}] 账号未登录")
+                    return
+                
+                # 重新获取entity（每个账号独立获取）
+                try:
+                    if group_username.isdigit():
+                        entity = await client.get_entity(int(group_username))
+                    else:
+                        entity = await client.get_entity(group_username)
+                except Exception as e:
+                    self.log(f"[{account_phone}] 获取群组失败: {str(e)}")
                     return
                 
                 if scrape_mode == "获取全部成员(公开群)":
@@ -1295,17 +1306,20 @@ class TelegramFullGUI:
                     self.log(f"[{account_phone}] 采集完成，采集 {local_count} 人")
                 
                 else:
-                    # 隐藏群模式
+                    # 隐藏群模式 - 使用InputPeerChannel
                     self.log(f"[{account_phone}] 开始采集发言用户...")
                     
                     offset_id = 0
                     batch_size = 500
                     user_cache = {}
                     
+                    # 将entity转换为InputPeer
+                    input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                    
                     while self.is_scraping:
                         try:
                             history = await client(GetHistoryRequest(
-                                peer=entity,
+                                peer=input_peer,
                                 offset_id=offset_id,
                                 offset_date=None,
                                 add_offset=0,
@@ -1319,6 +1333,7 @@ class TelegramFullGUI:
                                 self.log(f"[{account_phone}] 已获取全部历史消息")
                                 break
                             
+                            # 收集本批消息中的所有唯一用户ID
                             unique_user_ids = []
                             for msg in history.messages:
                                 if not self.is_scraping:
@@ -1385,7 +1400,10 @@ class TelegramFullGUI:
                             if batch_infos:
                                 self.root.after(0, lambda c=local_count, infos=batch_infos.copy(): self.batch_update_preview(account_phone, len(self.scraped_members), infos))
                                 self.log(f"[{account_phone}] 处理 {total_messages} 条消息，新增 {len(batch_infos)} 人，累计 {local_count} 人")
+                            elif total_messages % 500 == 0 and total_messages > 0:
+                                self.log(f"[{account_phone}] 已处理 {total_messages} 条消息，累计 {local_count} 人")
                             
+                            # 更新偏移量
                             if history.messages:
                                 offset_id = history.messages[-1].id
                             else:
@@ -1520,7 +1538,10 @@ class TelegramFullGUI:
             self.is_scraping = False
             return
         
+        admin_ids = set()
+        
         async def get_entity_and_admins():
+            nonlocal admin_ids
             client = None
             try:
                 session_path = first_acc.get('session_path', '')
@@ -1530,7 +1551,7 @@ class TelegramFullGUI:
                 
                 if not await client.is_user_authorized():
                     self.log("账号未登录")
-                    return None, None
+                    return None
                 
                 # 获取群组实体
                 try:
@@ -1540,10 +1561,9 @@ class TelegramFullGUI:
                         entity = await client.get_entity(group_username)
                 except Exception as e:
                     self.log(f"获取群组失败: {str(e)}")
-                    return None, None
+                    return None
                 
                 # 获取管理员列表
-                admin_ids = set()
                 if self.filter_admin.get():
                     try:
                         async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
@@ -1553,11 +1573,11 @@ class TelegramFullGUI:
                         self.log(f"获取管理员列表失败: {str(e)}")
                 
                 await client.disconnect()
-                return entity, admin_ids
+                return entity
                 
             except Exception as e:
                 self.log(f"初始化失败: {str(e)}")
-                return None, None
+                return None
             finally:
                 if client:
                     try:
@@ -1568,7 +1588,7 @@ class TelegramFullGUI:
         def init_and_start():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            entity, admin_ids = loop.run_until_complete(get_entity_and_admins())
+            entity = loop.run_until_complete(get_entity_and_admins())
             loop.close()
             
             if entity is None:
