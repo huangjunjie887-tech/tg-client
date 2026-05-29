@@ -1340,11 +1340,14 @@ class TelegramFullGUI:
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式：极速采集（无延迟、无逐条UI更新）
+                    # 隐藏群模式：极速采集（批量获取用户信息）
                     self.log("开始采集发言用户（极速模式）...")
                     
                     offset_id = 0
                     batch_size = 2000  # 最大批量
+                    
+                    # 批量获取用户信息的缓存
+                    user_cache = {}
                     
                     while self.is_scraping:
                         try:
@@ -1363,67 +1366,76 @@ class TelegramFullGUI:
                                 self.log("已获取全部历史消息")
                                 break
                             
-                            batch_new = 0
-                            batch_infos = []
-                            
+                            # 收集本批消息中的所有用户ID（未采集过且未缓存的）
+                            user_ids = []
                             for msg in history.messages:
                                 if not self.is_scraping:
                                     break
-                                
-                                total_messages += 1
-                                
-                                # 直接从msg获取sender
-                                sender = msg.sender if hasattr(msg, 'sender') and msg.sender else None
-                                if not sender:
-                                    continue
-                                
-                                # 必须有用户名
-                                if not sender.username:
-                                    skipped_no_username += 1
-                                    continue
-                                
-                                # 去重
-                                if sender.id in collected_user_ids:
-                                    continue
-                                
-                                # 过滤管理员
-                                if self.filter_admin.get() and sender.id in admin_ids:
-                                    continue
-                                
-                                collected_user_ids.add(sender.id)
-                                
-                                # 过滤机器人
-                                if self.filter_bot.get() and sender.bot:
-                                    continue
-                                
-                                # 过滤广告关键词
-                                if ad_keywords:
-                                    name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
-                                    if any(kw in name_lower for kw in ad_keywords):
+                                if hasattr(msg, 'sender_id') and msg.sender_id:
+                                    user_id = msg.sender_id
+                                    if user_id not in collected_user_ids and user_id not in user_cache:
+                                        user_ids.append(user_id)
+                            
+                            # 批量获取用户信息
+                            batch_infos = []
+                            for user_id in user_ids:
+                                if not self.is_scraping:
+                                    break
+                                try:
+                                    # 检查缓存
+                                    if user_id in user_cache:
+                                        sender = user_cache[user_id]
+                                    else:
+                                        sender = await client.get_entity(user_id)
+                                        user_cache[user_id] = sender
+                                    
+                                    total_messages += 1
+                                    
+                                    # 必须有用户名
+                                    if not sender.username:
+                                        skipped_no_username += 1
                                         continue
-                                
-                                member_info = {
-                                    'id': sender.id,
-                                    'username': sender.username,
-                                    'first_name': sender.first_name or "",
-                                    'last_name': sender.last_name or "",
-                                    'phone': "",
-                                    'online_status': "未知",
-                                    'is_admin': sender.id in admin_ids,
-                                    'is_bot': sender.bot,
-                                    'deleted': getattr(sender, 'deleted', False)
-                                }
-                                
-                                self.scraped_members.append(member_info)
-                                batch_infos.append(member_info)
-                                count += 1
-                                batch_new += 1
+                                    
+                                    # 过滤管理员
+                                    if self.filter_admin.get() and sender.id in admin_ids:
+                                        continue
+                                    
+                                    collected_user_ids.add(sender.id)
+                                    
+                                    # 过滤机器人
+                                    if self.filter_bot.get() and sender.bot:
+                                        continue
+                                    
+                                    # 过滤广告关键词
+                                    if ad_keywords:
+                                        name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                        if any(kw in name_lower for kw in ad_keywords):
+                                            continue
+                                    
+                                    member_info = {
+                                        'id': sender.id,
+                                        'username': sender.username,
+                                        'first_name': sender.first_name or "",
+                                        'last_name': sender.last_name or "",
+                                        'phone': "",
+                                        'online_status': "未知",
+                                        'is_admin': sender.id in admin_ids,
+                                        'is_bot': sender.bot,
+                                        'deleted': getattr(sender, 'deleted', False)
+                                    }
+                                    
+                                    self.scraped_members.append(member_info)
+                                    batch_infos.append(member_info)
+                                    count += 1
+                                    
+                                except Exception as e:
+                                    continue
                             
                             # 每批更新一次UI
                             if batch_infos:
                                 self.root.after(0, lambda c=count, infos=batch_infos: self.batch_update_preview(c, infos))
                             
-                            if total_messages % 500 == 0 or batch_new > 0:
+                            if total_messages % 500 == 0 or batch_infos:
                                 self.log(f"⚡ 已处理 {total_messages} 条消息 | 采集 {count} 人")
                             
                             # 更新偏移量，继续下一批（无延迟）
