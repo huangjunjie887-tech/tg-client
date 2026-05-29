@@ -1340,13 +1340,13 @@ class TelegramFullGUI:
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式：极速采集（批量获取用户信息）
-                    self.log("开始采集发言用户（极速模式）...")
+                    # 隐藏群模式：正确采集（通过get_entity获取完整用户信息）
+                    self.log("开始采集发言用户（优化模式）...")
                     
                     offset_id = 0
-                    batch_size = 2000  # 最大批量
+                    batch_size = 500  # 减小批量，避免请求过多
                     
-                    # 批量获取用户信息的缓存
+                    # 用户缓存，避免重复请求
                     user_cache = {}
                     
                     while self.is_scraping:
@@ -1366,30 +1366,31 @@ class TelegramFullGUI:
                                 self.log("已获取全部历史消息")
                                 break
                             
-                            # 收集本批消息中的所有用户ID（未采集过且未缓存的）
-                            user_ids = []
+                            # 收集本批消息中的所有唯一用户ID
+                            unique_user_ids = []
                             for msg in history.messages:
                                 if not self.is_scraping:
                                     break
                                 if hasattr(msg, 'sender_id') and msg.sender_id:
                                     user_id = msg.sender_id
+                                    # 只处理未采集过且未缓存的用户
                                     if user_id not in collected_user_ids and user_id not in user_cache:
-                                        user_ids.append(user_id)
+                                        unique_user_ids.append(user_id)
+                            
+                            total_messages += len(history.messages)
                             
                             # 批量获取用户信息
                             batch_infos = []
-                            for user_id in user_ids:
+                            for user_id in unique_user_ids:
                                 if not self.is_scraping:
                                     break
                                 try:
-                                    # 检查缓存
+                                    # 从缓存获取或请求API
                                     if user_id in user_cache:
                                         sender = user_cache[user_id]
                                     else:
                                         sender = await client.get_entity(user_id)
                                         user_cache[user_id] = sender
-                                    
-                                    total_messages += 1
                                     
                                     # 必须有用户名
                                     if not sender.username:
@@ -1431,18 +1432,21 @@ class TelegramFullGUI:
                                 except Exception as e:
                                     continue
                             
-                            # 每批更新一次UI
+                            # 批量更新UI
                             if batch_infos:
                                 self.root.after(0, lambda c=count, infos=batch_infos: self.batch_update_preview(c, infos))
+                                self.log(f"⚡ 已处理 {total_messages} 条消息 | 新增 {len(batch_infos)} 人 | 累计 {count} 人")
+                            elif total_messages % 500 == 0:
+                                self.log(f"⚡ 已处理 {total_messages} 条消息 | 累计 {count} 人")
                             
-                            if total_messages % 500 == 0 or batch_infos:
-                                self.log(f"⚡ 已处理 {total_messages} 条消息 | 采集 {count} 人")
-                            
-                            # 更新偏移量，继续下一批（无延迟）
+                            # 更新偏移量
                             if history.messages:
                                 offset_id = history.messages[-1].id
                             else:
                                 break
+                            
+                            # 添加小延迟避免被限制
+                            await asyncio.sleep(0.1)
                                 
                         except FloodWaitError as e:
                             self.log(f"⏳ 等待 {e.seconds} 秒...")
@@ -1451,7 +1455,7 @@ class TelegramFullGUI:
                             self.log(f"错误: {str(e)}")
                             break
                     
-                    self.log(f"采集完成！共处理 {total_messages} 条消息，采集 {len(self.scraped_members)} 个有用户名的发言用户")
+                    self.log(f"采集完成！共处理 {total_messages} 条消息，采集 {len(self.scraped_members)} 个唯一用户")
                 
                 # 保存文件（无论采集完成还是停止，都自动保存）
                 if self.scraped_members:
