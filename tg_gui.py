@@ -1022,7 +1022,7 @@ class TelegramFullGUI:
             self.log(f"已设置保存目录: {folder}")
     
     def save_scraped_members(self, group_username, is_stop=False):
-        """保存采集的成员到文件（只保存用户名）"""
+        """保存采集的成员到文件（只保存用户名，无任何注释）"""
         if not self.scraped_members:
             if is_stop:
                 self.log("没有采集到任何成员，不保存文件")
@@ -1040,8 +1040,7 @@ class TelegramFullGUI:
         save_format = self.save_format.get()
         current_date = datetime.now().strftime('%Y%m%d')
         current_time = datetime.now().strftime('%H%M%S')
-        action = "stop" if is_stop else "complete"
-        base_name = f"members_{group_username}_{current_date}_{current_time}_{action}"
+        base_name = f"members_{group_username}_{current_date}_{current_time}"
         
         # 提取用户名列表（去重）
         usernames = list(set([m.get('username', '') for m in self.scraped_members if m.get('username')]))
@@ -1055,12 +1054,6 @@ class TelegramFullGUI:
             else:
                 save_path = os.path.join(save_dir, f"{base_name}.txt")
                 with open(save_path, 'w', encoding='utf-8') as f:
-                    # 写入文件头
-                    f.write(f"# 采集时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"# 群组: {group_username}\n")
-                    f.write(f"# 采集数量: {len(usernames)}\n")
-                    f.write(f"# 状态: {'用户停止' if is_stop else '采集完成'}\n")
-                    f.write("#" * 80 + "\n")
                     for username in usernames:
                         if username:
                             f.write(f"@{username}\n")
@@ -1319,14 +1312,12 @@ class TelegramFullGUI:
                         
                         # 更新预览
                         self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
-                        
-                        await asyncio.sleep(0.05)
                     
                     self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式：通过获取聊天记录采集有用户名的发言用户
+                    # 隐藏群模式：通过获取聊天记录采集有用户名的发言用户（无延迟，全速采集）
                     self.log("开始采集发言用户（从聊天记录中获取有用户名的用户）...")
                     
                     offset_id = 0
@@ -1334,7 +1325,7 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            # 获取历史消息，每次500条
+                            # 获取历史消息
                             history = await client(GetHistoryRequest(
                                 peer=entity,
                                 offset_id=offset_id,
@@ -1421,9 +1412,8 @@ class TelegramFullGUI:
                             else:
                                 break
                             
-                            # 每批消息后延迟0.5秒，避免请求过快
+                            # 每批消息后输出一次进度（无延迟）
                             self.log(f"已处理 {total_messages} 条消息，已采集 {count} 个有效用户，过滤 {len(admin_ids)} 个管理员")
-                            await asyncio.sleep(0.5)
                             
                         except FloodWaitError as e:
                             self.log(f"请求频繁，等待 {e.seconds} 秒...")
@@ -1436,9 +1426,8 @@ class TelegramFullGUI:
                 
                 # 保存文件（无论采集完成还是停止，都自动保存）
                 if self.scraped_members:
-                    is_stop = not self.is_scraping
-                    self.save_scraped_members(group_username, is_stop)
-                    self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", 
+                    self.save_scraped_members(group_username, not self.is_scraping)
+                    self.root.after(0, lambda: self.show_centered_info("采集完成" if self.is_scraping else "采集已停止", 
                                                                        f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
                 else:
                     self.log("没有采集到任何成员")
