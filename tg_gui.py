@@ -1022,7 +1022,7 @@ class TelegramFullGUI:
             self.log(f"已设置保存目录: {folder}")
     
     def save_scraped_members(self, group_username, is_stop=False):
-        """保存采集的成员到文件（只保存用户名，无任何注释）"""
+        """保存采集的成员到文件（只保存用户名）"""
         if not self.scraped_members:
             if is_stop:
                 self.log("没有采集到任何成员，不保存文件")
@@ -1040,7 +1040,8 @@ class TelegramFullGUI:
         save_format = self.save_format.get()
         current_date = datetime.now().strftime('%Y%m%d')
         current_time = datetime.now().strftime('%H%M%S')
-        base_name = f"members_{group_username}_{current_date}_{current_time}"
+        action = "stop" if is_stop else "complete"
+        base_name = f"members_{group_username}_{current_date}_{current_time}_{action}"
         
         # 提取用户名列表（去重）
         usernames = list(set([m.get('username', '') for m in self.scraped_members if m.get('username')]))
@@ -1056,7 +1057,7 @@ class TelegramFullGUI:
                 with open(save_path, 'w', encoding='utf-8') as f:
                     for username in usernames:
                         if username:
-                            f.write(f"{username}\n")
+                            f.write(f"@{username}\n")
                 self.log(f"已保存TXT文件（用户名列表）: {save_path}, 共 {len(usernames)} 个用户名")
             
             return True
@@ -1312,12 +1313,14 @@ class TelegramFullGUI:
                         
                         # 更新预览
                         self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
+                        
+                        await asyncio.sleep(0.05)
                     
                     self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式：通过获取聊天记录采集有用户名的发言用户（无延迟，全速采集）
+                    # 隐藏群模式：通过获取聊天记录采集有用户名的发言用户
                     self.log("开始采集发言用户（从聊天记录中获取有用户名的用户）...")
                     
                     offset_id = 0
@@ -1325,7 +1328,7 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            # 获取历史消息
+                            # 获取历史消息，每次500条
                             history = await client(GetHistoryRequest(
                                 peer=entity,
                                 offset_id=offset_id,
@@ -1347,15 +1350,14 @@ class TelegramFullGUI:
                                 
                                 total_messages += 1
                                 
-                                # 获取发送者信息 - 优先使用 msg.sender
+                                # 直接从消息对象中获取发送者信息
                                 sender = None
                                 if hasattr(msg, 'sender') and msg.sender:
                                     sender = msg.sender
                                 elif hasattr(msg, 'from_id') and msg.from_id:
                                     try:
                                         sender = await client.get_entity(msg.sender_id)
-                                    except Exception as e:
-                                        self.log(f"获取发送者失败: {str(e)[:50]}")
+                                    except:
                                         continue
                                 else:
                                     continue
@@ -1363,21 +1365,8 @@ class TelegramFullGUI:
                                 if not sender:
                                     continue
                                 
-                                # 获取用户名 - 多种方式尝试
-                                username = None
-                                if hasattr(sender, 'username') and sender.username:
-                                    username = sender.username
-                                elif hasattr(sender, 'usernames') and sender.usernames:
-                                    # 某些情况下username在usernames列表中
-                                    for u in sender.usernames:
-                                        if u.username:
-                                            username = u.username
-                                            break
-                                elif hasattr(sender, 'user') and hasattr(sender.user, 'username'):
-                                    username = sender.user.username
-                                
                                 # 只采集有用户名的用户
-                                if not username:
+                                if not hasattr(sender, 'username') or not sender.username:
                                     skipped_no_username += 1
                                     continue
                                 
@@ -1392,41 +1381,26 @@ class TelegramFullGUI:
                                 collected_user_ids.add(sender.id)
                                 
                                 # 过滤机器人
-                                if self.filter_bot.get():
-                                    is_bot = False
-                                    if hasattr(sender, 'bot'):
-                                        is_bot = sender.bot
-                                    elif hasattr(sender, 'user') and hasattr(sender.user, 'bot'):
-                                        is_bot = sender.user.bot
-                                    if is_bot:
-                                        continue
+                                if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
+                                    continue
                                 
                                 # 过滤昵称含广告关键词
                                 if ad_keywords:
-                                    first_name = ""
-                                    last_name = ""
-                                    if hasattr(sender, 'first_name'):
-                                        first_name = sender.first_name or ""
-                                    elif hasattr(sender, 'user') and hasattr(sender.user, 'first_name'):
-                                        first_name = sender.user.first_name or ""
-                                    if hasattr(sender, 'last_name'):
-                                        last_name = sender.last_name or ""
-                                    elif hasattr(sender, 'user') and hasattr(sender.user, 'last_name'):
-                                        last_name = sender.user.last_name or ""
-                                    name_lower = f"{first_name} {last_name}".lower()
+                                    name_lower = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".lower()
                                     if any(kw in name_lower for kw in ad_keywords):
                                         continue
                                 
+                                # 注意：隐藏群模式下无法获取用户的在线状态，设为未知
                                 member_info = {
                                     'id': sender.id,
-                                    'username': username,
-                                    'first_name': "",
-                                    'last_name': "",
-                                    'phone': "",
+                                    'username': sender.username or "",
+                                    'first_name': getattr(sender, 'first_name', '') or "",
+                                    'last_name': getattr(sender, 'last_name', '') or "",
+                                    'phone': getattr(sender, 'phone', '') or "",
                                     'online_status': "未知",
                                     'is_admin': sender.id in admin_ids,
-                                    'is_bot': False,
-                                    'deleted': False
+                                    'is_bot': getattr(sender, 'bot', False),
+                                    'deleted': getattr(sender, 'deleted', False)
                                 }
                                 
                                 self.scraped_members.append(member_info)
@@ -1435,13 +1409,13 @@ class TelegramFullGUI:
                                 # 更新预览
                                 self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
                             
-                            # 更新偏移量
+                            # 更新偏移量，继续获取下一条消息
                             if history.messages:
                                 offset_id = history.messages[-1].id
                             else:
                                 break
                             
-                            # 输出进度
+                            # 每批消息后输出进度
                             self.log(f"已处理 {total_messages} 条消息，已采集 {count} 个有效用户")
                             
                         except FloodWaitError as e:
@@ -1453,10 +1427,11 @@ class TelegramFullGUI:
                     
                     self.log(f"采集完成！共处理 {total_messages} 条消息，采集 {len(self.scraped_members)} 个有用户名的发言用户")
                 
-                # 保存文件
+                # 保存文件（无论采集完成还是停止，都自动保存）
                 if self.scraped_members:
-                    self.save_scraped_members(group_username, not self.is_scraping)
-                    self.root.after(0, lambda: self.show_centered_info("采集完成" if self.is_scraping else "采集已停止", 
+                    is_stop = not self.is_scraping
+                    self.save_scraped_members(group_username, is_stop)
+                    self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", 
                                                                        f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
                 else:
                     self.log("没有采集到任何成员")
@@ -1488,18 +1463,18 @@ class TelegramFullGUI:
         """更新预览列表"""
         self.scrape_stats.config(text=f"已采集: {count} 人")
         
-        username = member_info.get('username', '')
-        if len(username) > 20:
-            username = username[:20] + "..."
+        display_name = member_info['first_name'] or member_info['username'] or str(member_info['id'])
+        if len(display_name) > 20:
+            display_name = display_name[:20] + "..."
         
         self.preview_tree.insert("", "end", values=(
             count,
-            member_info.get('id', ''),
-            username,
-            "",
-            member_info.get('online_status', '未知'),
-            "是" if member_info.get('is_admin') else "否",
-            "是" if member_info.get('is_bot') else "否"
+            member_info['id'],
+            member_info['username'][:20] if member_info['username'] else "-",
+            display_name,
+            member_info['online_status'],
+            "是" if member_info['is_admin'] else "否",
+            "是" if member_info['is_bot'] else "否"
         ))
         self.preview_tree.yview_moveto(1)
     
