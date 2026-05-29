@@ -17,7 +17,7 @@ import re
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, PhoneNumberBannedError
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
-from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent
+from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -1366,44 +1366,47 @@ class TelegramFullGUI:
                                 if not self.is_scraping:
                                     break
                                 
-                                sender_id = msg.sender_id
-                                if sender_id and sender_id not in collected_user_ids:
+                                # 直接从消息中获取用户信息，不需要额外API调用
+                                sender = msg.sender_id
+                                
+                                # 如果消息中有完整的用户信息，直接使用
+                                if hasattr(msg, 'from_id') and msg.from_id:
                                     try:
-                                        # 获取发送者信息
-                                        sender = await client.get_entity(sender_id)
+                                        # 尝试获取完整的用户对象
+                                        user_entity = await client.get_entity(msg.sender_id)
                                         
                                         # 只采集有用户名的用户
-                                        if not sender.username:
+                                        if not user_entity.username:
                                             skipped_no_username += 1
                                             continue
                                         
-                                        collected_user_ids.add(sender_id)
+                                        if user_entity.id in collected_user_ids:
+                                            continue
+                                        collected_user_ids.add(user_entity.id)
                                         
                                         # 过滤机器人
-                                        if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
+                                        if self.filter_bot.get() and hasattr(user_entity, 'bot') and user_entity.bot:
                                             continue
                                         
                                         # 过滤昵称含广告关键词
                                         if ad_keywords:
-                                            name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                            name_lower = f"{user_entity.first_name or ''} {user_entity.last_name or ''}".lower()
                                             if any(kw in name_lower for kw in ad_keywords):
                                                 continue
                                         
                                         # 获取在线状态
-                                        online_status = "未知"
-                                        if hasattr(sender, 'status'):
-                                            online_status = self.get_online_status_text(sender.status)
+                                        online_status = self.get_online_status_text(getattr(user_entity, 'status', None))
                                         
                                         member_info = {
-                                            'id': sender.id,
-                                            'username': sender.username or "",
-                                            'first_name': sender.first_name or "",
-                                            'last_name': sender.last_name or "",
-                                            'phone': sender.phone if hasattr(sender, 'phone') and sender.phone else "",
+                                            'id': user_entity.id,
+                                            'username': user_entity.username or "",
+                                            'first_name': user_entity.first_name or "",
+                                            'last_name': user_entity.last_name or "",
+                                            'phone': user_entity.phone if hasattr(user_entity, 'phone') and user_entity.phone else "",
                                             'online_status': online_status,
-                                            'is_admin': sender.id in admin_ids,
-                                            'is_bot': sender.bot if hasattr(sender, 'bot') else False,
-                                            'deleted': sender.deleted if hasattr(sender, 'deleted') else False
+                                            'is_admin': user_entity.id in admin_ids,
+                                            'is_bot': user_entity.bot if hasattr(user_entity, 'bot') else False,
+                                            'deleted': user_entity.deleted if hasattr(user_entity, 'deleted') else False
                                         }
                                         
                                         self.scraped_members.append(member_info)
@@ -1413,7 +1416,9 @@ class TelegramFullGUI:
                                         self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
                                         
                                     except Exception as e:
-                                        self.log(f"获取用户信息失败: {str(e)}")
+                                        # 如果无法获取用户信息，跳过该用户
+                                        self.log(f"获取用户信息失败，跳过用户 {msg.sender_id}: {str(e)[:50]}")
+                                        pass
                                 
                                 total_messages += 1
                             
@@ -1430,7 +1435,7 @@ class TelegramFullGUI:
                             break
                     
                     self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的发言用户")
-                    self.log(f"处理了 {total_messages} 条消息，跳过了 {skipped_no_username} 个无用户名用户")
+                    self.log(f"处理了 {total_messages} 条消息")
                 
                 # 保存文件（无论采集完成还是停止，都自动保存）
                 if self.scraped_members:
