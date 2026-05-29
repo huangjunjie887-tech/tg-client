@@ -970,7 +970,7 @@ class TelegramFullGUI:
         
         ttk.Label(save_frame, text="保存格式:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.save_format = ttk.Combobox(save_frame, values=["TXT", "JSON"], width=10)
-        self.save_format.set("JSON")
+        self.save_format.set("TXT")
         self.save_format.grid(row=0, column=1, sticky="w", padx=5, pady=5)
         
         ttk.Label(save_frame, text="保存目录:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
@@ -1022,7 +1022,7 @@ class TelegramFullGUI:
             self.log(f"已设置保存目录: {folder}")
     
     def save_scraped_members(self, group_username, is_stop=False):
-        """保存采集的成员到文件"""
+        """保存采集的成员到文件（只保存用户名）"""
         if not self.scraped_members:
             if is_stop:
                 self.log("没有采集到任何成员，不保存文件")
@@ -1043,26 +1043,28 @@ class TelegramFullGUI:
         action = "stop" if is_stop else "complete"
         base_name = f"members_{group_username}_{current_date}_{current_time}_{action}"
         
+        # 提取用户名列表（去重）
+        usernames = list(set([m.get('username', '') for m in self.scraped_members if m.get('username')]))
+        
         try:
             if save_format == "JSON":
                 save_path = os.path.join(save_dir, f"{base_name}.json")
                 with open(save_path, 'w', encoding='utf-8') as f:
-                    json.dump(self.scraped_members, f, ensure_ascii=False, indent=2)
-                self.log(f"已保存JSON文件: {save_path}")
+                    json.dump(usernames, f, ensure_ascii=False, indent=2)
+                self.log(f"已保存JSON文件（用户名列表）: {save_path}, 共 {len(usernames)} 个用户名")
             else:
                 save_path = os.path.join(save_dir, f"{base_name}.txt")
                 with open(save_path, 'w', encoding='utf-8') as f:
                     # 写入文件头
                     f.write(f"# 采集时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                     f.write(f"# 群组: {group_username}\n")
-                    f.write(f"# 采集数量: {len(self.scraped_members)}\n")
+                    f.write(f"# 采集数量: {len(usernames)}\n")
                     f.write(f"# 状态: {'用户停止' if is_stop else '采集完成'}\n")
-                    f.write("# 格式: 用户ID | 用户名 | 昵称 | 手机号 | 在线状态\n")
                     f.write("#" * 80 + "\n")
-                    for m in self.scraped_members:
-                        line = f"{m['id']}\t@{m['username']}\t{m['first_name']} {m['last_name']}\t{m['phone']}\t{m['online_status']}"
-                        f.write(line + "\n")
-                self.log(f"已保存TXT文件: {save_path}")
+                    for username in usernames:
+                        if username:
+                            f.write(f"@{username}\n")
+                self.log(f"已保存TXT文件（用户名列表）: {save_path}, 共 {len(usernames)} 个用户名")
             
             return True
         except Exception as e:
@@ -1224,6 +1226,7 @@ class TelegramFullGUI:
         
         async def do_scrape():
             client = None
+            admin_ids = set()
             try:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
@@ -1242,9 +1245,8 @@ class TelegramFullGUI:
                     self.log(f"获取群组失败: {str(e)}")
                     return
                 
-                # 获取管理员列表（用于过滤）- 仅在公开群模式下有效
-                admin_ids = set()
-                if self.filter_admin.get() and scrape_mode == "获取全部成员(公开群)":
+                # 获取管理员列表（隐藏群和公开群都可以获取管理员）
+                if self.filter_admin.get():
                     try:
                         async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
                             admin_ids.add(user.id)
@@ -1328,16 +1330,17 @@ class TelegramFullGUI:
                     self.log("开始采集发言用户（从聊天记录中获取有用户名的用户）...")
                     
                     offset_id = 0
+                    batch_size = 500  # 每次获取500条消息
                     
                     while self.is_scraping:
                         try:
-                            # 获取历史消息，每次100条
+                            # 获取历史消息，每次500条
                             history = await client(GetHistoryRequest(
                                 peer=entity,
                                 offset_id=offset_id,
                                 offset_date=None,
                                 add_offset=0,
-                                limit=100,
+                                limit=batch_size,
                                 max_id=0,
                                 min_id=0,
                                 hash=0
@@ -1354,12 +1357,10 @@ class TelegramFullGUI:
                                 total_messages += 1
                                 
                                 # 直接从消息对象中获取发送者信息
-                                # Telethon的消息对象通常包含sender属性
                                 sender = None
                                 if hasattr(msg, 'sender') and msg.sender:
                                     sender = msg.sender
                                 elif hasattr(msg, 'from_id') and msg.from_id:
-                                    # 尝试通过ID获取，但不保证成功
                                     try:
                                         sender = await client.get_entity(msg.sender_id)
                                     except:
@@ -1378,6 +1379,11 @@ class TelegramFullGUI:
                                 # 去重
                                 if sender.id in collected_user_ids:
                                     continue
+                                
+                                # 过滤管理员
+                                if self.filter_admin.get() and sender.id in admin_ids:
+                                    continue
+                                
                                 collected_user_ids.add(sender.id)
                                 
                                 # 过滤机器人
@@ -1398,7 +1404,7 @@ class TelegramFullGUI:
                                     'last_name': getattr(sender, 'last_name', '') or "",
                                     'phone': getattr(sender, 'phone', '') or "",
                                     'online_status': "未知",
-                                    'is_admin': False,  # 隐藏群模式下无法判断是否为管理员
+                                    'is_admin': sender.id in admin_ids,
                                     'is_bot': getattr(sender, 'bot', False),
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
@@ -1415,10 +1421,9 @@ class TelegramFullGUI:
                             else:
                                 break
                             
-                            # 每获取100条消息输出一次进度
-                            self.log(f"已处理 {total_messages} 条消息，已采集 {count} 个有效用户")
-                            
-                            await asyncio.sleep(0.5)  # 避免请求过快
+                            # 每批消息后延迟0.5秒，避免请求过快
+                            self.log(f"已处理 {total_messages} 条消息，已采集 {count} 个有效用户，过滤 {len(admin_ids)} 个管理员")
+                            await asyncio.sleep(0.5)
                             
                         except FloodWaitError as e:
                             self.log(f"请求频繁，等待 {e.seconds} 秒...")
@@ -1540,9 +1545,9 @@ class TelegramFullGUI:
         
         latest_file = max(json_files, key=lambda f: os.path.getmtime(os.path.join(save_dir, f)))
         with open(os.path.join(save_dir, latest_file), "r", encoding="utf-8") as f:
-            members = json.load(f)
+            usernames = json.load(f)
         
-        self.log(f"开始拉人: 共 {min(int(limit), len(members))} 人")
+        self.log(f"开始拉人: 共 {min(int(limit), len(usernames))} 个用户")
         
         async def do_invite():
             client = None
@@ -1563,16 +1568,17 @@ class TelegramFullGUI:
                             else:
                                 entity = await client.get_entity(int(target_group))
                             
-                            for m in members[:int(limit)]:
+                            for username in usernames[:int(limit)]:
                                 try:
-                                    await client.invite_to_channel(entity, [m['id']])
-                                    self.log(f"[{phone}] 拉人成功: @{m.get('username', m.get('first_name', m['id']))}")
+                                    user_entity = await client.get_entity(username)
+                                    await client.invite_to_channel(entity, [user_entity.id])
+                                    self.log(f"[{phone}] 拉人成功: {username}")
                                     await asyncio.sleep(delay)
                                 except FloodWaitError as e:
                                     self.log(f"请求频繁，等待{e.seconds}秒")
                                     await asyncio.sleep(e.seconds)
                                 except Exception as e:
-                                    self.log(f"拉人失败: {e}")
+                                    self.log(f"拉人失败 {username}: {str(e)[:50]}")
                             
                             await client.disconnect()
                             client = None
@@ -1603,16 +1609,17 @@ class TelegramFullGUI:
                     else:
                         entity = await client.get_entity(int(target_group))
                     
-                    for m in members[:int(limit)]:
+                    for username in usernames[:int(limit)]:
                         try:
-                            await client.invite_to_channel(entity, [m['id']])
-                            self.log(f"拉人成功: @{m.get('username', m.get('first_name', m['id']))}")
+                            user_entity = await client.get_entity(username)
+                            await client.invite_to_channel(entity, [user_entity.id])
+                            self.log(f"拉人成功: {username}")
                             await asyncio.sleep(delay)
                         except FloodWaitError as e:
                             self.log(f"请求频繁，等待{e.seconds}秒")
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
-                            self.log(f"拉人失败: {e}")
+                            self.log(f"拉人失败 {username}: {str(e)[:50]}")
                 
                 self.log("拉人完成")
                 self.show_centered_info("拉人完成", "批量拉人已完成")
@@ -1701,9 +1708,9 @@ class TelegramFullGUI:
         
         latest_file = max(json_files, key=lambda f: os.path.getmtime(os.path.join(save_dir, f)))
         with open(os.path.join(save_dir, latest_file), "r", encoding="utf-8") as f:
-            members = json.load(f)
+            usernames = json.load(f)
         
-        self.log(f"开始群发: {len(members)} 个用户, 间隔: {delay}秒")
+        self.log(f"开始群发: {len(usernames)} 个用户, 间隔: {delay}秒")
         
         async def do_send():
             client = None
@@ -1718,16 +1725,17 @@ class TelegramFullGUI:
                             client = TelegramClient(session_path, api_id, api_hash)
                             await client.connect()
                             
-                            for m in members:
+                            for username in usernames:
                                 try:
-                                    await client.send_message(m['id'], ad_content)
-                                    self.log(f"[{phone}] 发送成功: @{m.get('username', m.get('first_name', m['id']))}")
+                                    user_entity = await client.get_entity(username)
+                                    await client.send_message(user_entity.id, ad_content)
+                                    self.log(f"[{phone}] 发送成功: {username}")
                                     await asyncio.sleep(delay)
                                 except FloodWaitError as e:
                                     self.log(f"请求频繁，等待{e.seconds}秒")
                                     await asyncio.sleep(e.seconds)
                                 except Exception as e:
-                                    self.log(f"发送失败: {e}")
+                                    self.log(f"发送失败 {username}: {str(e)[:50]}")
                             
                             await client.disconnect()
                             client = None
@@ -1752,16 +1760,17 @@ class TelegramFullGUI:
                     client = TelegramClient(session_path, api_id, api_hash)
                     await client.connect()
                     
-                    for m in members:
+                    for username in usernames:
                         try:
-                            await client.send_message(m['id'], ad_content)
-                            self.log(f"发送成功: @{m.get('username', m.get('first_name', m['id']))}")
+                            user_entity = await client.get_entity(username)
+                            await client.send_message(user_entity.id, ad_content)
+                            self.log(f"发送成功: {username}")
                             await asyncio.sleep(delay)
                         except FloodWaitError as e:
                             self.log(f"请求频繁，等待{e.seconds}秒")
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
-                            self.log(f"发送失败: {e}")
+                            self.log(f"发送失败 {username}: {str(e)[:50]}")
                 
                 self.log("群发完成")
                 self.show_centered_info("群发完成", "群发已完成")
