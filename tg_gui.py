@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import ttk, scrolledtext, filedialog, messagebox, simpledialog
 import requests
 import json
 import threading
@@ -17,10 +17,12 @@ import re
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, PhoneNumberBannedError
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
-from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message, InputPeerChannel
+from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message, InputPeerChannel, InputPhoto
 from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline
+from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
+from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline, InputFile
 from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 
 # 内置服务器地址
 SERVER = "http://172.98.23.64:5000"
@@ -120,14 +122,23 @@ class TelegramFullGUI:
         return dialog
     
     def log(self, page_name, msg, level="INFO"):
-        """记录日志到指定页面的日志框"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] [{level}] {msg}\n"
         
-        # 写入对应页面的日志框
         if page_name in self.log_widgets:
             self.log_widgets[page_name].insert(tk.END, log_entry)
             self.log_widgets[page_name].see(tk.END)
+    
+    def update_account_task(self, phone, task_name, is_current=True):
+        """更新账号的任务状态"""
+        for acc in self.accounts:
+            if acc.get('phone') == phone:
+                if is_current:
+                    acc['current_task'] = task_name
+                else:
+                    acc['last_action'] = task_name
+                break
+        self.refresh_account_list()
     
     def show_card_login(self):
         login_window = tk.Toplevel(self.root)
@@ -269,7 +280,6 @@ class TelegramFullGUI:
         return account_info.get('twoFA', '')
     
     def refresh_scrape_accounts(self):
-        """刷新采集页面账号下拉框"""
         if hasattr(self, 'scrape_account'):
             account_list = [a.get('phone', '') for a in self.accounts if a.get('status') == '正常']
             self.scrape_account['values'] = account_list
@@ -283,7 +293,6 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
         
-        # 主内容框架
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
@@ -294,6 +303,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导出账号", command=self.export_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="一键登录并检测", command=self.login_and_check_all).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="修改资料", command=self.batch_edit_profile).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
         
@@ -320,11 +330,205 @@ class TelegramFullGUI:
         self.account_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
+    
+    def batch_edit_profile(self):
+        """批量修改资料"""
+        selected = self.account_tree.selection()
+        if not selected:
+            self.log("多账号管理", "请先选择要修改资料的账号")
+            self.show_centered_warning("提示", "请先选择要修改资料的账号")
+            return
+        
+        selected_phones = []
+        for item in selected:
+            idx = int(self.account_tree.item(item)['values'][0]) - 1
+            acc = self.accounts[idx]
+            selected_phones.append(acc.get('phone', ''))
+        
+        # 创建编辑对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("批量修改资料")
+        dialog.geometry("500x400")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.center_window(dialog, 500, 400)
+        
+        ttk.Label(dialog, text=f"将修改 {len(selected_phones)} 个账号的资料", font=("微软雅黑", 10, "bold")).pack(pady=10)
+        
+        frame = ttk.Frame(dialog)
+        frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # 头像
+        ttk.Label(frame, text="头像:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
+        self.profile_photo_path = tk.StringVar()
+        ttk.Entry(frame, textvariable=self.profile_photo_path, width=40).grid(row=0, column=1, padx=5, pady=10)
+        ttk.Button(frame, text="选择图片", command=self.select_profile_photo, width=10).grid(row=0, column=2, padx=5)
+        
+        # 用户名
+        ttk.Label(frame, text="用户名(不带@):").grid(row=1, column=0, sticky="w", padx=5, pady=10)
+        self.profile_username = ttk.Entry(frame, width=40)
+        self.profile_username.grid(row=1, column=1, padx=5, pady=10)
+        
+        # 昵称
+        ttk.Label(frame, text="昵称:").grid(row=2, column=0, sticky="w", padx=5, pady=10)
+        self.profile_first_name = ttk.Entry(frame, width=40)
+        self.profile_first_name.grid(row=2, column=1, padx=5, pady=10)
+        
+        # 姓氏
+        ttk.Label(frame, text="姓氏:").grid(row=3, column=0, sticky="w", padx=5, pady=10)
+        self.profile_last_name = ttk.Entry(frame, width=40)
+        self.profile_last_name.grid(row=3, column=1, padx=5, pady=10)
+        
+        # 简介
+        ttk.Label(frame, text="简介:").grid(row=4, column=0, sticky="nw", padx=5, pady=10)
+        self.profile_bio = scrolledtext.ScrolledText(frame, width=40, height=4)
+        self.profile_bio.grid(row=4, column=1, padx=5, pady=10)
+        
+        # 说明
+        ttk.Label(frame, text="说明: 留空表示不修改该项", font=("微软雅黑", 8), foreground="gray").grid(row=5, column=0, columnspan=3, pady=10)
+        
+        def do_edit():
+            photo_path = self.profile_photo_path.get().strip()
+            username = self.profile_username.get().strip()
+            first_name = self.profile_first_name.get().strip()
+            last_name = self.profile_last_name.get().strip()
+            bio = self.profile_bio.get("1.0", tk.END).strip()
+            
+            dialog.destroy()
+            
+            self.log("多账号管理", f"开始批量修改 {len(selected_phones)} 个账号的资料")
+            
+            def edit_thread():
+                for phone in selected_phones:
+                    for acc in self.accounts:
+                        if acc.get('phone') == phone and acc.get('status') == '正常':
+                            self.update_account_task(phone, "修改资料", True)
+                            self.edit_single_account_profile(acc, photo_path, username, first_name, last_name, bio)
+                            self.update_account_task(phone, "", False)
+                            self.update_account_task(phone, "修改资料", False)
+                            break
+                self.log("多账号管理", "批量修改资料完成")
+                self.root.after(0, lambda: self.show_centered_info("完成", f"已完成 {len(selected_phones)} 个账号的资料修改"))
+            
+            threading.Thread(target=edit_thread, daemon=True).start()
+        
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=20)
+        ttk.Button(btn_frame, text="开始修改", command=do_edit, width=12).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
+    
+    def select_profile_photo(self):
+        file_path = filedialog.askopenfilename(
+            title="选择头像图片",
+            filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif"), ("所有文件", "*.*")]
+        )
+        if file_path:
+            self.profile_photo_path.set(file_path)
+    
+    def edit_single_account_profile(self, acc, photo_path, username, first_name, last_name, bio):
+        """修改单个账号的资料"""
+        phone = acc.get('phone', '')
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
+        
+        async def do_edit():
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                
+                if not await client.is_user_authorized():
+                    self.log("多账号管理", f"[{phone}] 账号未登录")
+                    return
+                
+                # 修改用户名
+                if username:
+                    try:
+                        await client(UpdateUsernameRequest(username=username))
+                        self.log("多账号管理", f"[{phone}] 用户名修改成功: {username}")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 用户名修改失败: {str(e)}")
+                
+                # 修改昵称和姓氏
+                if first_name or last_name:
+                    try:
+                        await client(UpdateProfileRequest(
+                            first_name=first_name if first_name else None,
+                            last_name=last_name if last_name else None
+                        ))
+                        self.log("多账号管理", f"[{phone}] 昵称修改成功: {first_name} {last_name}")
+                        # 更新本地存储的昵称
+                        acc['nickname'] = f"{first_name} {last_name}".strip()
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 昵称修改失败: {str(e)}")
+                
+                # 修改简介
+                if bio:
+                    try:
+                        await client(UpdateProfileRequest(about=bio))
+                        self.log("多账号管理", f"[{phone}] 简介修改成功")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 简介修改失败: {str(e)}")
+                
+                # 修改头像
+                if photo_path and os.path.exists(photo_path):
+                    try:
+                        # 先删除旧头像
+                        photos = await client.get_profile_photos('me')
+                        if photos:
+                            await client(DeletePhotosRequest(id=[photos[0].id]))
+                        
+                        # 上传新头像
+                        await client(UploadProfilePhotoRequest(
+                            file=await client.upload_file(photo_path)
+                        ))
+                        self.log("多账号管理", f"[{phone}] 头像修改成功")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 头像修改失败: {str(e)}")
+                
+                await client.disconnect()
+                
+                # 刷新账号列表显示
+                self.root.after(0, self.refresh_account_list)
+                
+            except Exception as e:
+                self.log("多账号管理", f"[{phone}] 修改资料失败: {str(e)}")
+            finally:
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(do_edit())
+        loop.close()
+    
+    def assign_proxy_to_accounts(self, accounts_to_assign, proxy_str):
+        """为账号分配代理"""
+        for phone in accounts_to_assign:
+            for acc in self.accounts:
+                if acc.get('phone') == phone:
+                    acc['proxy'] = proxy_str
+                    # 保存到JSON文件
+                    if acc.get('json_path') and os.path.exists(acc['json_path']):
+                        try:
+                            with open(acc['json_path'], 'r', encoding='utf-8') as f:
+                                json_data = json.load(f)
+                            json_data['proxy'] = proxy_str
+                            with open(acc['json_path'], 'w', encoding='utf-8') as f:
+                                json.dump(json_data, f, ensure_ascii=False, indent=2)
+                        except:
+                            pass
+                    break
+        self.refresh_account_list()
+        self.log("多账号管理", f"已为 {len(accounts_to_assign)} 个账号分配代理: {proxy_str}")
     
     def open_group_manager(self):
         dialog = tk.Toplevel(self.root)
@@ -547,6 +751,8 @@ class TelegramFullGUI:
                 "nickname": nickname if nickname else "待获取",
                 "group": target_group,
                 "status": "待检测",
+                "current_task": "",
+                "last_action": "",
                 "register_time": register_time if register_time else "未知",
                 "session_path": session_path,
                 "json_path": json_path,
@@ -677,16 +883,12 @@ class TelegramFullGUI:
         self.log("多账号管理", f"开始登录并检测 {len(self.accounts)} 个账号...")
         
         def do_login():
-            success_count = 0
             for idx, acc in enumerate(self.accounts, 1):
                 phone = acc.get('phone', '')
                 self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在处理账号: {phone}")
-                if self.login_single_account(acc):
-                    success_count += 1
+                self.login_single_account(acc)
                 time.sleep(2)
-            
-            self.log("多账号管理", f"登录完成: 成功 {success_count}/{len(self.accounts)}")
-            self.root.after(0, lambda: self.show_centered_info("处理完成", f"成功登录 {success_count} 个账号"))
+            self.log("多账号管理", f"登录检测完成")
         
         threading.Thread(target=do_login, daemon=True).start()
     
@@ -750,6 +952,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除选中代理", command=self.delete_proxy).pack(side="left", padx=2)
         ttk.Button(toolbar, text="检测所有代理", command=self.check_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="分配代理IP", command=self.assign_proxies_to_accounts).pack(side="left", padx=2)
         
         frame = ttk.LabelFrame(main_frame, text="代理列表")
         frame.pack(fill="both", expand=True, pady=5)
@@ -769,11 +972,108 @@ class TelegramFullGUI:
         self.proxy_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
         self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
+    
+    def assign_proxies_to_accounts(self):
+        """为账号分配代理IP"""
+        if not self.proxies:
+            self.log("代理IP", "没有可用的代理")
+            self.show_centered_warning("提示", "请先导入代理")
+            return
+        
+        # 选择账号
+        selected = self.account_tree.selection()
+        if not selected:
+            self.log("代理IP", "请先在多账号管理页面选择要分配代理的账号")
+            self.show_centered_warning("提示", "请先在多账号管理页面选择要分配代理的账号")
+            return
+        
+        selected_phones = []
+        for item in selected:
+            idx = int(self.account_tree.item(item)['values'][0]) - 1
+            acc = self.accounts[idx]
+            selected_phones.append(acc.get('phone', ''))
+        
+        # 选择代理
+        proxy_dialog = tk.Toplevel(self.root)
+        proxy_dialog.title("选择代理")
+        proxy_dialog.geometry("400x300")
+        proxy_dialog.resizable(False, False)
+        proxy_dialog.transient(self.root)
+        proxy_dialog.grab_set()
+        self.center_window(proxy_dialog, 400, 300)
+        
+        ttk.Label(proxy_dialog, text=f"为 {len(selected_phones)} 个账号分配代理", font=("微软雅黑", 10, "bold")).pack(pady=10)
+        
+        # 分配模式
+        mode_frame = ttk.LabelFrame(proxy_dialog, text="分配模式")
+        mode_frame.pack(fill="x", padx=10, pady=10)
+        
+        assign_mode = tk.StringVar(value="single")
+        ttk.Radiobutton(mode_frame, text="所有账号使用同一个代理", variable=assign_mode, value="single").pack(anchor="w", padx=10, pady=5)
+        ttk.Radiobutton(mode_frame, text="每个账号分配不同代理（轮流分配）", variable=assign_mode, value="round_robin").pack(anchor="w", padx=10, pady=5)
+        
+        # 代理列表选择
+        proxy_frame = ttk.LabelFrame(proxy_dialog, text="选择代理")
+        proxy_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        proxy_listbox = tk.Listbox(proxy_frame, height=8, selectmode=tk.SINGLE)
+        proxy_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        for p in self.proxies:
+            proxy_addr = p.get('address', f"{p.get('host')}:{p.get('port')}")
+            proxy_listbox.insert(tk.END, f"{p.get('type')}://{proxy_addr}")
+        
+        def do_assign():
+            selected_idx = proxy_listbox.curselection()
+            if assign_mode.get() == "single" and not selected_idx:
+                self.log("代理IP", "请选择一个代理")
+                self.show_centered_warning("提示", "请选择一个代理")
+                return
+            
+            proxy_dialog.destroy()
+            
+            if assign_mode.get() == "single":
+                # 所有账号使用同一个代理
+                p = self.proxies[selected_idx[0]]
+                proxy_str = f"{p.get('type')}://{p.get('host')}:{p.get('port')}"
+                if p.get('user') and p.get('password'):
+                    proxy_str = f"{p.get('type')}://{p.get('user')}:{p.get('password')}@{p.get('host')}:{p.get('port')}"
+                
+                self.log("代理IP", f"开始为 {len(selected_phones)} 个账号分配代理: {proxy_str}")
+                for phone in selected_phones:
+                    for acc in self.accounts:
+                        if acc.get('phone') == phone:
+                            acc['proxy'] = proxy_str
+                            break
+                self.refresh_account_list()
+                self.log("代理IP", f"分配完成")
+                self.show_centered_info("完成", f"已为 {len(selected_phones)} 个账号分配代理")
+            else:
+                # 轮流分配
+                self.log("代理IP", f"开始为 {len(selected_phones)} 个账号轮流分配代理")
+                for i, phone in enumerate(selected_phones):
+                    p = self.proxies[i % len(self.proxies)]
+                    proxy_str = f"{p.get('type')}://{p.get('host')}:{p.get('port')}"
+                    if p.get('user') and p.get('password'):
+                        proxy_str = f"{p.get('type')}://{p.get('user')}:{p.get('password')}@{p.get('host')}:{p.get('port')}"
+                    
+                    for acc in self.accounts:
+                        if acc.get('phone') == phone:
+                            acc['proxy'] = proxy_str
+                            break
+                    self.log("代理IP", f"账号 {phone} 分配代理: {proxy_str}")
+                self.refresh_account_list()
+                self.log("代理IP", f"分配完成")
+                self.show_centered_info("完成", f"已为 {len(selected_phones)} 个账号分配代理")
+        
+        btn_frame = ttk.Frame(proxy_dialog)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="确定", command=do_assign, width=12).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="取消", command=proxy_dialog.destroy, width=12).pack(side="left", padx=10)
     
     def import_proxies(self):
         file_path = filedialog.askopenfilename(
@@ -823,7 +1123,6 @@ class TelegramFullGUI:
         
         lines = content.strip().split('\n')
         added_count = 0
-        skipped_count = 0
         
         for line in lines:
             line = line.strip()
@@ -849,8 +1148,6 @@ class TelegramFullGUI:
                 })
                 added_count += 1
                 self.log("代理IP", f"导入代理: {p_type}://{host}:{port}")
-            else:
-                skipped_count += 1
         
         self.refresh_proxy_list()
         self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
@@ -931,45 +1228,37 @@ class TelegramFullGUI:
                 p.get('status', '未检测')
             ))
     
-    # ==================== 采集群成员页面（日志合并版） ====================
+    # ==================== 采集群成员页面 ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
         
-        # 主设置框架
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 左侧：采集设置
         left_frame = ttk.LabelFrame(main_frame, text="采集设置")
         left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
-        # 群组链接
         ttk.Label(left_frame, text="群组链接:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.scrape_group = ttk.Entry(left_frame, width=45)
         self.scrape_group.grid(row=0, column=1, padx=5, pady=5, columnspan=2)
         
-        # 选择采集账号
         ttk.Label(left_frame, text="选择采集账号:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.scrape_account = ttk.Combobox(left_frame, width=40)
         self.scrape_account.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
         
-        # 刷新账号按钮
         ttk.Button(left_frame, text="刷新账号列表", command=self.refresh_scrape_accounts, width=12).grid(row=2, column=1, sticky="w", padx=5, pady=2)
         
-        # 采集模式选择
         ttk.Label(left_frame, text="采集模式:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
         self.scrape_mode = ttk.Combobox(left_frame, values=["获取全部成员(公开群)", "获取发言用户(隐藏群)"], width=30)
         self.scrape_mode.set("获取全部成员(公开群)")
         self.scrape_mode.grid(row=3, column=1, padx=5, pady=5, columnspan=2)
         
-        # 在线天数筛选
         ttk.Label(left_frame, text="在线天数筛选:").grid(row=4, column=0, sticky="w", padx=5, pady=5)
         self.online_filter = ttk.Combobox(left_frame, values=["不限", "1天内", "3天内", "7天内", "15天内", "30天内"], width=15)
         self.online_filter.set("不限")
         self.online_filter.grid(row=4, column=1, sticky="w", padx=5, pady=5)
         
-        # 过滤选项框架
         filter_frame = ttk.LabelFrame(left_frame, text="过滤选项")
         filter_frame.grid(row=5, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
         
@@ -987,7 +1276,6 @@ class TelegramFullGUI:
         self.filter_keywords.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
         ttk.Label(filter_frame, text="（多个关键词用逗号分隔）", font=("微软雅黑", 8)).grid(row=2, column=1, sticky="w", padx=5)
         
-        # 保存设置
         save_frame = ttk.LabelFrame(left_frame, text="保存设置")
         save_frame.grid(row=6, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
         
@@ -1003,17 +1291,14 @@ class TelegramFullGUI:
         
         ttk.Label(save_frame, text="请选择保存目录，采集完成或停止时自动保存", font=("微软雅黑", 8), foreground="blue").grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
         
-        # 按钮
         btn_frame = ttk.Frame(left_frame)
         btn_frame.grid(row=7, column=0, columnspan=3, pady=15)
         ttk.Button(btn_frame, text="开始采集", command=self.start_scrape, width=15).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="停止采集", command=self.stop_scrape, width=15).pack(side="left", padx=10)
         
-        # 右侧：采集预览 + 日志合并
         right_frame = ttk.LabelFrame(main_frame, text="采集预览与日志")
         right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
         
-        # 预览Treeview
         preview_frame = ttk.Frame(right_frame)
         preview_frame.pack(fill="both", expand=True)
         
@@ -1028,11 +1313,9 @@ class TelegramFullGUI:
         self.preview_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         preview_scrollbar.pack(side="right", fill="y")
         
-        # 统计标签
         self.scrape_stats = ttk.Label(preview_frame, text="已采集: 0 人", font=("微软雅黑", 10))
         self.scrape_stats.pack(pady=5)
         
-        # 日志区域（放在预览下面）
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
@@ -1042,7 +1325,6 @@ class TelegramFullGUI:
         self.scraped_members = []
         self.scrape_task = None
         
-        # 初始刷新账号列表
         self.refresh_scrape_accounts()
     
     def select_save_path(self):
@@ -1259,6 +1541,9 @@ class TelegramFullGUI:
         self.log("采集群成员", f"保存目录: {save_dir}")
         self.log("采集群成员", "采集规则: 只采集有用户名的成员（username不为空）")
         
+        # 更新当前任务
+        self.update_account_task(account_phone, "采集群成员", True)
+        
         async def do_scrape():
             client = None
             admin_ids = set()
@@ -1457,6 +1742,9 @@ class TelegramFullGUI:
                     self.save_scraped_members(group_username, True)
             finally:
                 self.is_scraping = False
+                # 清除当前任务，记录上一次操作
+                self.update_account_task(account_phone, "", False)
+                self.update_account_task(account_phone, "采集群成员", False)
                 if client:
                     try:
                         await client.disconnect()
@@ -1506,7 +1794,6 @@ class TelegramFullGUI:
         btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="开始拉人", command=self.start_invite).pack()
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
@@ -1543,6 +1830,10 @@ class TelegramFullGUI:
             usernames = json.load(f)
         
         self.log("批量拉人", f"开始拉人: 共 {min(int(limit), len(usernames))} 个用户")
+        
+        # 记录任务状态
+        if account_phone != "全部账号":
+            self.update_account_task(account_phone, "批量拉人", True)
         
         async def do_invite():
             client = None
@@ -1619,6 +1910,11 @@ class TelegramFullGUI:
                 self.log("批量拉人", "拉人完成")
                 self.show_centered_info("拉人完成", "批量拉人已完成")
                 
+                # 记录上一次操作
+                if account_phone != "全部账号":
+                    self.update_account_task(account_phone, "", False)
+                    self.update_account_task(account_phone, "批量拉人", False)
+                
             except Exception as e:
                 self.log("批量拉人", f"拉人失败: {e}")
             finally:
@@ -1669,7 +1965,6 @@ class TelegramFullGUI:
         btn_frame2.grid(row=4, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame2, text="开始群发", command=self.start_send).pack()
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["群发广告"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
@@ -1714,6 +2009,9 @@ class TelegramFullGUI:
             usernames = json.load(f)
         
         self.log("群发广告", f"开始群发: {len(usernames)} 个用户, 间隔: {delay}秒")
+        
+        if account_phone != "全部账号":
+            self.update_account_task(account_phone, "群发广告", True)
         
         async def do_send():
             client = None
@@ -1778,6 +2076,10 @@ class TelegramFullGUI:
                 self.log("群发广告", "群发完成")
                 self.show_centered_info("群发完成", "群发已完成")
                 
+                if account_phone != "全部账号":
+                    self.update_account_task(account_phone, "", False)
+                    self.update_account_task(account_phone, "群发广告", False)
+                
             except Exception as e:
                 self.log("群发广告", f"群发失败: {e}")
             finally:
@@ -1840,7 +2142,6 @@ class TelegramFullGUI:
         ttk.Button(btn_frame2, text="保存关键词配置", command=self.save_keywords).pack(side="left", padx=5)
         ttk.Button(btn_frame2, text="加载关键词配置", command=self.load_keywords).pack(side="left", padx=5)
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
@@ -1879,6 +2180,8 @@ class TelegramFullGUI:
         
         self.log("自动群聊", f"启动炒群: {group} 使用账号: {account_phone}")
         self.running_tasks['chat'] = True
+        
+        self.update_account_task(account_phone, "自动群聊", True)
         
         scripts = []
         if os.path.exists("scripts.txt"):
@@ -1948,6 +2251,8 @@ class TelegramFullGUI:
             asyncio.set_event_loop(loop)
             loop.run_until_complete(do_chat())
             loop.close()
+            self.update_account_task(account_phone, "", False)
+            self.update_account_task(account_phone, "自动群聊", False)
         
         threading.Thread(target=run_chat, daemon=True).start()
     
@@ -2008,7 +2313,6 @@ class TelegramFullGUI:
         btn_frame.grid(row=4, column=0, columnspan=3, pady=10)
         ttk.Button(btn_frame, text="开始批量注册", command=self.start_register).pack()
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["自动注册"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
@@ -2061,7 +2365,6 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="启动监听", command=self.start_monitor).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="停止监听", command=self.stop_monitor).pack(side="left", padx=5)
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["监听群组"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
@@ -2096,7 +2399,6 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="保存配置", command=self.save_scripts).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="加载配置", command=self.load_scripts).pack(side="left", padx=5)
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["话术配置"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
