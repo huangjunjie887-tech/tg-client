@@ -1242,9 +1242,9 @@ class TelegramFullGUI:
                     self.log(f"获取群组失败: {str(e)}")
                     return
                 
-                # 获取管理员列表（用于过滤）
+                # 获取管理员列表（用于过滤）- 仅在公开群模式下有效
                 admin_ids = set()
-                if self.filter_admin.get():
+                if self.filter_admin.get() and scrape_mode == "获取全部成员(公开群)":
                     try:
                         async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
                             admin_ids.add(user.id)
@@ -1324,8 +1324,8 @@ class TelegramFullGUI:
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式：通过获取最近消息来采集发言用户（无数量限制）
-                    self.log("开始采集发言用户（获取全部历史消息，直到获取完毕）...")
+                    # 隐藏群模式：通过获取聊天记录采集有用户名的发言用户
+                    self.log("开始采集发言用户（从聊天记录中获取有用户名的用户）...")
                     
                     offset_id = 0
                     
@@ -1353,60 +1353,54 @@ class TelegramFullGUI:
                                 
                                 total_messages += 1
                                 
-                                # 获取发送者信息 - 直接从消息对象中提取
-                                sender = msg.sender_id
+                                # 直接从消息对象中获取发送者信息
+                                # Telethon的消息对象通常包含sender属性
+                                sender = None
+                                if hasattr(msg, 'sender') and msg.sender:
+                                    sender = msg.sender
+                                elif hasattr(msg, 'from_id') and msg.from_id:
+                                    # 尝试通过ID获取，但不保证成功
+                                    try:
+                                        sender = await client.get_entity(msg.sender_id)
+                                    except:
+                                        continue
+                                else:
+                                    continue
                                 
-                                # 如果消息中没有发送者信息，跳过
                                 if not sender:
                                     continue
                                 
-                                # 去重
-                                if sender in collected_user_ids:
-                                    continue
-                                
-                                # 尝试获取用户信息（优先从消息中获取，避免额外API调用）
-                                try:
-                                    # 方法1：如果消息中有 sender 属性，直接使用
-                                    if hasattr(msg, 'sender') and msg.sender:
-                                        user_obj = msg.sender
-                                    else:
-                                        # 方法2：尝试通过 get_entity 获取
-                                        user_obj = await client.get_entity(sender)
-                                except Exception as e:
-                                    # 无法获取用户信息，跳过
-                                    self.log(f"获取用户信息失败，跳过用户 {sender}")
-                                    continue
-                                
                                 # 只采集有用户名的用户
-                                if not hasattr(user_obj, 'username') or not user_obj.username:
+                                if not hasattr(sender, 'username') or not sender.username:
                                     skipped_no_username += 1
                                     continue
                                 
-                                collected_user_ids.add(sender)
+                                # 去重
+                                if sender.id in collected_user_ids:
+                                    continue
+                                collected_user_ids.add(sender.id)
                                 
                                 # 过滤机器人
-                                if self.filter_bot.get() and hasattr(user_obj, 'bot') and user_obj.bot:
+                                if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
                                     continue
                                 
                                 # 过滤昵称含广告关键词
                                 if ad_keywords:
-                                    name_lower = f"{getattr(user_obj, 'first_name', '') or ''} {getattr(user_obj, 'last_name', '') or ''}".lower()
+                                    name_lower = f"{getattr(sender, 'first_name', '') or ''} {getattr(sender, 'last_name', '') or ''}".lower()
                                     if any(kw in name_lower for kw in ad_keywords):
                                         continue
                                 
-                                # 在线天数筛选（从消息对象中无法获取在线状态，跳过此筛选）
-                                # 注意：在隐藏群模式下，无法获取用户的在线状态，因为需要额外API调用且可能失败
-                                
+                                # 注意：隐藏群模式下无法获取用户的在线状态，设为未知
                                 member_info = {
-                                    'id': user_obj.id,
-                                    'username': user_obj.username or "",
-                                    'first_name': getattr(user_obj, 'first_name', '') or "",
-                                    'last_name': getattr(user_obj, 'last_name', '') or "",
-                                    'phone': getattr(user_obj, 'phone', '') or "",
-                                    'online_status': "未知",  # 隐藏群模式下无法获取在线状态
-                                    'is_admin': user_obj.id in admin_ids,
-                                    'is_bot': getattr(user_obj, 'bot', False),
-                                    'deleted': getattr(user_obj, 'deleted', False)
+                                    'id': sender.id,
+                                    'username': sender.username or "",
+                                    'first_name': getattr(sender, 'first_name', '') or "",
+                                    'last_name': getattr(sender, 'last_name', '') or "",
+                                    'phone': getattr(sender, 'phone', '') or "",
+                                    'online_status': "未知",
+                                    'is_admin': False,  # 隐藏群模式下无法判断是否为管理员
+                                    'is_bot': getattr(sender, 'bot', False),
+                                    'deleted': getattr(sender, 'deleted', False)
                                 }
                                 
                                 self.scraped_members.append(member_info)
@@ -1422,7 +1416,7 @@ class TelegramFullGUI:
                                 break
                             
                             # 每获取100条消息输出一次进度
-                            self.log(f"已处理 {total_messages} 条消息，已采集 {count} 个有效用户，跳过 {skipped_no_username} 个无用户名用户")
+                            self.log(f"已处理 {total_messages} 条消息，已采集 {count} 个有效用户")
                             
                             await asyncio.sleep(0.5)  # 避免请求过快
                             
@@ -1434,7 +1428,6 @@ class TelegramFullGUI:
                             break
                     
                     self.log(f"采集完成！共处理 {total_messages} 条消息，采集 {len(self.scraped_members)} 个有用户名的发言用户")
-                    self.log(f"跳过了 {skipped_no_username} 个没有用户名的用户")
                 
                 # 保存文件（无论采集完成还是停止，都自动保存）
                 if self.scraped_members:
