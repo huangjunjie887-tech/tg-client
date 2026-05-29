@@ -908,7 +908,7 @@ class TelegramFullGUI:
                 p.get('status', '未检测')
             ))
     
-    # ==================== 采集群成员页面（单账号优化版） ====================
+    # ==================== 采集群成员页面（终极极速版） ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
@@ -1281,50 +1281,38 @@ class TelegramFullGUI:
                 
                 count = 0
                 skipped_no_username = 0
-                collected_user_ids = set()  # 用于去重
+                collected_user_ids = set()
                 total_messages = 0
                 
                 if scrape_mode == "获取全部成员(公开群)":
-                    # 公开群模式：获取全部成员
+                    # 公开群模式
                     self.log("开始采集成员（获取全部成员）...")
                     async for user in client.iter_participants(entity):
                         if not self.is_scraping:
                             break
                         
-                        # 只采集有用户名的用户
                         if not user.username:
                             skipped_no_username += 1
                             continue
                         
-                        # 去重
                         if user.id in collected_user_ids:
                             continue
                         collected_user_ids.add(user.id)
                         
-                        # 过滤管理员
                         if self.filter_admin.get() and user.id in admin_ids:
                             continue
-                        
-                        # 过滤机器人
                         if self.filter_bot.get() and user.bot:
                             continue
-                        
-                        # 过滤已注销
                         if self.filter_deleted.get() and user.deleted:
                             continue
-                        
-                        # 过滤昵称含广告关键词
                         if ad_keywords:
                             name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
                             if any(kw in name_lower for kw in ad_keywords):
                                 continue
-                        
-                        # 在线天数筛选
                         if online_days is not None:
                             if not self.check_online_days(user.status, online_days):
                                 continue
                         
-                        # 获取在线状态文本
                         online_status = self.get_online_status_text(user.status)
                         
                         member_info = {
@@ -1341,24 +1329,24 @@ class TelegramFullGUI:
                         
                         self.scraped_members.append(member_info)
                         count += 1
-                        
-                        # 更新预览
                         self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
-                        
                         await asyncio.sleep(0.05)
                     
                     self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
                     self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
                 
                 else:
-                    # 隐藏群模式 - 极速优化版：使用 history.users 替代 get_entity
-                    self.log("开始采集发言用户（极速优化模式）...")
+                    # 隐藏群模式 - 终极极速版（无get_entity、无sleep、延迟UI刷新）
+                    self.log("开始采集发言用户（终极极速模式）...")
                     
                     offset_id = 0
-                    batch_size = 1000  # 增大批量，减少请求次数
+                    batch_size = 3000
                     
-                    # 将entity转换为InputPeer
                     input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                    
+                    # 批量缓存，每秒刷新一次UI
+                    pending_infos = []
+                    last_ui_update = time.time()
                     
                     while self.is_scraping:
                         try:
@@ -1379,48 +1367,36 @@ class TelegramFullGUI:
                             
                             total_messages += len(history.messages)
                             
-                            # 关键优化：直接从 history.users 构建用户映射，无需调用 get_entity
+                            # 关键优化：直接从 history.users 获取用户信息，无任何额外网络请求
                             users_map = {u.id: u for u in history.users}
-                            
-                            batch_infos = []
-                            batch_new = 0
                             
                             for msg in history.messages:
                                 if not self.is_scraping:
                                     break
                                 
-                                if not hasattr(msg, 'sender_id') or not msg.sender_id:
+                                if not msg.sender_id:
                                     continue
                                 
                                 sender = users_map.get(msg.sender_id)
-                                if not sender:
-                                    continue
-                                
-                                # 必须有用户名
-                                if not sender.username:
+                                if not sender or not sender.username:
                                     skipped_no_username += 1
                                     continue
                                 
-                                # 去重
                                 if sender.id in collected_user_ids:
                                     continue
                                 collected_user_ids.add(sender.id)
                                 
-                                # 过滤管理员
                                 if self.filter_admin.get() and sender.id in admin_ids:
                                     continue
-                                
-                                # 过滤机器人
                                 if self.filter_bot.get() and sender.bot:
                                     continue
-                                
-                                # 过滤广告关键词
+                                if self.filter_deleted.get() and getattr(sender, 'deleted', False):
+                                    continue
                                 if ad_keywords:
                                     name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
                                     if any(kw in name_lower for kw in ad_keywords):
                                         continue
                                 
-                                # 注意：隐藏群模式下无法从history.users获取在线状态，设为未知
                                 member_info = {
                                     'id': sender.id,
                                     'username': sender.username,
@@ -1434,15 +1410,15 @@ class TelegramFullGUI:
                                 }
                                 
                                 self.scraped_members.append(member_info)
-                                batch_infos.append(member_info)
+                                pending_infos.append(member_info)
                                 count += 1
-                                batch_new += 1
                             
-                            # 批量更新UI
-                            if batch_infos:
-                                self.root.after(0, lambda c=count, infos=batch_infos.copy(): self.batch_update_preview(c, infos))
-                                self.log(f"⚡ 已处理 {total_messages} 条消息 | 新增 {batch_new} 人 | 累计 {count} 人")
-                            elif total_messages % 1000 == 0:
+                            # 每秒最多更新一次UI，避免拖慢速度
+                            current_time = time.time()
+                            if current_time - last_ui_update >= 1.0 and pending_infos:
+                                self.root.after(0, lambda c=count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
+                                pending_infos.clear()
+                                last_ui_update = current_time
                                 self.log(f"⚡ 已处理 {total_messages} 条消息 | 累计 {count} 人")
                             
                             # 更新偏移量
@@ -1451,8 +1427,8 @@ class TelegramFullGUI:
                             else:
                                 break
                             
-                            # 无延迟，全速采集
-                                
+                            # 无任何延迟！全速采集
+                            
                         except FloodWaitError as e:
                             self.log(f"⏳ 等待 {e.seconds} 秒...")
                             await asyncio.sleep(e.seconds)
@@ -1460,9 +1436,13 @@ class TelegramFullGUI:
                             self.log(f"错误: {str(e)}")
                             break
                     
+                    # 最后刷新一次UI
+                    if pending_infos:
+                        self.root.after(0, lambda c=count, infos=pending_infos: self.batch_update_preview(c, infos))
+                    
                     self.log(f"采集完成！共处理 {total_messages} 条消息，采集 {len(self.scraped_members)} 个唯一用户")
                 
-                # 保存文件（无论采集完成还是停止，都自动保存）
+                # 保存文件
                 if self.scraped_members:
                     is_stop = not self.is_scraping
                     self.save_scraped_members(group_username, is_stop)
