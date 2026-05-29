@@ -267,13 +267,10 @@ class TelegramFullGUI:
     def refresh_scrape_accounts(self):
         """刷新采集页面账号列表框"""
         if hasattr(self, 'scrape_account_listbox'):
-            # 清空并重新填充
             self.scrape_account_listbox.delete(0, tk.END)
             for a in self.accounts:
                 if a.get('status') == '正常':
                     self.scrape_account_listbox.insert(tk.END, a.get('phone', ''))
-            
-            # 更新全选/全不选按钮状态
             self.update_select_all_button()
     
     def update_select_all_button(self):
@@ -1045,19 +1042,18 @@ class TelegramFullGUI:
         preview_scrollbar.pack(side="right", fill="y")
         
         # 统计标签
-        self.scrape_stats = ttk.Label(right_frame, text="已采集: 0 人 (0个账号)", font=("微软雅黑", 10))
+        self.scrape_stats = ttk.Label(right_frame, text="已采集: 0 人", font=("微软雅黑", 10))
         self.scrape_stats.pack(pady=5)
         
         self.is_scraping = False
-        self.scraped_members = []
-        self.scraped_members_lock = threading.Lock()  # 线程锁保护共享数据
+        self.all_scraped_members = []  # 最终合并的结果
+        self.all_scraped_lock = threading.Lock()
         self.scrape_tasks = []
         
         # 初始刷新账号列表
         self.refresh_scrape_accounts()
     
     def select_save_path(self):
-        """选择保存目录"""
         folder = filedialog.askdirectory(title="选择保存目录")
         if folder:
             self.save_path.delete(0, tk.END)
@@ -1066,8 +1062,8 @@ class TelegramFullGUI:
     
     def save_scraped_members(self, group_username, is_stop=False):
         """保存采集的成员到文件（只保存用户名）"""
-        with self.scraped_members_lock:
-            if not self.scraped_members:
+        with self.all_scraped_lock:
+            if not self.all_scraped_members:
                 if is_stop:
                     self.log("没有采集到任何成员，不保存文件")
                 return False
@@ -1078,7 +1074,6 @@ class TelegramFullGUI:
                 self.show_centered_warning("提示", "请先选择保存目录")
                 return False
             
-            # 确保目录存在
             os.makedirs(save_dir, exist_ok=True)
             
             save_format = self.save_format.get()
@@ -1088,38 +1083,34 @@ class TelegramFullGUI:
             base_name = f"members_{group_username}_{current_date}_{current_time}_{action}"
             
             # 提取用户名列表（去重）
-            usernames = list(set([m.get('username', '') for m in self.scraped_members if m.get('username')]))
+            usernames = list(set([m.get('username', '') for m in self.all_scraped_members if m.get('username')]))
             
             try:
                 if save_format == "JSON":
                     save_path = os.path.join(save_dir, f"{base_name}.json")
                     with open(save_path, 'w', encoding='utf-8') as f:
                         json.dump(usernames, f, ensure_ascii=False, indent=2)
-                    self.log(f"已保存JSON文件（用户名列表）: {save_path}, 共 {len(usernames)} 个用户名")
+                    self.log(f"已保存JSON文件: {save_path}, 共 {len(usernames)} 个用户名")
                 else:
                     save_path = os.path.join(save_dir, f"{base_name}.txt")
                     with open(save_path, 'w', encoding='utf-8') as f:
                         for username in usernames:
                             if username:
                                 f.write(f"@{username}\n")
-                    self.log(f"已保存TXT文件（用户名列表）: {save_path}, 共 {len(usernames)} 个用户名")
-                
+                    self.log(f"已保存TXT文件: {save_path}, 共 {len(usernames)} 个用户名")
                 return True
             except Exception as e:
                 self.log(f"保存文件失败: {str(e)}")
                 return False
     
     def stop_scrape(self):
-        """停止采集"""
         if self.is_scraping:
             self.is_scraping = False
             self.log("用户停止采集，正在保存已采集的数据...")
-
+    
     def get_online_status_text(self, user_status):
-        """获取在线状态文本"""
         if user_status is None:
             return "未知"
-        
         if hasattr(user_status, '__class__'):
             class_name = user_status.__class__.__name__
             if class_name == 'UserStatusRecently':
@@ -1132,7 +1123,6 @@ class TelegramFullGUI:
                 return "在线"
             elif class_name == 'UserStatusOffline':
                 return "离线"
-        
         if isinstance(user_status, UserStatusRecently):
             return "最近在线"
         elif isinstance(user_status, UserStatusLastWeek):
@@ -1143,19 +1133,14 @@ class TelegramFullGUI:
             return "在线"
         elif isinstance(user_status, UserStatusOffline):
             return "离线"
-        
         return "未知"
     
     def check_online_days(self, user_status, online_days):
-        """检查用户在线天数是否符合条件"""
         if online_days is None:
             return True
-        
         if user_status is None:
             return False
-        
         class_name = user_status.__class__.__name__
-        
         if class_name == 'UserStatusRecently':
             return online_days >= 1
         elif class_name == 'UserStatusLastWeek':
@@ -1172,56 +1157,49 @@ class TelegramFullGUI:
                 except:
                     pass
             return False
-        
         return False
     
-    def batch_update_preview(self, account_phone, count, member_infos):
-        """批量更新预览（极速模式）"""
-        with self.scraped_members_lock:
-            current_total = len(self.scraped_members)
+    def update_preview(self, account_phone, member_info):
+        """更新预览列表"""
+        with self.all_scraped_lock:
+            current_total = len(self.all_scraped_members)
         self.scrape_stats.config(text=f"已采集: {current_total} 人")
         
-        # 先获取当前预览中已有的用户ID（按账号分组）
-        existing_keys = set()
+        # 检查是否已存在
         for item in self.preview_tree.get_children():
             values = self.preview_tree.item(item, 'values')
-            if values and len(values) > 2:
-                existing_keys.add(f"{values[0]}_{values[2]}")  # 账号_用户ID
+            if values and len(values) > 2 and values[0] == account_phone and str(values[2]) == str(member_info['id']):
+                return
         
-        for info in member_infos:
-            key = f"{account_phone}_{info['id']}"
-            if key in existing_keys:
-                continue
-            existing_keys.add(key)
-            
-            display_name = info['first_name'] or info['username'] or str(info['id'])
-            if len(display_name) > 20:
-                display_name = display_name[:20] + "..."
-            
-            self.preview_tree.insert("", "end", values=(
-                account_phone,
-                count,
-                info['id'],
-                info['username'][:20] if info['username'] else "-",
-                display_name,
-                info['online_status'],
-                "是" if info['is_admin'] else "否",
-                "是" if info['is_bot'] else "否"
-            ))
+        display_name = member_info['first_name'] or member_info['username'] or str(member_info['id'])
+        if len(display_name) > 20:
+            display_name = display_name[:20] + "..."
+        
+        self.preview_tree.insert("", "end", values=(
+            account_phone,
+            current_total,
+            member_info['id'],
+            member_info['username'][:20] if member_info['username'] else "-",
+            display_name,
+            member_info['online_status'],
+            "是" if member_info['is_admin'] else "否",
+            "是" if member_info['is_bot'] else "否"
+        ))
         self.preview_tree.yview_moveto(1)
     
-    def scrape_single_account(self, acc, group_username, entity, admin_ids, ad_keywords, online_days, scrape_mode, all_collected_ids, all_results_lock):
-        """单个账号的采集任务"""
+    def scrape_single_account(self, acc, group_username, admin_ids, ad_keywords, online_days, scrape_mode, account_index, total_accounts):
+        """单个账号的采集任务 - 每个账号独立处理不同的时间段"""
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         account_phone = acc.get('phone', '')
         
+        # 每个账号独立的去重集合和计数器
+        local_collected_ids = set()
+        local_results = []
+        
         async def do_scrape():
-            nonlocal entity
             client = None
             local_count = 0
-            local_skipped = 0
-            local_collected = set()
             total_messages = 0
             
             try:
@@ -1232,7 +1210,7 @@ class TelegramFullGUI:
                     self.log(f"[{account_phone}] 账号未登录")
                     return
                 
-                # 重新获取entity（每个账号独立获取）
+                # 获取群组实体
                 try:
                     if group_username.isdigit():
                         entity = await client.get_entity(int(group_username))
@@ -1243,45 +1221,29 @@ class TelegramFullGUI:
                     return
                 
                 if scrape_mode == "获取全部成员(公开群)":
-                    # 公开群模式
                     self.log(f"[{account_phone}] 开始采集公开群成员...")
                     async for user in client.iter_participants(entity):
                         if not self.is_scraping:
                             break
-                        
                         if not user.username:
-                            local_skipped += 1
                             continue
-                        
-                        with all_results_lock:
-                            if user.id in all_collected_ids:
-                                continue
-                            all_collected_ids.add(user.id)
-                        
-                        if user.id in local_collected:
+                        if user.id in local_collected_ids:
                             continue
-                        local_collected.add(user.id)
-                        
+                        local_collected_ids.add(user.id)
                         if self.filter_admin.get() and user.id in admin_ids:
                             continue
-                        
                         if self.filter_bot.get() and user.bot:
                             continue
-                        
                         if self.filter_deleted.get() and user.deleted:
                             continue
-                        
                         if ad_keywords:
                             name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
                             if any(kw in name_lower for kw in ad_keywords):
                                 continue
-                        
                         if online_days is not None:
                             if not self.check_online_days(user.status, online_days):
                                 continue
-                        
                         online_status = self.get_online_status_text(user.status)
-                        
                         member_info = {
                             'id': user.id,
                             'username': user.username,
@@ -1293,28 +1255,27 @@ class TelegramFullGUI:
                             'is_bot': user.bot if hasattr(user, 'bot') else False,
                             'deleted': user.deleted if hasattr(user, 'deleted') else False
                         }
-                        
-                        with self.scraped_members_lock:
-                            self.scraped_members.append(member_info)
+                        local_results.append(member_info)
                         local_count += 1
-                        
-                        if local_count % 10 == 0:
-                            self.root.after(0, lambda c=local_count, infos=[member_info]: self.batch_update_preview(account_phone, len(self.scraped_members), [member_info]))
-                        
+                        self.root.after(0, lambda phone=account_phone, info=member_info: self.update_preview(phone, info))
                         await asyncio.sleep(0.05)
-                    
                     self.log(f"[{account_phone}] 采集完成，采集 {local_count} 人")
                 
                 else:
-                    # 隐藏群模式 - 使用InputPeerChannel
+                    # 隐藏群模式 - 每个账号从不同的起始位置开始，实现真正的并发
                     self.log(f"[{account_phone}] 开始采集发言用户...")
                     
-                    offset_id = 0
+                    # 根据账号索引分配不同的起始偏移量，避免重复采集同一批消息
+                    # 账号0从最新开始，账号1从第1000条开始，账号2从第2000条开始，以此类推
+                    start_offset = account_index * 5000
+                    offset_id = start_offset
                     batch_size = 500
                     user_cache = {}
                     
                     # 将entity转换为InputPeer
                     input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                    
+                    self.log(f"[{account_phone}] 从消息ID {start_offset} 开始采集")
                     
                     while self.is_scraping:
                         try:
@@ -1333,77 +1294,59 @@ class TelegramFullGUI:
                                 self.log(f"[{account_phone}] 已获取全部历史消息")
                                 break
                             
-                            # 收集本批消息中的所有唯一用户ID
-                            unique_user_ids = []
+                            # 收集本批消息中的用户
+                            batch_new = 0
                             for msg in history.messages:
                                 if not self.is_scraping:
                                     break
                                 if hasattr(msg, 'sender_id') and msg.sender_id:
                                     user_id = msg.sender_id
-                                    with all_results_lock:
-                                        if user_id not in all_collected_ids and user_id not in user_cache:
-                                            unique_user_ids.append(user_id)
+                                    if user_id in local_collected_ids:
+                                        continue
+                                    
+                                    try:
+                                        if user_id in user_cache:
+                                            sender = user_cache[user_id]
+                                        else:
+                                            sender = await client.get_entity(user_id)
+                                            user_cache[user_id] = sender
+                                        
+                                        if not sender.username:
+                                            continue
+                                        if self.filter_admin.get() and sender.id in admin_ids:
+                                            continue
+                                        if self.filter_bot.get() and sender.bot:
+                                            continue
+                                        if ad_keywords:
+                                            name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                            if any(kw in name_lower for kw in ad_keywords):
+                                                continue
+                                        
+                                        local_collected_ids.add(user_id)
+                                        member_info = {
+                                            'id': sender.id,
+                                            'username': sender.username,
+                                            'first_name': sender.first_name or "",
+                                            'last_name': sender.last_name or "",
+                                            'phone': "",
+                                            'online_status': "未知",
+                                            'is_admin': sender.id in admin_ids,
+                                            'is_bot': sender.bot,
+                                            'deleted': getattr(sender, 'deleted', False)
+                                        }
+                                        local_results.append(member_info)
+                                        local_count += 1
+                                        batch_new += 1
+                                        self.root.after(0, lambda phone=account_phone, info=member_info: self.update_preview(phone, info))
+                                    except Exception as e:
+                                        continue
                             
                             total_messages += len(history.messages)
-                            
-                            batch_infos = []
-                            for user_id in unique_user_ids:
-                                if not self.is_scraping:
-                                    break
-                                try:
-                                    if user_id in user_cache:
-                                        sender = user_cache[user_id]
-                                    else:
-                                        sender = await client.get_entity(user_id)
-                                        user_cache[user_id] = sender
-                                    
-                                    with all_results_lock:
-                                        if sender.id in all_collected_ids:
-                                            continue
-                                        all_collected_ids.add(sender.id)
-                                    
-                                    if not sender.username:
-                                        local_skipped += 1
-                                        continue
-                                    
-                                    if self.filter_admin.get() and sender.id in admin_ids:
-                                        continue
-                                    
-                                    if self.filter_bot.get() and sender.bot:
-                                        continue
-                                    
-                                    if ad_keywords:
-                                        name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
-                                        if any(kw in name_lower for kw in ad_keywords):
-                                            continue
-                                    
-                                    member_info = {
-                                        'id': sender.id,
-                                        'username': sender.username,
-                                        'first_name': sender.first_name or "",
-                                        'last_name': sender.last_name or "",
-                                        'phone': "",
-                                        'online_status': "未知",
-                                        'is_admin': sender.id in admin_ids,
-                                        'is_bot': sender.bot,
-                                        'deleted': getattr(sender, 'deleted', False)
-                                    }
-                                    
-                                    with self.scraped_members_lock:
-                                        self.scraped_members.append(member_info)
-                                    batch_infos.append(member_info)
-                                    local_count += 1
-                                    
-                                except Exception as e:
-                                    continue
-                            
-                            if batch_infos:
-                                self.root.after(0, lambda c=local_count, infos=batch_infos.copy(): self.batch_update_preview(account_phone, len(self.scraped_members), infos))
-                                self.log(f"[{account_phone}] 处理 {total_messages} 条消息，新增 {len(batch_infos)} 人，累计 {local_count} 人")
-                            elif total_messages % 500 == 0 and total_messages > 0:
+                            if batch_new > 0:
+                                self.log(f"[{account_phone}] 处理 {total_messages} 条消息，新增 {batch_new} 人，累计 {local_count} 人")
+                            elif total_messages % 500 == 0:
                                 self.log(f"[{account_phone}] 已处理 {total_messages} 条消息，累计 {local_count} 人")
                             
-                            # 更新偏移量
                             if history.messages:
                                 offset_id = history.messages[-1].id
                             else:
@@ -1436,6 +1379,16 @@ class TelegramFullGUI:
             asyncio.set_event_loop(loop)
             loop.run_until_complete(do_scrape())
             loop.close()
+            
+            # 将本账号的结果合并到总结果中（去重）
+            with self.all_scraped_lock:
+                existing_ids = set([m['id'] for m in self.all_scraped_members])
+                for member in local_results:
+                    if member['id'] not in existing_ids:
+                        self.all_scraped_members.append(member)
+                        existing_ids.add(member['id'])
+            
+            self.log(f"[{account_phone}] 结果已合并，总采集人数: {len(self.all_scraped_members)}")
         
         thread = threading.Thread(target=run_scrape, daemon=True)
         thread.start()
@@ -1450,7 +1403,6 @@ class TelegramFullGUI:
         save_dir = self.save_path.get().strip()
         scrape_mode = self.scrape_mode.get()
         
-        # 获取选中的账号
         selected_indices = self.scrape_account_listbox.curselection()
         if not selected_indices:
             self.log("请选择至少一个采集账号")
@@ -1472,10 +1424,8 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "请先选择保存目录")
             return
         
-        # 确保目录存在
         os.makedirs(save_dir, exist_ok=True)
         
-        # 解析群组链接
         if 't.me/' in group:
             group_username = group.split('t.me/')[-1]
             if '+' in group_username:
@@ -1485,11 +1435,9 @@ class TelegramFullGUI:
         else:
             group_username = group
         
-        # 获取过滤关键词
         keywords_text = self.filter_keywords.get().strip()
         ad_keywords = [kw.strip().lower() for kw in keywords_text.split(',') if kw.strip()]
         
-        # 获取在线天数筛选
         online_filter_text = self.online_filter.get()
         online_days = None
         if online_filter_text == "1天内":
@@ -1504,8 +1452,8 @@ class TelegramFullGUI:
             online_days = 30
         
         self.is_scraping = True
-        with self.scraped_members_lock:
-            self.scraped_members = []
+        with self.all_scraped_lock:
+            self.all_scraped_members = []
         self.preview_tree.delete(*self.preview_tree.get_children())
         self.scrape_stats.config(text="已采集: 0 人")
         
@@ -1514,13 +1462,7 @@ class TelegramFullGUI:
         self.log(f"采集模式: {scrape_mode}")
         self.log(f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
         self.log(f"保存目录: {save_dir}")
-        self.log("采集规则: 只采集有用户名的成员（username不为空）")
         
-        # 共享的去重集合和锁
-        all_collected_ids = set()
-        all_results_lock = threading.Lock()
-        
-        # 先获取群组实体和管理员列表（使用第一个账号）
         first_acc = None
         for a in self.accounts:
             if a.get('phone') == selected_phones[0]:
@@ -1540,8 +1482,7 @@ class TelegramFullGUI:
         
         admin_ids = set()
         
-        async def get_entity_and_admins():
-            nonlocal admin_ids
+        async def get_admins():
             client = None
             try:
                 session_path = first_acc.get('session_path', '')
@@ -1550,10 +1491,8 @@ class TelegramFullGUI:
                 await client.connect()
                 
                 if not await client.is_user_authorized():
-                    self.log("账号未登录")
-                    return None
+                    return
                 
-                # 获取群组实体
                 try:
                     if group_username.isdigit():
                         entity = await client.get_entity(int(group_username))
@@ -1561,9 +1500,8 @@ class TelegramFullGUI:
                         entity = await client.get_entity(group_username)
                 except Exception as e:
                     self.log(f"获取群组失败: {str(e)}")
-                    return None
+                    return
                 
-                # 获取管理员列表
                 if self.filter_admin.get():
                     try:
                         async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
@@ -1574,9 +1512,7 @@ class TelegramFullGUI:
                 
                 await client.disconnect()
                 return entity
-                
             except Exception as e:
-                self.log(f"初始化失败: {str(e)}")
                 return None
             finally:
                 if client:
@@ -1588,31 +1524,25 @@ class TelegramFullGUI:
         def init_and_start():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            entity = loop.run_until_complete(get_entity_and_admins())
+            loop.run_until_complete(get_admins())
             loop.close()
             
-            if entity is None:
-                self.is_scraping = False
-                return
-            
-            # 启动所有选中的账号进行采集
+            # 启动所有选中的账号进行采集，传入索引用于分配不同的起始位置
             threads = []
-            for phone in selected_phones:
+            for idx, phone in enumerate(selected_phones):
                 for a in self.accounts:
                     if a.get('phone') == phone and a.get('status') == '正常':
-                        t = self.scrape_single_account(a, group_username, entity, admin_ids, ad_keywords, online_days, scrape_mode, all_collected_ids, all_results_lock)
+                        t = self.scrape_single_account(a, group_username, admin_ids, ad_keywords, online_days, scrape_mode, idx, len(selected_phones))
                         threads.append(t)
                         break
             
-            # 等待所有采集线程完成
             for t in threads:
                 t.join()
             
-            # 保存文件
-            if self.scraped_members:
+            if self.all_scraped_members:
                 self.save_scraped_members(group_username, not self.is_scraping)
                 self.root.after(0, lambda: self.show_centered_info("采集完成" if self.is_scraping else "采集已停止", 
-                                                                   f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
+                                                                   f"共采集 {len(self.all_scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
             else:
                 self.log("没有采集到任何成员")
             
@@ -1661,7 +1591,6 @@ class TelegramFullGUI:
             self.log("请输入目标群组")
             return
         
-        # 查找最新的采集文件
         save_dir = self.save_path.get().strip()
         if not save_dir:
             self.log("请先在采集页面选择保存目录")
@@ -1824,7 +1753,6 @@ class TelegramFullGUI:
             self.log("请输入广告词")
             return
         
-        # 查找最新的采集文件
         save_dir = self.save_path.get().strip()
         if not save_dir:
             self.log("请先在采集页面选择保存目录")
