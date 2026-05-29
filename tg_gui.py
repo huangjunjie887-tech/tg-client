@@ -40,6 +40,9 @@ class TelegramFullGUI:
         self.groups = ["默认分组"]
         self.running_tasks = {}
         
+        # 存储各个页面的日志文本框
+        self.log_widgets = {}
+        
         # 设置选项卡样式
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
@@ -116,11 +119,15 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="否", command=on_no, width=10).pack(side="left", padx=20)
         return dialog
     
-    def log(self, msg, level="INFO"):
+    def log(self, page_name, msg, level="INFO"):
+        """记录日志到指定页面的日志框"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.insert(tk.END, f"[{timestamp}] [{level}] {msg}\n")
-        self.log_text.see(tk.END)
-        self.root.update()
+        log_entry = f"[{timestamp}] [{level}] {msg}\n"
+        
+        # 写入对应页面的日志框
+        if page_name in self.log_widgets:
+            self.log_widgets[page_name].insert(tk.END, log_entry)
+            self.log_widgets[page_name].see(tk.END)
     
     def show_card_login(self):
         login_window = tk.Toplevel(self.root)
@@ -207,15 +214,12 @@ class TelegramFullGUI:
         self.create_auto_register_page()
         self.create_monitor_page()
         self.create_script_page()
-        self.create_log_page()
         
         self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 联系@Tian2547", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
         
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
-        
-        self.log("系统启动完成")
     
     def create_menu(self):
         menubar = tk.Menu(self.root)
@@ -279,8 +283,12 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
         
-        toolbar = ttk.Frame(page)
-        toolbar.pack(fill="x", padx=10, pady=5)
+        # 主内容框架
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        toolbar = ttk.Frame(main_frame)
+        toolbar.pack(fill="x", pady=5)
         
         ttk.Button(toolbar, text="分组管理", command=self.open_group_manager).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
@@ -289,8 +297,8 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
         
-        frame = ttk.LabelFrame(page, text="账号列表")
-        frame.pack(fill="both", expand=True, padx=10, pady=5)
+        frame = ttk.LabelFrame(main_frame, text="账号列表")
+        frame.pack(fill="both", expand=True, pady=5)
         
         columns = ("序号", "手机号", "分组", "昵称", "当前任务", "上一次操作", "账号状态", "注册时长", "代理IP")
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
@@ -311,6 +319,12 @@ class TelegramFullGUI:
         self.account_tree.configure(yscrollcommand=scrollbar.set)
         self.account_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="x", pady=5)
+        self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def open_group_manager(self):
         dialog = tk.Toplevel(self.root)
@@ -383,7 +397,7 @@ class TelegramFullGUI:
             self.accounts[idx]['group'] = target_group
             self.refresh_account_list()
             refresh_account_combo()
-            self.log(f"移动账号到分组「{target_group}」")
+            self.log("多账号管理", f"移动账号到分组「{target_group}」")
         
         def refresh_all():
             refresh_account_combo()
@@ -403,7 +417,7 @@ class TelegramFullGUI:
             self.groups.append(name)
             listbox.insert(tk.END, name)
             name_entry.delete(0, tk.END)
-            self.log(f"创建分组: {name}")
+            self.log("多账号管理", f"创建分组: {name}")
         elif name in self.groups:
             self.show_centered_error("错误", "分组已存在")
     
@@ -424,7 +438,7 @@ class TelegramFullGUI:
                 listbox.delete(selected[0])
                 listbox.insert(selected[0], new_name)
                 self.refresh_account_list()
-                self.log(f"重命名分组: {old_name} -> {new_name}")
+                self.log("多账号管理", f"重命名分组: {old_name} -> {new_name}")
                 name_entry.delete(0, tk.END)
     
     def delete_group_from_manager(self, listbox):
@@ -441,7 +455,7 @@ class TelegramFullGUI:
                 self.groups.remove(group_name)
                 listbox.delete(selected[0])
                 self.refresh_account_list()
-                self.log(f"删除分组: {group_name}")
+                self.log("多账号管理", f"删除分组: {group_name}")
             self.show_centered_yesno("确认", f"确定删除分组「{group_name}」？账号将移至默认分组", do_delete)
     
     def import_accounts_folder(self):
@@ -474,7 +488,7 @@ class TelegramFullGUI:
         if not folder:
             return
         
-        self.log(f"开始扫描账号文件夹: {folder}")
+        self.log("多账号管理", f"开始扫描账号文件夹: {folder}")
         
         session_files = []
         json_files = {}
@@ -488,7 +502,7 @@ class TelegramFullGUI:
                     json_files[phone] = os.path.join(root_dir, file)
         
         if not session_files:
-            self.log("未找到任何.session文件")
+            self.log("多账号管理", "未找到任何.session文件")
             self.show_centered_warning("导入失败", "未找到任何.session文件")
             return
         
@@ -502,9 +516,9 @@ class TelegramFullGUI:
             
             if json_path:
                 account_info = self.read_account_from_json(json_path)
-                self.log(f"找到JSON文件: {phone}.json")
+                self.log("多账号管理", f"找到JSON文件: {phone}.json")
             else:
-                self.log(f"警告: 未找到 {phone}.json 文件")
+                self.log("多账号管理", f"警告: 未找到 {phone}.json 文件")
             
             exists = False
             for acc in self.accounts:
@@ -513,7 +527,7 @@ class TelegramFullGUI:
                     break
             
             if exists:
-                self.log(f"跳过重复账号: {phone}")
+                self.log("多账号管理", f"跳过重复账号: {phone}")
                 continue
             
             nickname = ""
@@ -540,18 +554,18 @@ class TelegramFullGUI:
                 "proxy": proxy
             })
             count += 1
-            self.log(f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
+            self.log("多账号管理", f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
         
         self.refresh_account_list()
         self.refresh_scrape_accounts()
-        self.log(f"导入 {count} 个账号到分组「{target_group}」")
+        self.log("多账号管理", f"导入 {count} 个账号到分组「{target_group}」")
         if count > 0:
             self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
     
     def export_accounts(self):
         selected = self.account_tree.selection()
         if not selected:
-            self.log("请先选择要导出的账号")
+            self.log("多账号管理", "请先选择要导出的账号")
             self.show_centered_warning("提示", "请先选择要导出的账号")
             return
         
@@ -571,13 +585,13 @@ class TelegramFullGUI:
                 dest_session = os.path.join(export_folder, f"{phone}.session")
                 shutil.copy2(session_path, dest_session)
                 export_count += 1
-                self.log(f"导出账号: {phone}")
+                self.log("多账号管理", f"导出账号: {phone}")
             
             if json_path and os.path.exists(json_path):
                 dest_json = os.path.join(export_folder, f"{phone}.json")
                 shutil.copy2(json_path, dest_json)
         
-        self.log(f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
+        self.log("多账号管理", f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
         self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号")
     
     def login_single_account(self, acc):
@@ -599,23 +613,23 @@ class TelegramFullGUI:
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
-                    self.log(f"✅ {phone}: 登录成功 | 昵称: {nickname}")
+                    self.log("多账号管理", f"✅ {phone}: 登录成功 | 昵称: {nickname}")
                     await client.disconnect()
                     return True
                 else:
-                    self.log(f"❌ {phone}: session未授权")
+                    self.log("多账号管理", f"❌ {phone}: session未授权")
                     acc['status'] = '未授权'
                     return False
             except FloodWaitError as e:
-                self.log(f"⛔ {phone}: 被限制，需等待{e.seconds}秒")
+                self.log("多账号管理", f"⛔ {phone}: 被限制，需等待{e.seconds}秒")
                 acc['status'] = f'限制({e.seconds}秒)'
                 return False
             except UserDeactivatedError:
-                self.log(f"💀 {phone}: 账号已注销")
+                self.log("多账号管理", f"💀 {phone}: 账号已注销")
                 acc['status'] = '销号'
                 return False
             except PhoneNumberBannedError:
-                self.log(f"🚫 {phone}: 账号已被封禁")
+                self.log("多账号管理", f"🚫 {phone}: 账号已被封禁")
                 acc['status'] = '封禁'
                 return False
             except SessionPasswordNeededError:
@@ -625,17 +639,17 @@ class TelegramFullGUI:
                         me = await client.get_me()
                         acc['nickname'] = me.first_name or phone
                         acc['status'] = '正常'
-                        self.log(f"✅ {phone}: 2FA登录成功")
+                        self.log("多账号管理", f"✅ {phone}: 2FA登录成功")
                         return True
                     except:
-                        self.log(f"❌ {phone}: 2FA密码错误")
+                        self.log("多账号管理", f"❌ {phone}: 2FA密码错误")
                         acc['status'] = '2FA错误'
                 else:
-                    self.log(f"🔐 {phone}: 需要2FA密码")
+                    self.log("多账号管理", f"🔐 {phone}: 需要2FA密码")
                     acc['status'] = '需要2FA'
                 return False
             except Exception as e:
-                self.log(f"❌ {phone}: 登录失败 - {str(e)[:80]}")
+                self.log("多账号管理", f"❌ {phone}: 登录失败 - {str(e)[:80]}")
                 acc['status'] = '登录失败'
                 return False
             finally:
@@ -656,22 +670,22 @@ class TelegramFullGUI:
     
     def login_and_check_all(self):
         if not self.accounts:
-            self.log("没有账号可操作")
+            self.log("多账号管理", "没有账号可操作")
             self.show_centered_warning("提示", "请先导入账号")
             return
         
-        self.log(f"开始登录并检测 {len(self.accounts)} 个账号...")
+        self.log("多账号管理", f"开始登录并检测 {len(self.accounts)} 个账号...")
         
         def do_login():
             success_count = 0
             for idx, acc in enumerate(self.accounts, 1):
                 phone = acc.get('phone', '')
-                self.log(f"[{idx}/{len(self.accounts)}] 正在处理账号: {phone}")
+                self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在处理账号: {phone}")
                 if self.login_single_account(acc):
                     success_count += 1
                 time.sleep(2)
             
-            self.log(f"登录完成: 成功 {success_count}/{len(self.accounts)}")
+            self.log("多账号管理", f"登录完成: 成功 {success_count}/{len(self.accounts)}")
             self.root.after(0, lambda: self.show_centered_info("处理完成", f"成功登录 {success_count} 个账号"))
         
         threading.Thread(target=do_login, daemon=True).start()
@@ -701,7 +715,7 @@ class TelegramFullGUI:
                     self.accounts.pop(idx)
                 self.refresh_account_list()
                 self.refresh_scrape_accounts()
-                self.log(f"删除 {len(selected)} 个选中账号")
+                self.log("多账号管理", f"删除 {len(selected)} 个选中账号")
             self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
     
     def delete_dead_accounts(self):
@@ -713,7 +727,7 @@ class TelegramFullGUI:
                     self.accounts.pop(idx)
                 self.refresh_account_list()
                 self.refresh_scrape_accounts()
-                self.log(f"删除 {len(dead_indices)} 个已失效账号")
+                self.log("多账号管理", f"删除 {len(dead_indices)} 个已失效账号")
             self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已失效账号？", do_delete)
         else:
             self.show_centered_info("提示", "没有发现已失效的账号")
@@ -723,8 +737,11 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="代理IP")
         
-        toolbar = ttk.Frame(page)
-        toolbar.pack(fill="x", padx=10, pady=5)
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        toolbar = ttk.Frame(main_frame)
+        toolbar.pack(fill="x", pady=5)
         
         self.proxy_count_label = ttk.Label(toolbar, text=f"代理数量: {len(self.proxies)}", font=("微软雅黑", 10))
         self.proxy_count_label.pack(side="left", padx=10)
@@ -734,8 +751,8 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="检测所有代理", command=self.check_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
         
-        frame = ttk.LabelFrame(page, text="代理列表")
-        frame.pack(fill="both", expand=True, padx=10, pady=5)
+        frame = ttk.LabelFrame(main_frame, text="代理列表")
+        frame.pack(fill="both", expand=True, pady=5)
         
         columns = ("序号", "代理类型", "代理地址", "状态")
         self.proxy_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
@@ -751,6 +768,12 @@ class TelegramFullGUI:
         self.proxy_tree.configure(yscrollcommand=scrollbar.set)
         self.proxy_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="x", pady=5)
+        self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def import_proxies(self):
         file_path = filedialog.askopenfilename(
@@ -825,7 +848,7 @@ class TelegramFullGUI:
                     "status": "未检测"
                 })
                 added_count += 1
-                self.log(f"导入代理: {p_type}://{host}:{port}")
+                self.log("代理IP", f"导入代理: {p_type}://{host}:{port}")
             else:
                 skipped_count += 1
         
@@ -845,7 +868,7 @@ class TelegramFullGUI:
                 self.proxies.pop(idx)
             self.refresh_proxy_list()
             self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
-            self.log(f"删除 {len(selected)} 个代理")
+            self.log("代理IP", f"删除 {len(selected)} 个代理")
     
     def clear_all_proxies(self):
         if self.proxies:
@@ -853,18 +876,18 @@ class TelegramFullGUI:
                 self.proxies.clear()
                 self.refresh_proxy_list()
                 self.proxy_count_label.config(text=f"代理数量: 0")
-                self.log("清空所有代理")
+                self.log("代理IP", "清空所有代理")
             self.show_centered_yesno("确认", "确定要清空所有代理吗？", do_clear)
         else:
             self.show_centered_info("提示", "没有代理需要清空")
     
     def check_proxies(self):
         if not self.proxies:
-            self.log("没有代理需要检测")
+            self.log("代理IP", "没有代理需要检测")
             self.show_centered_warning("提示", "没有代理需要检测")
             return
         
-        self.log(f"开始检测 {len(self.proxies)} 个代理...")
+        self.log("代理IP", f"开始检测 {len(self.proxies)} 个代理...")
         
         def do_check():
             for i, p in enumerate(self.proxies):
@@ -882,17 +905,17 @@ class TelegramFullGUI:
                     
                     if resp.status_code == 200:
                         p['status'] = f"✅ 可用 ({elapsed:.1f}s) - IP: {resp.text}"
-                        self.log(f"✅ {p.get('type')}://{proxy_str}: 可用")
+                        self.log("代理IP", f"✅ {p.get('type')}://{proxy_str}: 可用")
                     else:
                         p['status'] = "❌ 不可用"
-                        self.log(f"❌ {p.get('type')}://{proxy_str}: 不可用")
+                        self.log("代理IP", f"❌ {p.get('type')}://{proxy_str}: 不可用")
                 except Exception as e:
                     p['status'] = f"❌ 不可用"
-                    self.log(f"❌ {p.get('type')}://{proxy_str}: 不可用")
+                    self.log("代理IP", f"❌ {p.get('type')}://{proxy_str}: 不可用")
                 
                 self.root.after(0, self.refresh_proxy_list)
             
-            self.log("代理检测完成")
+            self.log("代理IP", "代理检测完成")
         
         threading.Thread(target=do_check, daemon=True).start()
     
@@ -908,7 +931,7 @@ class TelegramFullGUI:
                 p.get('status', '未检测')
             ))
     
-    # ==================== 采集群成员页面（终极极速版） ====================
+    # ==================== 采集群成员页面（日志合并版） ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
@@ -986,25 +1009,34 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="开始采集", command=self.start_scrape, width=15).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="停止采集", command=self.stop_scrape, width=15).pack(side="left", padx=10)
         
-        # 右侧：采集预览
-        right_frame = ttk.LabelFrame(main_frame, text="采集预览（实时显示）")
+        # 右侧：采集预览 + 日志合并
+        right_frame = ttk.LabelFrame(main_frame, text="采集预览与日志")
         right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
         
         # 预览Treeview
+        preview_frame = ttk.Frame(right_frame)
+        preview_frame.pack(fill="both", expand=True)
+        
         preview_columns = ("序号", "用户ID", "用户名", "昵称", "在线状态", "是否管理员", "是否机器人")
-        self.preview_tree = ttk.Treeview(right_frame, columns=preview_columns, show="headings", height=20)
+        self.preview_tree = ttk.Treeview(preview_frame, columns=preview_columns, show="headings", height=15)
         for col in preview_columns:
             self.preview_tree.heading(col, text=col)
             self.preview_tree.column(col, anchor="center", width=100)
         
-        preview_scrollbar = ttk.Scrollbar(right_frame, orient="vertical", command=self.preview_tree.yview)
+        preview_scrollbar = ttk.Scrollbar(preview_frame, orient="vertical", command=self.preview_tree.yview)
         self.preview_tree.configure(yscrollcommand=preview_scrollbar.set)
         self.preview_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         preview_scrollbar.pack(side="right", fill="y")
         
         # 统计标签
-        self.scrape_stats = ttk.Label(right_frame, text="已采集: 0 人", font=("微软雅黑", 10))
+        self.scrape_stats = ttk.Label(preview_frame, text="已采集: 0 人", font=("微软雅黑", 10))
         self.scrape_stats.pack(pady=5)
+        
+        # 日志区域（放在预览下面）
+        log_frame = ttk.LabelFrame(right_frame, text="运行日志")
+        log_frame.pack(fill="x", pady=5)
+        self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
+        self.log_widgets["采集群成员"].pack(fill="both", expand=True, padx=5, pady=5)
         
         self.is_scraping = False
         self.scraped_members = []
@@ -1014,27 +1046,24 @@ class TelegramFullGUI:
         self.refresh_scrape_accounts()
     
     def select_save_path(self):
-        """选择保存目录"""
         folder = filedialog.askdirectory(title="选择保存目录")
         if folder:
             self.save_path.delete(0, tk.END)
             self.save_path.insert(0, folder)
-            self.log(f"已设置保存目录: {folder}")
+            self.log("采集群成员", f"已设置保存目录: {folder}")
     
     def save_scraped_members(self, group_username, is_stop=False):
-        """保存采集的成员到文件（只保存用户名）"""
         if not self.scraped_members:
             if is_stop:
-                self.log("没有采集到任何成员，不保存文件")
+                self.log("采集群成员", "没有采集到任何成员，不保存文件")
             return False
         
         save_dir = self.save_path.get().strip()
         if not save_dir:
-            self.log("请先选择保存目录")
+            self.log("采集群成员", "请先选择保存目录")
             self.show_centered_warning("提示", "请先选择保存目录")
             return False
         
-        # 确保目录存在
         os.makedirs(save_dir, exist_ok=True)
         
         save_format = self.save_format.get()
@@ -1043,7 +1072,6 @@ class TelegramFullGUI:
         action = "stop" if is_stop else "complete"
         base_name = f"members_{group_username}_{current_date}_{current_time}_{action}"
         
-        # 提取用户名列表（去重）
         usernames = list(set([m.get('username', '') for m in self.scraped_members if m.get('username')]))
         
         try:
@@ -1051,31 +1079,27 @@ class TelegramFullGUI:
                 save_path = os.path.join(save_dir, f"{base_name}.json")
                 with open(save_path, 'w', encoding='utf-8') as f:
                     json.dump(usernames, f, ensure_ascii=False, indent=2)
-                self.log(f"已保存JSON文件（用户名列表）: {save_path}, 共 {len(usernames)} 个用户名")
+                self.log("采集群成员", f"已保存JSON文件: {save_path}, 共 {len(usernames)} 个用户名")
             else:
                 save_path = os.path.join(save_dir, f"{base_name}.txt")
                 with open(save_path, 'w', encoding='utf-8') as f:
                     for username in usernames:
                         if username:
                             f.write(f"@{username}\n")
-                self.log(f"已保存TXT文件（用户名列表）: {save_path}, 共 {len(usernames)} 个用户名")
-            
+                self.log("采集群成员", f"已保存TXT文件: {save_path}, 共 {len(usernames)} 个用户名")
             return True
         except Exception as e:
-            self.log(f"保存文件失败: {str(e)}")
+            self.log("采集群成员", f"保存文件失败: {str(e)}")
             return False
     
     def stop_scrape(self):
-        """停止采集"""
         if self.is_scraping:
             self.is_scraping = False
-            self.log("用户停止采集，正在保存已采集的数据...")
-
+            self.log("采集群成员", "用户停止采集，正在保存已采集的数据...")
+    
     def get_online_status_text(self, user_status):
-        """获取在线状态文本"""
         if user_status is None:
             return "未知"
-        
         if hasattr(user_status, '__class__'):
             class_name = user_status.__class__.__name__
             if class_name == 'UserStatusRecently':
@@ -1088,7 +1112,6 @@ class TelegramFullGUI:
                 return "在线"
             elif class_name == 'UserStatusOffline':
                 return "离线"
-        
         if isinstance(user_status, UserStatusRecently):
             return "最近在线"
         elif isinstance(user_status, UserStatusLastWeek):
@@ -1099,19 +1122,14 @@ class TelegramFullGUI:
             return "在线"
         elif isinstance(user_status, UserStatusOffline):
             return "离线"
-        
         return "未知"
     
     def check_online_days(self, user_status, online_days):
-        """检查用户在线天数是否符合条件"""
         if online_days is None:
             return True
-        
         if user_status is None:
             return False
-        
         class_name = user_status.__class__.__name__
-        
         if class_name == 'UserStatusRecently':
             return online_days >= 1
         elif class_name == 'UserStatusLastWeek':
@@ -1128,14 +1146,11 @@ class TelegramFullGUI:
                 except:
                     pass
             return False
-        
         return False
     
     def batch_update_preview(self, count, member_infos):
-        """批量更新预览"""
         self.scrape_stats.config(text=f"已采集: {count} 人")
         
-        # 先获取当前预览中已有的用户ID
         existing_ids = set()
         for item in self.preview_tree.get_children():
             values = self.preview_tree.item(item, 'values')
@@ -1164,7 +1179,7 @@ class TelegramFullGUI:
     
     def start_scrape(self):
         if self.is_scraping:
-            self.log("采集任务正在进行中")
+            self.log("采集群成员", "采集任务正在进行中")
             return
         
         group = self.scrape_group.get().strip()
@@ -1173,21 +1188,20 @@ class TelegramFullGUI:
         scrape_mode = self.scrape_mode.get()
         
         if not group:
-            self.log("请输入群组链接")
+            self.log("采集群成员", "请输入群组链接")
             self.show_centered_warning("提示", "请输入群组链接")
             return
         
         if not account_phone:
-            self.log("请选择采集账号")
+            self.log("采集群成员", "请选择采集账号")
             self.show_centered_warning("提示", "请先登录账号并刷新账号列表")
             return
         
         if not save_dir:
-            self.log("请先选择保存目录")
+            self.log("采集群成员", "请先选择保存目录")
             self.show_centered_warning("提示", "请先选择保存目录")
             return
         
-        # 查找账号
         acc = None
         for a in self.accounts:
             if a.get('phone') == account_phone:
@@ -1195,19 +1209,17 @@ class TelegramFullGUI:
                 break
         
         if not acc:
-            self.log("未找到账号，请刷新账号列表")
+            self.log("采集群成员", "未找到账号，请刷新账号列表")
             self.show_centered_warning("提示", "未找到账号，请刷新账号列表")
             return
         
         if acc.get('status') != '正常':
-            self.log("请先登录账号")
+            self.log("采集群成员", "请先登录账号")
             self.show_centered_warning("提示", "请先登录账号")
             return
         
-        # 确保目录存在
         os.makedirs(save_dir, exist_ok=True)
         
-        # 解析群组链接
         if 't.me/' in group:
             group_username = group.split('t.me/')[-1]
             if '+' in group_username:
@@ -1217,11 +1229,9 @@ class TelegramFullGUI:
         else:
             group_username = group
         
-        # 获取过滤关键词
         keywords_text = self.filter_keywords.get().strip()
         ad_keywords = [kw.strip().lower() for kw in keywords_text.split(',') if kw.strip()]
         
-        # 获取在线天数筛选
         online_filter_text = self.online_filter.get()
         online_days = None
         if online_filter_text == "1天内":
@@ -1243,41 +1253,41 @@ class TelegramFullGUI:
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         
-        self.log(f"开始采集群成员: {group_username}")
-        self.log(f"采集模式: {scrape_mode}")
-        self.log(f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
-        self.log(f"保存目录: {save_dir}")
-        self.log("采集规则: 只采集有用户名的成员（username不为空）")
+        self.log("采集群成员", f"开始采集群成员: {group_username}")
+        self.log("采集群成员", f"采集模式: {scrape_mode}")
+        self.log("采集群成员", f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
+        self.log("采集群成员", f"保存目录: {save_dir}")
+        self.log("采集群成员", "采集规则: 只采集有用户名的成员（username不为空）")
         
         async def do_scrape():
             client = None
             admin_ids = set()
+            final_count = 0
+            final_total_messages = 0
             try:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 
                 if not await client.is_user_authorized():
-                    self.log("账号未登录")
+                    self.log("采集群成员", "账号未登录")
                     return
                 
-                # 获取群组实体
                 try:
                     if group_username.isdigit():
                         entity = await client.get_entity(int(group_username))
                     else:
                         entity = await client.get_entity(group_username)
                 except Exception as e:
-                    self.log(f"获取群组失败: {str(e)}")
+                    self.log("采集群成员", f"获取群组失败: {str(e)}")
                     return
                 
-                # 获取管理员列表（隐藏群和公开群都可以获取管理员）
                 if self.filter_admin.get():
                     try:
                         async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
                             admin_ids.add(user.id)
-                        self.log(f"获取到 {len(admin_ids)} 个管理员")
+                        self.log("采集群成员", f"获取到 {len(admin_ids)} 个管理员")
                     except Exception as e:
-                        self.log(f"获取管理员列表失败: {str(e)}")
+                        self.log("采集群成员", f"获取管理员列表失败: {str(e)}")
                 
                 count = 0
                 skipped_no_username = 0
@@ -1285,8 +1295,7 @@ class TelegramFullGUI:
                 total_messages = 0
                 
                 if scrape_mode == "获取全部成员(公开群)":
-                    # 公开群模式
-                    self.log("开始采集成员（获取全部成员）...")
+                    self.log("采集群成员", "开始采集成员（获取全部成员）...")
                     async for user in client.iter_participants(entity):
                         if not self.is_scraping:
                             break
@@ -1329,22 +1338,18 @@ class TelegramFullGUI:
                         
                         self.scraped_members.append(member_info)
                         count += 1
-                        self.root.after(0, lambda c=count, info=member_info: self.update_preview(c, info))
+                        self.root.after(0, lambda c=count, info=member_info: self.batch_update_preview(c, [info]))
                         await asyncio.sleep(0.05)
                     
-                    self.log(f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
-                    self.log(f"跳过了 {skipped_no_username} 个没有用户名的成员")
+                    self.log("采集群成员", f"采集完成！共采集 {len(self.scraped_members)} 个有用户名的成员")
                 
                 else:
-                    # 隐藏群模式 - 终极极速版（无get_entity、无sleep、延迟UI刷新）
-                    self.log("开始采集发言用户（终极极速模式）...")
+                    self.log("采集群成员", "开始采集发言用户（极速模式）...")
                     
                     offset_id = 0
                     batch_size = 3000
-                    
                     input_peer = InputPeerChannel(entity.id, entity.access_hash)
                     
-                    # 批量缓存，每秒刷新一次UI
                     pending_infos = []
                     last_ui_update = time.time()
                     
@@ -1362,12 +1367,9 @@ class TelegramFullGUI:
                             ))
                             
                             if not history.messages:
-                                self.log("已获取全部历史消息")
                                 break
                             
                             total_messages += len(history.messages)
-                            
-                            # 关键优化：直接从 history.users 获取用户信息，无任何额外网络请求
                             users_map = {u.id: u for u in history.users}
                             
                             for msg in history.messages:
@@ -1413,48 +1415,44 @@ class TelegramFullGUI:
                                 pending_infos.append(member_info)
                                 count += 1
                             
-                            # 每秒最多更新一次UI，避免拖慢速度
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
                                 self.root.after(0, lambda c=count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
                                 pending_infos.clear()
                                 last_ui_update = current_time
-                                self.log(f"⚡ 已处理 {total_messages} 条消息 | 累计 {count} 人")
                             
-                            # 更新偏移量
                             if history.messages:
                                 offset_id = history.messages[-1].id
                             else:
                                 break
-                            
-                            # 无任何延迟！全速采集
-                            
+                                
                         except FloodWaitError as e:
-                            self.log(f"⏳ 等待 {e.seconds} 秒...")
+                            self.log("采集群成员", f"等待 {e.seconds} 秒...")
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
-                            self.log(f"错误: {str(e)}")
+                            self.log("采集群成员", f"错误: {str(e)}")
                             break
                     
-                    # 最后刷新一次UI
                     if pending_infos:
                         self.root.after(0, lambda c=count, infos=pending_infos: self.batch_update_preview(c, infos))
                     
-                    self.log(f"采集完成！共处理 {total_messages} 条消息，采集 {len(self.scraped_members)} 个唯一用户")
+                    final_count = len(self.scraped_members)
+                    final_total_messages = total_messages
+                    self.log("采集群成员", f"⚡ 已处理 {total_messages} 条消息 | 累计 {final_count} 人")
+                    self.log("采集群成员", f"采集完成！共处理 {total_messages} 条消息，采集 {final_count} 个唯一用户")
                 
-                # 保存文件
                 if self.scraped_members:
                     is_stop = not self.is_scraping
                     self.save_scraped_members(group_username, is_stop)
                     self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", 
                                                                        f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
                 else:
-                    self.log("没有采集到任何成员")
+                    self.log("采集群成员", "没有采集到任何成员")
                 
                 await client.disconnect()
                 
             except Exception as e:
-                self.log(f"采集失败: {str(e)}")
+                self.log("采集群成员", f"采集失败: {str(e)}")
                 if self.scraped_members:
                     self.save_scraped_members(group_username, True)
             finally:
@@ -1474,38 +1472,16 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    def update_preview(self, count, member_info):
-        """更新预览列表"""
-        self.scrape_stats.config(text=f"已采集: {count} 人")
-        
-        # 检查是否已存在
-        for item in self.preview_tree.get_children():
-            values = self.preview_tree.item(item, 'values')
-            if values and len(values) > 1 and int(values[1]) == member_info['id']:
-                return
-        
-        display_name = member_info['first_name'] or member_info['username'] or str(member_info['id'])
-        if len(display_name) > 20:
-            display_name = display_name[:20] + "..."
-        
-        self.preview_tree.insert("", "end", values=(
-            count,
-            member_info['id'],
-            member_info['username'][:20] if member_info['username'] else "-",
-            display_name,
-            member_info['online_status'],
-            "是" if member_info['is_admin'] else "否",
-            "是" if member_info['is_bot'] else "否"
-        ))
-        self.preview_tree.yview_moveto(1)
-    
     # ==================== 批量拉人页面 ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
         
-        frame = ttk.LabelFrame(page, text="拉人设置")
-        frame.pack(fill="x", padx=10, pady=5)
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        frame = ttk.LabelFrame(main_frame, text="拉人设置")
+        frame.pack(fill="x", pady=5)
         
         ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.target_group = ttk.Entry(frame, width=50)
@@ -1529,6 +1505,12 @@ class TelegramFullGUI:
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="开始拉人", command=self.start_invite).pack()
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="both", expand=True, pady=5)
+        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
+        self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def start_invite(self):
         target_group = self.target_group.get()
@@ -1537,13 +1519,12 @@ class TelegramFullGUI:
         account_phone = self.task_account.get()
         
         if not target_group:
-            self.log("请输入目标群组")
+            self.log("批量拉人", "请输入目标群组")
             return
         
-        # 查找最新的采集文件
         save_dir = self.save_path.get().strip()
         if not save_dir:
-            self.log("请先在采集页面选择保存目录")
+            self.log("批量拉人", "请先在采集页面选择保存目录")
             self.show_centered_warning("提示", "请先在采集页面选择保存目录")
             return
         
@@ -1553,7 +1534,7 @@ class TelegramFullGUI:
             json_files = []
         
         if not json_files:
-            self.log("请先采集群成员")
+            self.log("批量拉人", "请先采集群成员")
             self.show_centered_warning("提示", "请先采集群成员")
             return
         
@@ -1561,7 +1542,7 @@ class TelegramFullGUI:
         with open(os.path.join(save_dir, latest_file), "r", encoding="utf-8") as f:
             usernames = json.load(f)
         
-        self.log(f"开始拉人: 共 {min(int(limit), len(usernames))} 个用户")
+        self.log("批量拉人", f"开始拉人: 共 {min(int(limit), len(usernames))} 个用户")
         
         async def do_invite():
             client = None
@@ -1586,13 +1567,13 @@ class TelegramFullGUI:
                                 try:
                                     user_entity = await client.get_entity(username)
                                     await client.invite_to_channel(entity, [user_entity.id])
-                                    self.log(f"[{phone}] 拉人成功: {username}")
+                                    self.log("批量拉人", f"[{phone}] 拉人成功: {username}")
                                     await asyncio.sleep(delay)
                                 except FloodWaitError as e:
-                                    self.log(f"请求频繁，等待{e.seconds}秒")
+                                    self.log("批量拉人", f"请求频繁，等待{e.seconds}秒")
                                     await asyncio.sleep(e.seconds)
                                 except Exception as e:
-                                    self.log(f"拉人失败 {username}: {str(e)[:50]}")
+                                    self.log("批量拉人", f"拉人失败 {username}: {str(e)[:50]}")
                             
                             await client.disconnect()
                             client = None
@@ -1604,11 +1585,11 @@ class TelegramFullGUI:
                             break
                     
                     if not acc:
-                        self.log("未找到账号")
+                        self.log("批量拉人", "未找到账号")
                         return
                     
                     if acc.get('status') != '正常':
-                        self.log("请先登录账号")
+                        self.log("批量拉人", "请先登录账号")
                         return
                     
                     session_path = acc.get('session_path', '')
@@ -1627,19 +1608,19 @@ class TelegramFullGUI:
                         try:
                             user_entity = await client.get_entity(username)
                             await client.invite_to_channel(entity, [user_entity.id])
-                            self.log(f"拉人成功: {username}")
+                            self.log("批量拉人", f"拉人成功: {username}")
                             await asyncio.sleep(delay)
                         except FloodWaitError as e:
-                            self.log(f"请求频繁，等待{e.seconds}秒")
+                            self.log("批量拉人", f"请求频繁，等待{e.seconds}秒")
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
-                            self.log(f"拉人失败 {username}: {str(e)[:50]}")
+                            self.log("批量拉人", f"拉人失败 {username}: {str(e)[:50]}")
                 
-                self.log("拉人完成")
+                self.log("批量拉人", "拉人完成")
                 self.show_centered_info("拉人完成", "批量拉人已完成")
                 
             except Exception as e:
-                self.log(f"拉人失败: {e}")
+                self.log("批量拉人", f"拉人失败: {e}")
             finally:
                 if client:
                     try:
@@ -1660,8 +1641,11 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="群发广告")
         
-        frame = ttk.LabelFrame(page, text="群发设置")
-        frame.pack(fill="x", padx=10, pady=5)
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        frame = ttk.LabelFrame(main_frame, text="群发设置")
+        frame.pack(fill="x", pady=5)
         
         ttk.Label(frame, text="选择任务账号:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.send_account = ttk.Combobox(frame, values=["全部账号"] + [a.get('phone', '') for a in self.accounts], width=30)
@@ -1684,6 +1668,12 @@ class TelegramFullGUI:
         btn_frame2 = ttk.Frame(frame)
         btn_frame2.grid(row=4, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame2, text="开始群发", command=self.start_send).pack()
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="both", expand=True, pady=5)
+        self.log_widgets["群发广告"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
+        self.log_widgets["群发广告"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def import_ad_text(self):
         file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
@@ -1692,7 +1682,7 @@ class TelegramFullGUI:
                 content = f.read()
             self.ad_text.delete("1.0", tk.END)
             self.ad_text.insert("1.0", content)
-            self.log(f"导入广告词: {file_path}")
+            self.log("群发广告", f"导入广告词: {file_path}")
     
     def start_send(self):
         ad_content = self.ad_text.get("1.0", tk.END).strip()
@@ -1700,13 +1690,12 @@ class TelegramFullGUI:
         delay = int(self.send_delay.get())
         
         if not ad_content:
-            self.log("请输入广告词")
+            self.log("群发广告", "请输入广告词")
             return
         
-        # 查找最新的采集文件
         save_dir = self.save_path.get().strip()
         if not save_dir:
-            self.log("请先在采集页面选择保存目录")
+            self.log("群发广告", "请先在采集页面选择保存目录")
             self.show_centered_warning("提示", "请先在采集页面选择保存目录")
             return
         
@@ -1716,7 +1705,7 @@ class TelegramFullGUI:
             json_files = []
         
         if not json_files:
-            self.log("请先采集群成员")
+            self.log("群发广告", "请先采集群成员")
             self.show_centered_warning("提示", "请先采集群成员")
             return
         
@@ -1724,7 +1713,7 @@ class TelegramFullGUI:
         with open(os.path.join(save_dir, latest_file), "r", encoding="utf-8") as f:
             usernames = json.load(f)
         
-        self.log(f"开始群发: {len(usernames)} 个用户, 间隔: {delay}秒")
+        self.log("群发广告", f"开始群发: {len(usernames)} 个用户, 间隔: {delay}秒")
         
         async def do_send():
             client = None
@@ -1743,13 +1732,13 @@ class TelegramFullGUI:
                                 try:
                                     user_entity = await client.get_entity(username)
                                     await client.send_message(user_entity.id, ad_content)
-                                    self.log(f"[{phone}] 发送成功: {username}")
+                                    self.log("群发广告", f"[{phone}] 发送成功: {username}")
                                     await asyncio.sleep(delay)
                                 except FloodWaitError as e:
-                                    self.log(f"请求频繁，等待{e.seconds}秒")
+                                    self.log("群发广告", f"请求频繁，等待{e.seconds}秒")
                                     await asyncio.sleep(e.seconds)
                                 except Exception as e:
-                                    self.log(f"发送失败 {username}: {str(e)[:50]}")
+                                    self.log("群发广告", f"发送失败 {username}: {str(e)[:50]}")
                             
                             await client.disconnect()
                             client = None
@@ -1761,11 +1750,11 @@ class TelegramFullGUI:
                             break
                     
                     if not acc:
-                        self.log("未找到账号")
+                        self.log("群发广告", "未找到账号")
                         return
                     
                     if acc.get('status') != '正常':
-                        self.log("请先登录账号")
+                        self.log("群发广告", "请先登录账号")
                         return
                     
                     session_path = acc.get('session_path', '')
@@ -1778,19 +1767,19 @@ class TelegramFullGUI:
                         try:
                             user_entity = await client.get_entity(username)
                             await client.send_message(user_entity.id, ad_content)
-                            self.log(f"发送成功: {username}")
+                            self.log("群发广告", f"发送成功: {username}")
                             await asyncio.sleep(delay)
                         except FloodWaitError as e:
-                            self.log(f"请求频繁，等待{e.seconds}秒")
+                            self.log("群发广告", f"请求频繁，等待{e.seconds}秒")
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
-                            self.log(f"发送失败 {username}: {str(e)[:50]}")
+                            self.log("群发广告", f"发送失败 {username}: {str(e)[:50]}")
                 
-                self.log("群发完成")
+                self.log("群发广告", "群发完成")
                 self.show_centered_info("群发完成", "群发已完成")
                 
             except Exception as e:
-                self.log(f"群发失败: {e}")
+                self.log("群发广告", f"群发失败: {e}")
             finally:
                 if client:
                     try:
@@ -1811,8 +1800,11 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
         
-        frame = ttk.LabelFrame(page, text="群聊设置")
-        frame.pack(fill="x", padx=10, pady=5)
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        frame = ttk.LabelFrame(main_frame, text="群聊设置")
+        frame.pack(fill="x", pady=5)
         
         ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.chat_group = ttk.Entry(frame, width=50)
@@ -1837,8 +1829,8 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="启动炒群", command=self.start_group_chat).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="停止炒群", command=self.stop_group_chat).pack(side="left", padx=5)
         
-        kw_frame = ttk.LabelFrame(page, text="关键词自动回复")
-        kw_frame.pack(fill="x", padx=10, pady=5)
+        kw_frame = ttk.LabelFrame(main_frame, text="关键词自动回复")
+        kw_frame.pack(fill="x", pady=5)
         
         self.keyword_text = scrolledtext.ScrolledText(kw_frame, width=80, height=6)
         self.keyword_text.pack(fill="x", padx=5, pady=5)
@@ -1847,6 +1839,12 @@ class TelegramFullGUI:
         btn_frame2.pack(pady=5)
         ttk.Button(btn_frame2, text="保存关键词配置", command=self.save_keywords).pack(side="left", padx=5)
         ttk.Button(btn_frame2, text="加载关键词配置", command=self.load_keywords).pack(side="left", padx=5)
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="both", expand=True, pady=5)
+        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def start_group_chat(self):
         group = self.chat_group.get()
@@ -1855,10 +1853,10 @@ class TelegramFullGUI:
         daily_limit = int(self.chat_daily.get())
         
         if not group:
-            self.log("请输入目标群组")
+            self.log("自动群聊", "请输入目标群组")
             return
         if not account_phone:
-            self.log("请选择账号")
+            self.log("自动群聊", "请选择账号")
             return
         
         acc = None
@@ -1868,18 +1866,18 @@ class TelegramFullGUI:
                 break
         
         if not acc:
-            self.log("未找到账号")
+            self.log("自动群聊", "未找到账号")
             return
         
         if acc.get('status') != '正常':
-            self.log("请先登录账号")
+            self.log("自动群聊", "请先登录账号")
             self.show_centered_warning("提示", "请先登录账号")
             return
         
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         
-        self.log(f"启动炒群: {group} 使用账号: {account_phone}")
+        self.log("自动群聊", f"启动炒群: {group} 使用账号: {account_phone}")
         self.running_tasks['chat'] = True
         
         scripts = []
@@ -1903,7 +1901,7 @@ class TelegramFullGUI:
                 await client.connect()
                 
                 if not await client.is_user_authorized():
-                    self.log("账号未登录")
+                    self.log("自动群聊", "账号未登录")
                     return
                 
                 if 't.me/' in group:
@@ -1920,7 +1918,7 @@ class TelegramFullGUI:
                     for kw, reply in keywords.items():
                         if kw.lower() in text.lower():
                             await event.reply(reply)
-                            self.log(f"自动回复: {reply[:30]}...")
+                            self.log("自动群聊", f"自动回复: {reply[:30]}...")
                             break
                 
                 async def auto_speak():
@@ -1929,7 +1927,7 @@ class TelegramFullGUI:
                     while self.running_tasks.get('chat', False) and count < daily_limit:
                         script = random.choice(scripts)
                         await client.send_message(entity, script)
-                        self.log(f"自动发言: {script[:30]}...")
+                        self.log("自动群聊", f"自动发言: {script[:30]}...")
                         count += 1
                         await asyncio.sleep(interval)
                 
@@ -1937,7 +1935,7 @@ class TelegramFullGUI:
                 await client.run_until_disconnected()
                 
             except Exception as e:
-                self.log(f"炒群出错: {e}")
+                self.log("自动群聊", f"炒群出错: {e}")
             finally:
                 if client:
                     try:
@@ -1955,7 +1953,7 @@ class TelegramFullGUI:
     
     def stop_group_chat(self):
         self.running_tasks['chat'] = False
-        self.log("停止炒群")
+        self.log("自动群聊", "停止炒群")
     
     def save_keywords(self):
         content = self.keyword_text.get("1.0", tk.END).strip()
@@ -1966,7 +1964,7 @@ class TelegramFullGUI:
                 keywords[key.strip()] = value.strip()
         with open("keywords.json", "w", encoding="utf-8") as f:
             json.dump(keywords, f, ensure_ascii=False, indent=2)
-        self.log("关键词配置已保存")
+        self.log("自动群聊", "关键词配置已保存")
     
     def load_keywords(self):
         if os.path.exists("keywords.json"):
@@ -1975,15 +1973,18 @@ class TelegramFullGUI:
             content = "\n".join([f"{k}={v}" for k, v in keywords.items()])
             self.keyword_text.delete("1.0", tk.END)
             self.keyword_text.insert("1.0", content)
-            self.log("关键词配置已加载")
+            self.log("自动群聊", "关键词配置已加载")
     
     # ==================== 自动注册页面 ====================
     def create_auto_register_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动注册账号")
         
-        frame = ttk.LabelFrame(page, text="注册设置")
-        frame.pack(fill="x", padx=10, pady=5)
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        frame = ttk.LabelFrame(main_frame, text="注册设置")
+        frame.pack(fill="x", pady=5)
         
         ttk.Label(frame, text="接码平台API:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.sms_api = ttk.Entry(frame, width=50)
@@ -2006,6 +2007,12 @@ class TelegramFullGUI:
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=4, column=0, columnspan=3, pady=10)
         ttk.Button(btn_frame, text="开始批量注册", command=self.start_register).pack()
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="both", expand=True, pady=5)
+        self.log_widgets["自动注册"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
+        self.log_widgets["自动注册"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def select_register_path(self):
         folder = filedialog.askdirectory(title="选择保存路径")
@@ -2014,7 +2021,7 @@ class TelegramFullGUI:
             self.save_path_register.insert(0, folder)
     
     def start_register(self):
-        self.log("批量注册功能需要对接具体接码平台API")
+        self.log("自动注册", "批量注册功能需要对接具体接码平台API")
         self.show_centered_info("提示", "请先配置接码平台API")
     
     # ==================== 监听页面 ====================
@@ -2022,8 +2029,11 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="监听群组")
         
-        frame = ttk.LabelFrame(page, text="监听设置")
-        frame.pack(fill="x", padx=10, pady=5)
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        frame = ttk.LabelFrame(main_frame, text="监听设置")
+        frame.pack(fill="x", pady=5)
         
         ttk.Label(frame, text="选择监听账号:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.monitor_account = ttk.Combobox(frame, values=[a.get('phone', '') for a in self.accounts], width=30)
@@ -2050,13 +2060,19 @@ class TelegramFullGUI:
         btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="启动监听", command=self.start_monitor).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="停止监听", command=self.stop_monitor).pack(side="left", padx=5)
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="both", expand=True, pady=5)
+        self.log_widgets["监听群组"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
+        self.log_widgets["监听群组"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def start_monitor(self):
-        self.log("监听功能开发中")
+        self.log("监听群组", "监听功能开发中")
         self.show_centered_info("提示", "监听功能开发中")
     
     def stop_monitor(self):
-        self.log("停止监听")
+        self.log("监听群组", "停止监听")
         self.running_tasks['monitor'] = False
     
     # ==================== 话术配置页面 ====================
@@ -2064,8 +2080,11 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="话术配置")
         
-        frame = ttk.LabelFrame(page, text="话术库")
-        frame.pack(fill="both", expand=True, padx=10, pady=5)
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        frame = ttk.LabelFrame(main_frame, text="话术库")
+        frame.pack(fill="both", expand=True, pady=5)
         
         self.script_text = scrolledtext.ScrolledText(frame, width=80, height=15)
         self.script_text.pack(fill="both", expand=True, padx=5, pady=5)
@@ -2076,6 +2095,12 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="导入TXT", command=self.import_script).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="保存配置", command=self.save_scripts).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="加载配置", command=self.load_scripts).pack(side="left", padx=5)
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
+        log_frame.pack(fill="x", pady=5)
+        self.log_widgets["话术配置"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["话术配置"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def import_script(self):
         file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
@@ -2084,13 +2109,13 @@ class TelegramFullGUI:
                 content = f.read()
             self.script_text.delete("1.0", tk.END)
             self.script_text.insert("1.0", content)
-            self.log(f"导入话术: {file_path}")
+            self.log("话术配置", f"导入话术: {file_path}")
     
     def save_scripts(self):
         content = self.script_text.get("1.0", tk.END).strip()
         with open("scripts.txt", "w", encoding="utf-8") as f:
             f.write(content)
-        self.log(f"话术已保存")
+        self.log("话术配置", "话术已保存")
     
     def load_scripts(self):
         if os.path.exists("scripts.txt"):
@@ -2098,36 +2123,7 @@ class TelegramFullGUI:
                 content = f.read()
             self.script_text.delete("1.0", tk.END)
             self.script_text.insert("1.0", content)
-            self.log("话术已加载")
-    
-    # ==================== 日志页面 ====================
-    def create_log_page(self):
-        page = ttk.Frame(self.notebook)
-        self.notebook.add(page, text="运行日志")
-        
-        frame = ttk.LabelFrame(page, text="日志记录")
-        frame.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        self.log_text = scrolledtext.ScrolledText(frame, width=100, height=20)
-        self.log_text.pack(fill="both", expand=True, padx=5, pady=5)
-        
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(fill="x", pady=5)
-        
-        ttk.Button(btn_frame, text="清空日志", command=self.clear_log).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="导出日志", command=self.export_log).pack(side="left", padx=5)
-    
-    def clear_log(self):
-        self.log_text.delete("1.0", tk.END)
-        self.log("日志已清空")
-    
-    def export_log(self):
-        file_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt")])
-        if file_path:
-            content = self.log_text.get("1.0", tk.END)
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            self.log(f"日志已导出: {file_path}")
+            self.log("话术配置", "话术已加载")
     
     def export_config(self):
         config = {
@@ -2139,7 +2135,7 @@ class TelegramFullGUI:
         if file_path:
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-            self.log("配置已导出")
+            self.log("多账号管理", "配置已导出")
     
     def import_config(self):
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
@@ -2154,7 +2150,7 @@ class TelegramFullGUI:
             self.refresh_account_list()
             self.refresh_proxy_list()
             self.refresh_scrape_accounts()
-            self.log("配置已导入")
+            self.log("多账号管理", "配置已导入")
     
     def about(self):
         self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
