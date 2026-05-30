@@ -2305,18 +2305,22 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（重构版 - 日志移到底部，账号选择改为先选分组再多选） ====================
+    # ==================== 批量拉人页面（重构版 - 日志移到底部） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
         
-        # 主容器 - 垂直布局
+        # 主容器 - 垂直布局，设置区域在上，日志区域固定在下
         main_container = ttk.Frame(page)
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上半部分：设置区域（可滚动）
-        settings_canvas = tk.Canvas(main_container, highlightthickness=0)
-        settings_scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=settings_canvas.yview)
+        # ===== 上半部分：设置区域（可滚动） =====
+        settings_container = ttk.Frame(main_container)
+        settings_container.pack(fill="both", expand=True, pady=(0, 5))
+        
+        # 可滚动的设置区域
+        settings_canvas = tk.Canvas(settings_container, highlightthickness=0)
+        settings_scrollbar = ttk.Scrollbar(settings_container, orient="vertical", command=settings_canvas.yview)
         settings_frame = ttk.Frame(settings_canvas)
         
         settings_canvas.configure(yscrollcommand=settings_scrollbar.set)
@@ -2685,14 +2689,11 @@ class TelegramFullGUI:
     
     async def run_invite_advanced_multi_accounts(self, accounts, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
         """多账号拉人"""
-        # 为每个账号创建独立的客户端和任务
-        account_tasks = []
-        account_index = 0
-        
         # 将用户列表分配给各个账号
         total_users = len(users)
         users_per_account = (total_users + len(accounts) - 1) // len(accounts)
         
+        tasks = []
         for i, acc in enumerate(accounts):
             start_idx = i * users_per_account
             end_idx = min(start_idx + users_per_account, total_users)
@@ -2700,10 +2701,10 @@ class TelegramFullGUI:
             
             if user_slice:
                 task = self.run_single_account_invite(acc, targets, user_slice, per_batch, per_account_max, per_account_limit, invite_wait)
-                account_tasks.append(task)
+                tasks.append(task)
         
         # 并发执行
-        await asyncio.gather(*account_tasks)
+        await asyncio.gather(*tasks)
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
         """单个账号拉人"""
@@ -2714,7 +2715,6 @@ class TelegramFullGUI:
         client = None
         account_invited_count = 0
         group_invited_count = {target: 0 for target in targets}
-        current_targets = targets.copy()
         
         try:
             client = TelegramClient(session_path, api_id, api_hash)
@@ -2726,7 +2726,7 @@ class TelegramFullGUI:
             
             # 解析目标群组实体
             target_entities = []
-            for target in current_targets:
+            for target in targets:
                 try:
                     if 't.me/' in target:
                         target_username = target.split('t.me/')[-1]
@@ -2798,26 +2798,6 @@ class TelegramFullGUI:
                     await client.disconnect()
                 except:
                     pass
-    
-    def get_next_available_account(self, current_phone):
-        """获取下一个可用的正常账号"""
-        phones = [a.get('phone', '') for a in self.accounts if a.get('status') == '正常']
-        if not phones:
-            return None
-        
-        try:
-            idx = phones.index(current_phone)
-            next_idx = (idx + 1) % len(phones)
-            if next_idx == idx:
-                return None
-            for a in self.accounts:
-                if a.get('phone') == phones[next_idx]:
-                    return a
-        except ValueError:
-            for a in self.accounts:
-                if a.get('status') == '正常':
-                    return a
-        return None
     
     def stop_invite(self):
         """停止拉人"""
