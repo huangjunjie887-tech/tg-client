@@ -2305,16 +2305,16 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（重构版 - 日志移到底部） ====================
+    # ==================== 批量拉人页面（重构版 - 日志移到底部，高度缩小一半） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
         
-        # 主容器 - 垂直布局，设置区域在上，日志区域固定在下
+        # 主容器 - 垂直布局
         main_container = ttk.Frame(page)
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # ===== 上半部分：设置区域（可滚动） =====
+        # 上半部分：设置区域
         settings_container = ttk.Frame(main_container)
         settings_container.pack(fill="both", expand=True, pady=(0, 5))
         
@@ -2337,12 +2337,11 @@ class TelegramFullGUI:
             settings_canvas.itemconfig(canvas_window, width=event.width)
         settings_canvas.bind("<Configure>", on_canvas_configure)
         
-        # 鼠标滚轮支持
         def on_mousewheel(event):
             settings_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         settings_canvas.bind("<MouseWheel>", on_mousewheel)
         
-        # ===== 拉人模式选择 =====
+        # ===== 1. 拉人模式 =====
         mode_frame = ttk.LabelFrame(settings_frame, text="拉人模式")
         mode_frame.pack(fill="x", pady=5, padx=5)
         
@@ -2351,15 +2350,16 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # ===== 单群拉人设置面板 =====
-        self.single_frame = ttk.LabelFrame(settings_frame, text="单群拉人设置")
+        # ===== 2. 拉人设置（根据模式显示不同面板） =====
+        # 单群拉人设置
+        self.single_frame = ttk.LabelFrame(settings_frame, text="拉人设置")
         ttk.Label(self.single_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.single_target_group = ttk.Entry(self.single_frame, width=50)
         self.single_target_group.grid(row=0, column=1, padx=5, pady=5)
         ttk.Label(self.single_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").grid(row=0, column=2, sticky="w", padx=5)
         
-        # ===== 多群拉人设置面板 =====
-        self.multi_frame = ttk.LabelFrame(settings_frame, text="多群拉人设置")
+        # 多群拉人设置
+        self.multi_frame = ttk.LabelFrame(settings_frame, text="拉人设置")
         ttk.Label(self.multi_frame, text="目标群组列表（每行一个）:").grid(row=0, column=0, sticky="nw", padx=5, pady=5)
         self.multi_target_groups = scrolledtext.ScrolledText(self.multi_frame, width=60, height=5)
         self.multi_target_groups.grid(row=0, column=1, padx=5, pady=5, columnspan=2)
@@ -2370,8 +2370,8 @@ class TelegramFullGUI:
         self.multi_per_account_limit.grid(row=2, column=1, sticky="w", padx=5, pady=5)
         ttk.Label(self.multi_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").grid(row=2, column=2, sticky="w", padx=5)
         
-        # ===== 管理员拉人设置面板 =====
-        self.admin_frame = ttk.LabelFrame(settings_frame, text="管理员拉人设置")
+        # 管理员拉人设置
+        self.admin_frame = ttk.LabelFrame(settings_frame, text="拉人设置")
         ttk.Label(self.admin_frame, text="目标群组或频道:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.admin_target_group = ttk.Entry(self.admin_frame, width=50)
         self.admin_target_group.grid(row=0, column=1, padx=5, pady=5)
@@ -2382,11 +2382,16 @@ class TelegramFullGUI:
         self.admin_per_account_limit.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=2, sticky="w", padx=5)
         
-        # ===== 通用设置面板 =====
+        # 默认显示单群拉人设置
+        self.single_frame.pack(fill="x", pady=5, padx=5)
+        self.multi_frame.pack_forget()
+        self.admin_frame.pack_forget()
+        
+        # ===== 3. 通用设置 =====
         common_frame = ttk.LabelFrame(settings_frame, text="通用设置")
         common_frame.pack(fill="x", pady=5, padx=5)
         
-        # 第一行：用户列表文件
+        # 用户列表文件
         row1 = ttk.Frame(common_frame)
         row1.pack(fill="x", padx=5, pady=5)
         ttk.Label(row1, text="选择用户列表文件:").pack(side="left", padx=5)
@@ -2394,7 +2399,7 @@ class TelegramFullGUI:
         self.user_list_file.pack(side="left", padx=5)
         ttk.Button(row1, text="浏览", command=self.select_user_list_file, width=8).pack(side="left", padx=2)
         
-        # 第二行：选择账号分组和账号（多选）
+        # 账号分组筛选和账号多选
         row2 = ttk.Frame(common_frame)
         row2.pack(fill="x", padx=5, pady=5)
         
@@ -2409,17 +2414,17 @@ class TelegramFullGUI:
         ttk.Checkbutton(row2, text="全选", variable=self.account_select_all_var,
                        command=lambda: self.toggle_listbox_select(self.invite_account_listbox, self.account_select_all_var)).pack(side="left", padx=5)
         
-        # 账号列表（多选）
+        # 账号列表
         listbox_frame = ttk.Frame(common_frame)
         listbox_frame.pack(fill="x", padx=5, pady=5)
         
-        self.invite_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
+        self.invite_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=4, exportselection=False)
         account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.invite_account_listbox.yview)
         self.invite_account_listbox.configure(yscrollcommand=account_scrollbar.set)
         self.invite_account_listbox.pack(side="left", fill="x", expand=True)
         account_scrollbar.pack(side="right", fill="y")
         
-        # 第三行：拉人参数
+        # 拉人参数
         row3 = ttk.Frame(common_frame)
         row3.pack(fill="x", padx=5, pady=5)
         ttk.Label(row3, text="单账号每次拉人数:").pack(side="left", padx=5)
@@ -2432,7 +2437,7 @@ class TelegramFullGUI:
         self.invite_per_account_max.pack(side="left", padx=5)
         ttk.Label(row3, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
         
-        # 第四行：总限制和线程数
+        # 总限制和线程数
         row4 = ttk.Frame(common_frame)
         row4.pack(fill="x", padx=5, pady=5)
         ttk.Label(row4, text="限制拉人数:").pack(side="left", padx=5)
@@ -2445,7 +2450,7 @@ class TelegramFullGUI:
         self.thread_count.insert(0, "1")
         self.thread_count.pack(side="left", padx=5)
         
-        # 第五行：间隔时间
+        # 间隔时间
         row5 = ttk.Frame(common_frame)
         row5.pack(fill="x", padx=5, pady=5)
         ttk.Label(row5, text="线程等待间隔（秒）:").pack(side="left", padx=5)
@@ -2457,29 +2462,26 @@ class TelegramFullGUI:
         self.invite_interval.insert(0, "3")
         self.invite_interval.pack(side="left", padx=5)
         
-        # 第六行：自动换号
+        # 自动换号
         row6 = ttk.Frame(common_frame)
         row6.pack(fill="x", padx=5, pady=5)
         self.auto_switch_account = tk.BooleanVar(value=True)
         ttk.Checkbutton(row6, text="异常账号自动换号", variable=self.auto_switch_account).pack(side="left", padx=20)
         
-        # 按钮行
-        btn_frame = ttk.Frame(common_frame)
+        # ===== 4. 按钮区域 =====
+        btn_frame = ttk.Frame(settings_frame)
         btn_frame.pack(pady=10)
+        
         self.start_invite_btn = ttk.Button(btn_frame, text="开始拉人", command=self.start_invite_advanced, width=12)
         self.start_invite_btn.pack(side="left", padx=10)
+        
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
-        # 默认显示单群拉人面板
-        self.single_frame.pack(fill="x", pady=5, padx=5)
-        self.multi_frame.pack_forget()
-        self.admin_frame.pack_forget()
-        
-        # ===== 运行日志（最底部） =====
+        # ===== 5. 运行日志（高度缩小一半：原来12行改为6行） =====
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
-        log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
+        log_frame.pack(fill="x", pady=5)
+        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
         # 初始化
