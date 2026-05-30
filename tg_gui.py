@@ -1339,7 +1339,7 @@ class TelegramFullGUI:
             p_group = p.get('group', '默认分组')
             self.proxy_tree.insert("", "end", values=(p_group, i, p.get('type', 'socks5'), display_addr, p.get('status', '未检测')))
     
-    # ==================== 采集群成员页面 ====================
+    # ==================== 采集群成员页面（Topic精准采集修复版） ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
@@ -1574,6 +1574,24 @@ class TelegramFullGUI:
             self.preview_tree.insert("", "end", values=(count, info['id'], info['username'][:20] if info['username'] else "-", display_name, info['online_status'], "是" if info['is_admin'] else "否", "是" if info['is_bot'] else "否"))
         self.preview_tree.yview_moveto(1)
     
+    def parse_group_link(self, link):
+        """解析群组链接，提取用户名和topic_id"""
+        topic_id = None
+        group_username = None
+        
+        if 't.me/' in link:
+            path = link.split('t.me/')[-1].strip('/')
+            parts = path.split('/')
+            group_username = parts[0]
+            if len(parts) >= 2 and parts[1].isdigit():
+                topic_id = int(parts[1])
+        elif 'https://' in link:
+            group_username = link.split('/')[-1]
+        else:
+            group_username = link
+        
+        return group_username, topic_id
+    
     def start_scrape(self):
         if self.is_scraping:
             self.log("采集群成员", "采集任务正在进行中")
@@ -1616,14 +1634,8 @@ class TelegramFullGUI:
         
         os.makedirs(save_dir, exist_ok=True)
         
-        if 't.me/' in group:
-            group_username = group.split('t.me/')[-1]
-            if '+' in group_username:
-                group_username = group_username.replace('+', '')
-        elif 'https://' in group:
-            group_username = group.split('/')[-1]
-        else:
-            group_username = group
+        # 解析链接获取用户名和topic_id
+        group_username, topic_id = self.parse_group_link(group)
         
         keywords_text = self.filter_keywords.get().strip()
         ad_keywords = [kw.strip().lower() for kw in keywords_text.split(',') if kw.strip()]
@@ -1650,6 +1662,8 @@ class TelegramFullGUI:
         api_id, api_hash = self.get_account_api_credentials(acc)
         
         self.log("采集群成员", f"开始采集群成员: {group_username if group else '多讨论组'}")
+        if topic_id:
+            self.log("采集群成员", f"Topic ID: {topic_id} (精准采集该讨论串)")
         self.log("采集群成员", f"采集模式: {scrape_mode}")
         self.log("采集群成员", f"过滤设置: 管理员={self.filter_admin.get()}, 机器人={self.filter_bot.get()}, 已注销={self.filter_deleted.get()}, 广告关键词={ad_keywords}, 在线筛选={online_filter_text}")
         self.log("采集群成员", f"保存目录: {save_dir}")
@@ -1678,13 +1692,9 @@ class TelegramFullGUI:
                             sub_group_links = [link.strip() for link in sub_groups_text.split('\n') if link.strip()]
                             for link in sub_group_links:
                                 try:
-                                    if 't.me/' in link:
-                                        sub_username = link.split('t.me/')[-1].replace('+', '')
+                                    sub_username, sub_topic = self.parse_group_link(link)
+                                    if sub_username:
                                         entity = await client.get_entity(sub_username)
-                                        async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
-                                            admin_ids.add(user.id)
-                                    else:
-                                        entity = await client.get_entity(int(link))
                                         async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
                                             admin_ids.add(user.id)
                                 except:
@@ -1758,10 +1768,20 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            history = await client(GetHistoryRequest(
-                                peer=input_peer, offset_id=offset_id, offset_date=None,
-                                add_offset=0, limit=batch_size, max_id=0, min_id=0, hash=0
-                            ))
+                            request_args = {
+                                "peer": input_peer,
+                                "offset_id": offset_id,
+                                "offset_date": None,
+                                "add_offset": 0,
+                                "limit": batch_size,
+                                "max_id": 0,
+                                "min_id": 0,
+                                "hash": 0
+                            }
+                            if topic_id:
+                                request_args["reply_to"] = topic_id
+                            
+                            history = await client(GetHistoryRequest(**request_args))
                             if not history.messages:
                                 break
                             users_map = {u.id: u for u in history.users}
@@ -1829,10 +1849,20 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            history = await client(GetHistoryRequest(
-                                peer=input_peer, offset_id=offset_id, offset_date=None,
-                                add_offset=0, limit=batch_size, max_id=0, min_id=0, hash=0
-                            ))
+                            request_args = {
+                                "peer": input_peer,
+                                "offset_id": offset_id,
+                                "offset_date": None,
+                                "add_offset": 0,
+                                "limit": batch_size,
+                                "max_id": 0,
+                                "min_id": 0,
+                                "hash": 0
+                            }
+                            if topic_id:
+                                request_args["reply_to"] = topic_id
+                            
+                            history = await client(GetHistoryRequest(**request_args))
                             if not history.messages:
                                 break
                             users_map = {u.id: u for u in history.users}
@@ -1901,11 +1931,12 @@ class TelegramFullGUI:
                             break
                         self.log("采集群成员", f"正在采集第 {idx}/{len(sub_group_links)} 个子群: {link}")
                         try:
-                            if 't.me/' in link:
-                                sub_username = link.split('t.me/')[-1].replace('+', '')
-                                entity = await client.get_entity(sub_username)
-                            else:
-                                entity = await client.get_entity(int(link))
+                            sub_username, sub_topic = self.parse_group_link(link)
+                            if not sub_username:
+                                self.log("采集群成员", f"无效的子群链接: {link}")
+                                continue
+                            
+                            entity = await client.get_entity(sub_username)
                             
                             offset_id = 0
                             batch_size = 3000
@@ -1915,10 +1946,20 @@ class TelegramFullGUI:
                             
                             while self.is_scraping:
                                 try:
-                                    history = await client(GetHistoryRequest(
-                                        peer=input_peer, offset_id=offset_id, offset_date=None,
-                                        add_offset=0, limit=batch_size, max_id=0, min_id=0, hash=0
-                                    ))
+                                    request_args = {
+                                        "peer": input_peer,
+                                        "offset_id": offset_id,
+                                        "offset_date": None,
+                                        "add_offset": 0,
+                                        "limit": batch_size,
+                                        "max_id": 0,
+                                        "min_id": 0,
+                                        "hash": 0
+                                    }
+                                    if sub_topic:
+                                        request_args["reply_to"] = sub_topic
+                                    
+                                    history = await client(GetHistoryRequest(**request_args))
                                     if not history.messages:
                                         break
                                     users_map = {u.id: u for u in history.users}
@@ -1986,10 +2027,20 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            history = await client(GetHistoryRequest(
-                                peer=input_peer, offset_id=offset_id, offset_date=None,
-                                add_offset=0, limit=batch_size, max_id=0, min_id=0, hash=0
-                            ))
+                            request_args = {
+                                "peer": input_peer,
+                                "offset_id": offset_id,
+                                "offset_date": None,
+                                "add_offset": 0,
+                                "limit": batch_size,
+                                "max_id": 0,
+                                "min_id": 0,
+                                "hash": 0
+                            }
+                            if topic_id:
+                                request_args["reply_to"] = topic_id
+                            
+                            history = await client(GetHistoryRequest(**request_args))
                             if not history.messages:
                                 break
                             users_map = {u.id: u for u in history.users}
