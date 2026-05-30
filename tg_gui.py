@@ -1875,7 +1875,7 @@ class TelegramFullGUI:
                                     continue
                                 if self.filter_admin.get() and sender.id in admin_ids:
                                     continue
-                                if self.filter_bot.get() and sender.bot:
+                                if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
                                     continue
                                 if self.filter_deleted.get() and getattr(sender, 'deleted', False):
                                     continue
