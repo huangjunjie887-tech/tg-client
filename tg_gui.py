@@ -2324,15 +2324,29 @@ class TelegramFullGUI:
         
         # 单群拉人设置面板
         self.single_group_frame = ttk.LabelFrame(main_frame, text="单群拉人设置")
-        self.create_single_group_panel()
+        ttk.Label(self.single_group_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.single_target_group = ttk.Entry(self.single_group_frame, width=50)
+        self.single_target_group.grid(row=0, column=1, padx=5, pady=5)
         
         # 多群拉人设置面板
         self.multi_group_frame = ttk.LabelFrame(main_frame, text="多群拉人设置")
-        self.create_multi_group_panel()
+        ttk.Label(self.multi_group_frame, text="目标群组列表(每行一个):").grid(row=0, column=0, sticky="nw", padx=5, pady=5)
+        self.multi_target_groups = scrolledtext.ScrolledText(self.multi_group_frame, width=50, height=4)
+        self.multi_target_groups.grid(row=0, column=1, padx=5, pady=5)
+        ttk.Label(self.multi_group_frame, text="单账号拉群数（0=全部）:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.multi_groups_per_account = ttk.Entry(self.multi_group_frame, width=15)
+        self.multi_groups_per_account.insert(0, "0")
+        self.multi_groups_per_account.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         
         # 管理员拉人设置面板
         self.admin_add_frame = ttk.LabelFrame(main_frame, text="管理员拉人设置")
-        self.create_admin_add_panel()
+        ttk.Label(self.admin_add_frame, text="目标群组或频道:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.admin_target = ttk.Entry(self.admin_add_frame, width=50)
+        self.admin_target.grid(row=0, column=1, padx=5, pady=5)
+        ttk.Label(self.admin_add_frame, text="单账号拉群数（0=全部）:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.admin_groups_per_account = ttk.Entry(self.admin_add_frame, width=15)
+        self.admin_groups_per_account.insert(0, "0")
+        self.admin_groups_per_account.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         
         # 通用设置
         common_frame = ttk.LabelFrame(main_frame, text="通用设置")
@@ -2407,51 +2421,19 @@ class TelegramFullGUI:
         self.invite_running = False
         self.invite_stop = False
         self.refresh_invite_accounts()
+        
+        # 根据初始模式显示对应面板
         self.on_invite_mode_change()
-    
-    def create_single_group_panel(self):
-        # 单群拉人设置
-        ttk.Label(self.single_group_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.single_target_group = ttk.Entry(self.single_group_frame, width=50)
-        self.single_target_group.grid(row=0, column=1, padx=5, pady=5)
-        
-        self.single_group_frame.pack(fill="x", pady=5)
-    
-    def create_multi_group_panel(self):
-        # 多群拉人设置
-        ttk.Label(self.multi_group_frame, text="目标群组列表(每行一个):").grid(row=0, column=0, sticky="nw", padx=5, pady=5)
-        self.multi_target_groups = scrolledtext.ScrolledText(self.multi_group_frame, width=50, height=4)
-        self.multi_target_groups.grid(row=0, column=1, padx=5, pady=5)
-        
-        ttk.Label(self.multi_group_frame, text="单账号拉群数（0=全部）:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.multi_groups_per_account = ttk.Entry(self.multi_group_frame, width=15)
-        self.multi_groups_per_account.insert(0, "0")
-        self.multi_groups_per_account.grid(row=1, column=1, sticky="w", padx=5, pady=5)
-        
-        self.multi_group_frame.pack(fill="x", pady=5)
-    
-    def create_admin_add_panel(self):
-        # 管理员拉人设置
-        ttk.Label(self.admin_add_frame, text="目标群组或频道:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.admin_target = ttk.Entry(self.admin_add_frame, width=50)
-        self.admin_target.grid(row=0, column=1, padx=5, pady=5)
-        
-        ttk.Label(self.admin_add_frame, text="单账号拉群数（0=全部）:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.admin_groups_per_account = ttk.Entry(self.admin_add_frame, width=15)
-        self.admin_groups_per_account.insert(0, "0")
-        self.admin_groups_per_account.grid(row=1, column=1, sticky="w", padx=5, pady=5)
-        
-        self.admin_add_frame.pack(fill="x", pady=5)
     
     def on_invite_mode_change(self):
         mode = self.invite_mode.get()
         if mode == "single_group":
-            self.single_group_frame.pack(fill="x", pady=5)
+            self.single_group_frame.pack(fill="x", pady=5, before=self.multi_group_frame)
             self.multi_group_frame.pack_forget()
             self.admin_add_frame.pack_forget()
         elif mode == "multi_group":
             self.single_group_frame.pack_forget()
-            self.multi_group_frame.pack(fill="x", pady=5)
+            self.multi_group_frame.pack(fill="x", pady=5, before=self.admin_add_frame)
             self.admin_add_frame.pack_forget()
         else:
             self.single_group_frame.pack_forget()
