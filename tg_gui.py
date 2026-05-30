@@ -2322,7 +2322,7 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # 单群拉人设置面板
+        # 单群拉人设置面板 - 先创建但不立即pack
         self.single_frame = ttk.LabelFrame(main_frame, text="单群拉人设置")
         ttk.Label(self.single_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.single_target_group = ttk.Entry(self.single_frame, width=50)
@@ -2355,7 +2355,6 @@ class TelegramFullGUI:
         
         # 通用设置面板
         common_frame = ttk.LabelFrame(main_frame, text="通用设置")
-        common_frame.pack(fill="x", pady=5)
         
         # 第一行：选择用户列表文件 + 选择账号
         row1 = ttk.Frame(common_frame)
@@ -2427,10 +2426,14 @@ class TelegramFullGUI:
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 初始化显示/隐藏（按正确顺序：模式设置面板在通用设置上面）
+        # 关键修复：按正确顺序pack - 先pack模式设置面板，再pack通用设置
+        # 先pack单群拉人设置（默认显示）
         self.single_frame.pack(fill="x", pady=5)
+        # 其他两个先隐藏
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
+        # 最后pack通用设置（这样通用设置就会显示在模式设置面板下面）
+        common_frame.pack(fill="x", pady=5)
         
         # 拉人控制标志
         self.is_inviting = False
