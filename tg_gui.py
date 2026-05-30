@@ -1339,7 +1339,7 @@ class TelegramFullGUI:
             p_group = p.get('group', '默认分组')
             self.proxy_tree.insert("", "end", values=(p_group, i, p.get('type', 'socks5'), display_addr, p.get('status', '未检测')))
     
-    # ==================== 采集群成员页面（Topic精准采集修复版） ====================
+    # ==================== 采集群成员页面（修复版） ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
@@ -1371,19 +1371,24 @@ class TelegramFullGUI:
         self.scrape_mode.set("获取全部成员(公开群)")
         self.scrape_mode.grid(row=3, column=1, padx=5, pady=5, columnspan=2)
         
-        ttk.Label(left_frame, text="子群链接列表(每行一个):").grid(row=4, column=0, sticky="nw", padx=5, pady=5)
+        # 子群链接列表（默认隐藏）
+        self.sub_groups_label = ttk.Label(left_frame, text="子群链接列表(每行一个):")
         self.sub_groups_text = scrolledtext.ScrolledText(left_frame, width=40, height=4)
-        self.sub_groups_text.grid(row=4, column=1, padx=5, pady=5, columnspan=2)
-        self.sub_groups_text.config(state="disabled")
         
         def on_mode_change(event):
             mode = self.scrape_mode.get()
             if mode == "多讨论组采集(多个子群)":
+                self.sub_groups_label.grid(row=4, column=0, sticky="nw", padx=5, pady=5)
+                self.sub_groups_text.grid(row=4, column=1, padx=5, pady=5, columnspan=2)
                 self.sub_groups_text.config(state="normal")
             else:
+                self.sub_groups_label.grid_remove()
+                self.sub_groups_text.grid_remove()
                 self.sub_groups_text.config(state="disabled")
         
         self.scrape_mode.bind("<<ComboboxSelected>>", on_mode_change)
+        # 初始调用一次，设置初始状态
+        on_mode_change(None)
         
         ttk.Label(left_frame, text="在线天数筛选:").grid(row=5, column=0, sticky="w", padx=5, pady=5)
         self.online_filter = ttk.Combobox(left_frame, values=["不限", "1天内", "3天内", "7天内", "15天内", "30天内"], width=15)
@@ -1557,21 +1562,38 @@ class TelegramFullGUI:
             return False
         return False
     
-    def batch_update_preview(self, count, member_infos):
-        self.scrape_stats.config(text=f"已采集: {count} 人")
-        existing_ids = set()
-        for item in self.preview_tree.get_children():
-            values = self.preview_tree.item(item, 'values')
-            if values and len(values) > 1:
-                existing_ids.add(int(values[1]))
-        for info in member_infos:
-            if info['id'] in existing_ids:
-                continue
-            existing_ids.add(info['id'])
+    def batch_update_preview(self, member_infos):
+        """批量更新预览（按顺序递增序号）"""
+        # 获取当前预览中已有的记录数作为起始序号
+        existing_count = len(self.preview_tree.get_children())
+        
+        for idx, info in enumerate(member_infos):
+            current_num = existing_count + idx + 1
+            
             display_name = info['first_name'] or info['username'] or str(info['id'])
             if len(display_name) > 20:
                 display_name = display_name[:20] + "..."
-            self.preview_tree.insert("", "end", values=(count, info['id'], info['username'][:20] if info['username'] else "-", display_name, info['online_status'], "是" if info['is_admin'] else "否", "是" if info['is_bot'] else "否"))
+            
+            # 安全获取 bot 属性
+            is_bot = info.get('is_bot', False)
+            if hasattr(info, 'bot'):
+                is_bot = info.bot
+            elif isinstance(info, dict):
+                is_bot = info.get('is_bot', False)
+            
+            self.preview_tree.insert("", "end", values=(
+                current_num,
+                info['id'],
+                info['username'][:20] if info['username'] else "-",
+                display_name,
+                info.get('online_status', '未知'),
+                "是" if info.get('is_admin', False) else "否",
+                "是" if is_bot else "否"
+            ))
+        
+        # 更新统计标签
+        total_count = len(self.preview_tree.get_children())
+        self.scrape_stats.config(text=f"已采集: {total_count} 人")
         self.preview_tree.yview_moveto(1)
     
     def parse_group_link(self, link):
@@ -1727,9 +1749,9 @@ class TelegramFullGUI:
                         all_collected_ids.add(user.id)
                         if self.filter_admin.get() and user.id in admin_ids:
                             continue
-                        if self.filter_bot.get() and user.bot:
+                        if self.filter_bot.get() and getattr(user, 'bot', False):
                             continue
-                        if self.filter_deleted.get() and user.deleted:
+                        if self.filter_deleted.get() and getattr(user, 'deleted', False):
                             continue
                         if ad_keywords:
                             name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
@@ -1745,13 +1767,13 @@ class TelegramFullGUI:
                             'phone': user.phone if hasattr(user, 'phone') and user.phone else "",
                             'online_status': online_status,
                             'is_admin': user.id in admin_ids,
-                            'is_bot': user.bot if hasattr(user, 'bot') else False,
-                            'deleted': user.deleted if hasattr(user, 'deleted') else False
+                            'is_bot': getattr(user, 'bot', False),
+                            'deleted': getattr(user, 'deleted', False)
                         }
                         all_results.append(member_info)
                         total_count += 1
                         if total_count % 10 == 0:
-                            self.root.after(0, lambda c=total_count, infos=[member_info]: self.batch_update_preview(c, [member_info]))
+                            self.root.after(0, lambda infos=[member_info]: self.batch_update_preview([member_info]))
                         await asyncio.sleep(0.05)
                 
                 elif scrape_mode == "获取发言用户(隐藏群)":
@@ -1770,7 +1792,6 @@ class TelegramFullGUI:
                     while self.is_scraping:
                         try:
                             if topic_id:
-                                # 使用 reply_to 参数获取指定主题的消息
                                 messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
                                 if not messages:
                                     break
@@ -1791,7 +1812,6 @@ class TelegramFullGUI:
                                     break
                                 messages_list = history.messages
                             
-                            # 收集用户信息
                             users_map = {}
                             for msg in messages_list:
                                 if hasattr(msg, 'sender') and msg.sender:
@@ -1817,7 +1837,7 @@ class TelegramFullGUI:
                                     continue
                                 if self.filter_admin.get() and sender.id in admin_ids:
                                     continue
-                                if self.filter_bot.get() and sender.bot:
+                                if self.filter_bot.get() and getattr(sender, 'bot', False):
                                     continue
                                 if self.filter_deleted.get() and getattr(sender, 'deleted', False):
                                     continue
@@ -1830,7 +1850,8 @@ class TelegramFullGUI:
                                     'id': sender.id, 'username': sender.username,
                                     'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
                                     'phone': "", 'online_status': "未知",
-                                    'is_admin': sender.id in admin_ids, 'is_bot': sender.bot,
+                                    'is_admin': sender.id in admin_ids,
+                                    'is_bot': getattr(sender, 'bot', False),
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
                                 all_results.append(member_info)
@@ -1839,7 +1860,7 @@ class TelegramFullGUI:
                             
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
-                                self.root.after(0, lambda c=total_count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
+                                self.root.after(0, lambda infos=pending_infos.copy(): self.batch_update_preview(infos))
                                 pending_infos.clear()
                                 last_ui_update = current_time
                             
@@ -1855,7 +1876,7 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"错误: {str(e)}")
                             break
                     if pending_infos:
-                        self.root.after(0, lambda c=total_count, infos=pending_infos: self.batch_update_preview(c, infos))
+                        self.root.after(0, lambda infos=pending_infos: self.batch_update_preview(infos))
                 
                 elif scrape_mode == "隐私群采集(仅邀请链接)":
                     self.log("采集群成员", "开始隐私群采集（通过聊天记录获取发言用户）...")
@@ -1918,7 +1939,7 @@ class TelegramFullGUI:
                                     continue
                                 if self.filter_admin.get() and sender.id in admin_ids:
                                     continue
-                                if self.filter_bot.get() and sender.bot:
+                                if self.filter_bot.get() and getattr(sender, 'bot', False):
                                     continue
                                 if self.filter_deleted.get() and getattr(sender, 'deleted', False):
                                     continue
@@ -1931,7 +1952,8 @@ class TelegramFullGUI:
                                     'id': sender.id, 'username': sender.username,
                                     'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
                                     'phone': "", 'online_status': "未知",
-                                    'is_admin': sender.id in admin_ids, 'is_bot': sender.bot,
+                                    'is_admin': sender.id in admin_ids,
+                                    'is_bot': getattr(sender, 'bot', False),
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
                                 all_results.append(member_info)
@@ -1940,7 +1962,7 @@ class TelegramFullGUI:
                             
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
-                                self.root.after(0, lambda c=total_count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
+                                self.root.after(0, lambda infos=pending_infos.copy(): self.batch_update_preview(infos))
                                 pending_infos.clear()
                                 last_ui_update = current_time
                             
@@ -1956,7 +1978,7 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"错误: {str(e)}")
                             break
                     if pending_infos:
-                        self.root.after(0, lambda c=total_count, infos=pending_infos: self.batch_update_preview(c, infos))
+                        self.root.after(0, lambda infos=pending_infos: self.batch_update_preview(infos))
                 
                 elif scrape_mode == "多讨论组采集(多个子群)":
                     self.log("采集群成员", "开始多讨论组采集...")
@@ -1990,7 +2012,6 @@ class TelegramFullGUI:
                             while self.is_scraping:
                                 try:
                                     if sub_topic:
-                                        # 使用 reply_to 参数获取指定主题的消息
                                         messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=sub_topic)
                                         if not messages:
                                             break
@@ -2036,7 +2057,7 @@ class TelegramFullGUI:
                                             continue
                                         if self.filter_admin.get() and sender.id in admin_ids:
                                             continue
-                                        if self.filter_bot.get() and sender.bot:
+                                        if self.filter_bot.get() and getattr(sender, 'bot', False):
                                             continue
                                         if self.filter_deleted.get() and getattr(sender, 'deleted', False):
                                             continue
@@ -2049,7 +2070,8 @@ class TelegramFullGUI:
                                             'id': sender.id, 'username': sender.username,
                                             'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
                                             'phone': "", 'online_status': "未知",
-                                            'is_admin': sender.id in admin_ids, 'is_bot': sender.bot,
+                                            'is_admin': sender.id in admin_ids,
+                                            'is_bot': getattr(sender, 'bot', False),
                                             'deleted': getattr(sender, 'deleted', False)
                                         }
                                         all_results.append(member_info)
@@ -2073,7 +2095,7 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"获取子群 {link} 失败: {str(e)}")
                     
                     if total_count > 0:
-                        self.root.after(0, lambda c=total_count, infos=all_results[-min(50, len(all_results)):]: self.batch_update_preview(c, all_results[-min(50, len(all_results)):]))
+                        self.root.after(0, lambda infos=all_results[-min(50, len(all_results)):]: self.batch_update_preview(infos))
                 
                 elif scrape_mode == "频道评论采集":
                     self.log("采集群成员", "开始频道评论采集...")
@@ -2136,7 +2158,7 @@ class TelegramFullGUI:
                                     continue
                                 if self.filter_admin.get() and sender.id in admin_ids:
                                     continue
-                                if self.filter_bot.get() and sender.bot:
+                                if self.filter_bot.get() and getattr(sender, 'bot', False):
                                     continue
                                 if self.filter_deleted.get() and getattr(sender, 'deleted', False):
                                     continue
@@ -2149,7 +2171,8 @@ class TelegramFullGUI:
                                     'id': sender.id, 'username': sender.username,
                                     'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
                                     'phone': "", 'online_status': "未知",
-                                    'is_admin': sender.id in admin_ids, 'is_bot': sender.bot,
+                                    'is_admin': sender.id in admin_ids,
+                                    'is_bot': getattr(sender, 'bot', False),
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
                                 all_results.append(member_info)
@@ -2158,7 +2181,7 @@ class TelegramFullGUI:
                             
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
-                                self.root.after(0, lambda c=total_count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
+                                self.root.after(0, lambda infos=pending_infos.copy(): self.batch_update_preview(infos))
                                 pending_infos.clear()
                                 last_ui_update = current_time
                             
@@ -2172,9 +2195,8 @@ class TelegramFullGUI:
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
                             self.log("采集群成员", f"错误: {str(e)}")
-                            break
-                    if pending_infos:
-                        self.root.after(0, lambda c=total_count, infos=pending_infos: self.batch_update_preview(c, infos))
+                            break                    if pending_infos:
+                        self.root.after(0, lambda infos=pending_infos: self.batch_update_preview(infos))
                 
                 self.scraped_members = all_results
                 self.log("采集群成员", f"⚡ 采集完成！累计 {total_count} 人")
