@@ -1387,7 +1387,6 @@ class TelegramFullGUI:
                 self.sub_groups_text.config(state="disabled")
         
         self.scrape_mode.bind("<<ComboboxSelected>>", on_mode_change)
-        # 初始调用一次，设置初始状态
         on_mode_change(None)
         
         ttk.Label(left_frame, text="在线天数筛选:").grid(row=5, column=0, sticky="w", padx=5, pady=5)
@@ -1564,7 +1563,6 @@ class TelegramFullGUI:
     
     def batch_update_preview(self, member_infos):
         """批量更新预览（按顺序递增序号）"""
-        # 获取当前预览中已有的记录数作为起始序号
         existing_count = len(self.preview_tree.get_children())
         
         for idx, info in enumerate(member_infos):
@@ -1574,12 +1572,7 @@ class TelegramFullGUI:
             if len(display_name) > 20:
                 display_name = display_name[:20] + "..."
             
-            # 安全获取 bot 属性
             is_bot = info.get('is_bot', False)
-            if hasattr(info, 'bot'):
-                is_bot = info.bot
-            elif isinstance(info, dict):
-                is_bot = info.get('is_bot', False)
             
             self.preview_tree.insert("", "end", values=(
                 current_num,
@@ -1591,7 +1584,6 @@ class TelegramFullGUI:
                 "是" if is_bot else "否"
             ))
         
-        # 更新统计标签
         total_count = len(self.preview_tree.get_children())
         self.scrape_stats.config(text=f"已采集: {total_count} 人")
         self.preview_tree.yview_moveto(1)
@@ -1657,7 +1649,6 @@ class TelegramFullGUI:
         
         os.makedirs(save_dir, exist_ok=True)
         
-        # 解析链接获取用户名和topic_id
         group_username, topic_id = self.parse_group_link(group)
         
         keywords_text = self.filter_keywords.get().strip()
@@ -2195,7 +2186,8 @@ class TelegramFullGUI:
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
                             self.log("采集群成员", f"错误: {str(e)}")
-                            break                    if pending_infos:
+                            break
+                    if pending_infos:
                         self.root.after(0, lambda infos=pending_infos: self.batch_update_preview(infos))
                 
                 self.scraped_members = all_results
