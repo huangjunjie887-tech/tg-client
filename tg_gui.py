@@ -2350,7 +2350,7 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # ===== 2. 拉人设置（根据模式显示不同面板） =====
+        # ===== 2. 拉人设置（根据模式显示不同面板） - 注意：这个必须在通用设置之前 =====
         # 单群拉人设置
         self.single_frame = ttk.LabelFrame(settings_frame, text="拉人设置")
         ttk.Label(self.single_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
@@ -2382,7 +2382,7 @@ class TelegramFullGUI:
         self.admin_per_account_limit.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=2, sticky="w", padx=5)
         
-        # 默认显示单群拉人设置
+        # 默认显示单群拉人设置 - 关键：必须在通用设置之前 pack
         self.single_frame.pack(fill="x", pady=5, padx=5)
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
