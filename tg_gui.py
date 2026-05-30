@@ -2313,7 +2313,7 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 拉人模式选择（放在最上面）
+        # 拉人模式选择
         mode_frame = ttk.LabelFrame(main_frame, text="拉人模式")
         mode_frame.pack(fill="x", pady=5)
         
@@ -2322,7 +2322,7 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # 单群拉人设置面板（默认显示）
+        # 单群拉人设置面板
         self.single_frame = ttk.LabelFrame(main_frame, text="单群拉人设置")
         ttk.Label(self.single_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.single_target_group = ttk.Entry(self.single_frame, width=50)
@@ -2353,7 +2353,7 @@ class TelegramFullGUI:
         self.admin_per_account_limit.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=2, sticky="w", padx=5)
         
-        # 通用设置面板（放在模式设置面板下面）
+        # 通用设置面板
         common_frame = ttk.LabelFrame(main_frame, text="通用设置")
         common_frame.pack(fill="x", pady=5)
         
@@ -2427,7 +2427,7 @@ class TelegramFullGUI:
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 初始化显示/隐藏（先显示单群拉人设置）
+        # 初始化显示/隐藏（按正确顺序：模式设置面板在通用设置上面）
         self.single_frame.pack(fill="x", pady=5)
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
@@ -2460,7 +2460,7 @@ class TelegramFullGUI:
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
         
-        # 显示选中的模式面板（在通用设置上面，即拉人模式选择之后、通用设置之前）
+        # 显示选中的模式面板（在通用设置上面）
         if mode == "single":
             self.single_frame.pack(fill="x", pady=5)
         elif mode == "multi":
