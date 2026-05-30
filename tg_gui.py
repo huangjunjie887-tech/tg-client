@@ -1594,12 +1594,13 @@ class TelegramFullGUI:
     
     def batch_update_preview(self, member_infos):
         """批量更新预览（按顺序递增序号）"""
-        existing_count = len(self.preview_tree.get_children())
+        # 重新从 self.scraped_members 获取完整数据，确保序号连续
+        self.preview_tree.delete(*self.preview_tree.get_children())
         
-        for idx, info in enumerate(member_infos):
-            current_num = existing_count + idx + 1
+        for idx, info in enumerate(self.scraped_members):
+            current_num = idx + 1
             
-            display_name = info['first_name'] or info['username'] or str(info['id'])
+            display_name = info.get('first_name', '') or info.get('username', '') or str(info.get('id', ''))
             if len(display_name) > 20:
                 display_name = display_name[:20] + "..."
             
@@ -1607,15 +1608,15 @@ class TelegramFullGUI:
             
             self.preview_tree.insert("", "end", values=(
                 current_num,
-                info['id'],
-                info['username'][:20] if info['username'] else "-",
+                info.get('id', ''),
+                info.get('username', '')[:20] if info.get('username') else "-",
                 display_name,
                 info.get('online_status', '未知'),
                 "是" if info.get('is_admin', False) else "否",
                 "是" if is_bot else "否"
             ))
         
-        total_count = len(self.preview_tree.get_children())
+        total_count = len(self.scraped_members)
         self.scrape_stats.config(text=f"已采集: {total_count} 人")
         self.preview_tree.yview_moveto(1)
     
@@ -1798,9 +1799,10 @@ class TelegramFullGUI:
                             'deleted': user.deleted if hasattr(user, 'deleted') else False
                         }
                         all_results.append(member_info)
+                        self.scraped_members = all_results.copy()
                         total_count += 1
                         if total_count % 10 == 0:
-                            self.root.after(0, lambda infos=[member_info]: self.batch_update_preview([member_info]))
+                            self.root.after(0, lambda: self.batch_update_preview([]))
                         await asyncio.sleep(0.05)
                 
                 elif scrape_mode == "获取发言用户(隐藏群)":
@@ -1853,12 +1855,21 @@ class TelegramFullGUI:
                                 if not msg.sender_id:
                                     continue
                                 
+                                # 优先从 users_map 获取，如果没有则尝试从缓存获取，避免直接调用 get_entity
                                 if 'users_map' in locals() and msg.sender_id in users_map:
                                     sender = users_map.get(msg.sender_id)
+                                elif hasattr(msg, 'sender') and msg.sender:
+                                    sender = msg.sender
                                 else:
-                                    sender = await client.get_entity(msg.sender_id)
+                                    # 使用 get_input_entity 而不是 get_entity
+                                    try:
+                                        sender = await client.get_input_entity(msg.sender_id)
+                                    except:
+                                        continue
                                 
-                                if not sender or not sender.username:
+                                if not sender:
+                                    continue
+                                if not hasattr(sender, 'username') or not sender.username:
                                     continue
                                 if sender.id in all_collected_ids:
                                     continue
@@ -1882,12 +1893,13 @@ class TelegramFullGUI:
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
                                 all_results.append(member_info)
+                                self.scraped_members = all_results.copy()
                                 pending_infos.append(member_info)
                                 total_count += 1
                             
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
-                                self.root.after(0, lambda infos=pending_infos.copy(): self.batch_update_preview(pending_infos))
+                                self.root.after(0, lambda: self.batch_update_preview([]))
                                 pending_infos.clear()
                                 last_ui_update = current_time
                             
@@ -1902,7 +1914,7 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"错误: {str(e)}")
                             break
                     if pending_infos:
-                        self.root.after(0, lambda infos=pending_infos: self.batch_update_preview(pending_infos))
+                        self.root.after(0, lambda: self.batch_update_preview([]))
                 
                 elif scrape_mode == "隐私群采集(仅邀请链接)":
                     self.log("采集群成员", "开始隐私群采集（通过聊天记录获取发言用户）...")
@@ -1954,12 +1966,21 @@ class TelegramFullGUI:
                                 if not msg.sender_id:
                                     continue
                                 
+                                # 优先从 users_map 获取，如果没有则尝试从缓存获取，避免直接调用 get_entity
                                 if 'users_map' in locals() and msg.sender_id in users_map:
                                     sender = users_map.get(msg.sender_id)
+                                elif hasattr(msg, 'sender') and msg.sender:
+                                    sender = msg.sender
                                 else:
-                                    sender = await client.get_entity(msg.sender_id)
+                                    # 使用 get_input_entity 而不是 get_entity
+                                    try:
+                                        sender = await client.get_input_entity(msg.sender_id)
+                                    except:
+                                        continue
                                 
-                                if not sender or not sender.username:
+                                if not sender:
+                                    continue
+                                if not hasattr(sender, 'username') or not sender.username:
                                     continue
                                 if sender.id in all_collected_ids:
                                     continue
@@ -1983,12 +2004,13 @@ class TelegramFullGUI:
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
                                 all_results.append(member_info)
+                                self.scraped_members = all_results.copy()
                                 pending_infos.append(member_info)
                                 total_count += 1
                             
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
-                                self.root.after(0, lambda infos=pending_infos.copy(): self.batch_update_preview(pending_infos))
+                                self.root.after(0, lambda: self.batch_update_preview([]))
                                 pending_infos.clear()
                                 last_ui_update = current_time
                             
@@ -2003,7 +2025,7 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"错误: {str(e)}")
                             break
                     if pending_infos:
-                        self.root.after(0, lambda infos=pending_infos: self.batch_update_preview(pending_infos))
+                        self.root.after(0, lambda: self.batch_update_preview([]))
                 
                 elif scrape_mode == "多讨论组采集(多个子群)":
                     self.log("采集群成员", "开始多讨论组采集...")
@@ -2075,12 +2097,21 @@ class TelegramFullGUI:
                                         if not msg.sender_id:
                                             continue
                                         
+                                        # 优先从 users_map 获取，如果没有则尝试从缓存获取，避免直接调用 get_entity
                                         if 'users_map' in locals() and msg.sender_id in users_map:
                                             sender = users_map.get(msg.sender_id)
+                                        elif hasattr(msg, 'sender') and msg.sender:
+                                            sender = msg.sender
                                         else:
-                                            sender = await client.get_entity(msg.sender_id)
+                                            # 使用 get_input_entity 而不是 get_entity
+                                            try:
+                                                sender = await client.get_input_entity(msg.sender_id)
+                                            except:
+                                                continue
                                         
-                                        if not sender or not sender.username:
+                                        if not sender:
+                                            continue
+                                        if not hasattr(sender, 'username') or not sender.username:
                                             continue
                                         if sender.id in all_collected_ids:
                                             continue
@@ -2104,6 +2135,7 @@ class TelegramFullGUI:
                                             'deleted': getattr(sender, 'deleted', False)
                                         }
                                         all_results.append(member_info)
+                                        self.scraped_members = all_results.copy()
                                         sub_pending.append(member_info)
                                         total_count += 1
                                         sub_count += 1
@@ -2123,7 +2155,7 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"获取子群 {link} 失败: {str(e)}")
                     
                     if total_count > 0:
-                        self.root.after(0, lambda infos=all_results[-min(50, len(all_results)):]: self.batch_update_preview(all_results[-min(50, len(all_results)):]))
+                        self.root.after(0, lambda: self.batch_update_preview([]))
                 
                 elif scrape_mode == "频道评论采集":
                     self.log("采集群成员", "开始频道评论采集...")
@@ -2175,12 +2207,21 @@ class TelegramFullGUI:
                                 if not msg.sender_id:
                                     continue
                                 
+                                # 优先从 users_map 获取，如果没有则尝试从缓存获取，避免直接调用 get_entity
                                 if 'users_map' in locals() and msg.sender_id in users_map:
                                     sender = users_map.get(msg.sender_id)
+                                elif hasattr(msg, 'sender') and msg.sender:
+                                    sender = msg.sender
                                 else:
-                                    sender = await client.get_entity(msg.sender_id)
+                                    # 使用 get_input_entity 而不是 get_entity
+                                    try:
+                                        sender = await client.get_input_entity(msg.sender_id)
+                                    except:
+                                        continue
                                 
-                                if not sender or not sender.username:
+                                if not sender:
+                                    continue
+                                if not hasattr(sender, 'username') or not sender.username:
                                     continue
                                 if sender.id in all_collected_ids:
                                     continue
@@ -2204,12 +2245,13 @@ class TelegramFullGUI:
                                     'deleted': getattr(sender, 'deleted', False)
                                 }
                                 all_results.append(member_info)
+                                self.scraped_members = all_results.copy()
                                 pending_infos.append(member_info)
                                 total_count += 1
                             
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
-                                self.root.after(0, lambda infos=pending_infos.copy(): self.batch_update_preview(pending_infos))
+                                self.root.after(0, lambda: self.batch_update_preview([]))
                                 pending_infos.clear()
                                 last_ui_update = current_time
                             
@@ -2224,7 +2266,7 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"错误: {str(e)}")
                             break
                     if pending_infos:
-                        self.root.after(0, lambda infos=pending_infos: self.batch_update_preview(pending_infos))
+                        self.root.after(0, lambda: self.batch_update_preview([]))
                 
                 self.scraped_members = all_results
                 self.log("采集群成员", f"⚡ 采集完成！累计 {total_count} 人")
