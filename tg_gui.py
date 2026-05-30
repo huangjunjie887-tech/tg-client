@@ -42,7 +42,7 @@ class TelegramFullGUI:
         self.groups = ["默认分组"]
         self.running_tasks = {}
         self.log_widgets = {}
-        self.is_paused = False  # 暂停标志
+        self.is_paused = False
         
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
@@ -2322,7 +2322,7 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # 单群拉人设置面板 - 先创建但不立即pack
+        # 单群拉人设置面板
         self.single_frame = ttk.LabelFrame(main_frame, text="单群拉人设置")
         ttk.Label(self.single_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.single_target_group = ttk.Entry(self.single_frame, width=50)
@@ -2356,61 +2356,86 @@ class TelegramFullGUI:
         # 通用设置面板
         common_frame = ttk.LabelFrame(main_frame, text="通用设置")
         
-        # 第一行：选择用户列表文件 + 选择账号
+        # 第一行：选择用户列表文件
         row1 = ttk.Frame(common_frame)
         row1.pack(fill="x", padx=5, pady=5)
         ttk.Label(row1, text="选择用户列表文件:").pack(side="left", padx=5)
-        self.user_list_file = ttk.Entry(row1, width=35)
+        self.user_list_file = ttk.Entry(row1, width=40)
         self.user_list_file.pack(side="left", padx=5)
         ttk.Button(row1, text="浏览", command=self.select_user_list_file, width=8).pack(side="left", padx=2)
-        ttk.Label(row1, text="选择账号:").pack(side="left", padx=20)
-        self.invite_accounts = ttk.Combobox(row1, values=[a.get('phone', '') for a in self.accounts if a.get('status') == '正常'], width=20)
-        self.invite_accounts.pack(side="left", padx=5)
-        ttk.Button(row1, text="刷新", command=self.refresh_invite_accounts, width=6).pack(side="left", padx=2)
         
-        # 第二行：单账号每次拉人数 + 单账号最大拉人数
+        # 第二行：选择分组
         row2 = ttk.Frame(common_frame)
         row2.pack(fill="x", padx=5, pady=5)
-        ttk.Label(row2, text="单账号每次拉人数:").pack(side="left", padx=5)
-        self.invite_per_batch = ttk.Entry(row2, width=10)
+        ttk.Label(row2, text="选择分组:").pack(side="left", padx=5)
+        self.invite_group_filter = ttk.Combobox(row2, values=["全部"] + self.groups, width=20)
+        self.invite_group_filter.set("全部")
+        self.invite_group_filter.pack(side="left", padx=5)
+        ttk.Button(row2, text="刷新", command=self.refresh_invite_accounts_by_group, width=8).pack(side="left", padx=5)
+        
+        # 第三行：选择账号（多选）
+        row3 = ttk.Frame(common_frame)
+        row3.pack(fill="both", padx=5, pady=5)
+        ttk.Label(row3, text="选择账号:").pack(anchor="w", padx=5)
+        
+        account_select_frame = ttk.Frame(row3)
+        account_select_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.invite_accounts_listbox = tk.Listbox(account_select_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
+        invite_accounts_scrollbar = ttk.Scrollbar(account_select_frame, orient="vertical", command=self.invite_accounts_listbox.yview)
+        self.invite_accounts_listbox.configure(yscrollcommand=invite_accounts_scrollbar.set)
+        self.invite_accounts_listbox.pack(side="left", fill="both", expand=True)
+        invite_accounts_scrollbar.pack(side="right", fill="y")
+        
+        account_select_btn_frame = ttk.Frame(row3)
+        account_select_btn_frame.pack(fill="x", pady=5)
+        self.invite_accounts_select_all_var = tk.BooleanVar()
+        ttk.Checkbutton(account_select_btn_frame, text="全选", variable=self.invite_accounts_select_all_var,
+                       command=self.toggle_invite_accounts_all).pack(side="left", padx=5)
+        
+        # 第四行：单账号每次拉人数 + 单账号最大拉人数
+        row4 = ttk.Frame(common_frame)
+        row4.pack(fill="x", padx=5, pady=5)
+        ttk.Label(row4, text="单账号每次拉人数:").pack(side="left", padx=5)
+        self.invite_per_batch = ttk.Entry(row4, width=10)
         self.invite_per_batch.insert(0, "5")
         self.invite_per_batch.pack(side="left", padx=5)
-        ttk.Label(row2, text="单账号最大拉人数:").pack(side="left", padx=20)
-        self.invite_per_account_max = ttk.Entry(row2, width=10)
+        ttk.Label(row4, text="单账号最大拉人数:").pack(side="left", padx=20)
+        self.invite_per_account_max = ttk.Entry(row4, width=10)
         self.invite_per_account_max.insert(0, "0")
         self.invite_per_account_max.pack(side="left", padx=5)
-        ttk.Label(row2, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
+        ttk.Label(row4, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
         
-        # 第三行：限制拉人数 + 线程数
-        row3 = ttk.Frame(common_frame)
-        row3.pack(fill="x", padx=5, pady=5)
-        ttk.Label(row3, text="限制拉人数:").pack(side="left", padx=5)
-        self.total_limit = ttk.Entry(row3, width=10)
+        # 第五行：限制拉人数 + 线程数
+        row5 = ttk.Frame(common_frame)
+        row5.pack(fill="x", padx=5, pady=5)
+        ttk.Label(row5, text="限制拉人数:").pack(side="left", padx=5)
+        self.total_limit = ttk.Entry(row5, width=10)
         self.total_limit.insert(0, "0")
         self.total_limit.pack(side="left", padx=5)
-        ttk.Label(row3, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
-        ttk.Label(row3, text="线程数:").pack(side="left", padx=20)
-        self.thread_count = ttk.Entry(row3, width=10)
+        ttk.Label(row5, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
+        ttk.Label(row5, text="线程数:").pack(side="left", padx=20)
+        self.thread_count = ttk.Entry(row5, width=10)
         self.thread_count.insert(0, "1")
         self.thread_count.pack(side="left", padx=5)
         
-        # 第四行：线程等待间隔时间 + 账号每次拉人间隔时间
-        row4 = ttk.Frame(common_frame)
-        row4.pack(fill="x", padx=5, pady=5)
-        ttk.Label(row4, text="线程等待间隔时间（秒）:").pack(side="left", padx=5)
-        self.thread_interval = ttk.Entry(row4, width=10)
+        # 第六行：线程等待间隔时间 + 账号每次拉人间隔时间
+        row6 = ttk.Frame(common_frame)
+        row6.pack(fill="x", padx=5, pady=5)
+        ttk.Label(row6, text="线程等待间隔时间（秒）:").pack(side="left", padx=5)
+        self.thread_interval = ttk.Entry(row6, width=10)
         self.thread_interval.insert(0, "1")
         self.thread_interval.pack(side="left", padx=5)
-        ttk.Label(row4, text="账号每次拉人间隔时间（秒）:").pack(side="left", padx=20)
-        self.invite_interval = ttk.Entry(row4, width=10)
+        ttk.Label(row6, text="账号每次拉人间隔时间（秒）:").pack(side="left", padx=20)
+        self.invite_interval = ttk.Entry(row6, width=10)
         self.invite_interval.insert(0, "3")
         self.invite_interval.pack(side="left", padx=5)
         
-        # 第五行：异常账号自动换号
-        row5 = ttk.Frame(common_frame)
-        row5.pack(fill="x", padx=5, pady=5)
+        # 第七行：异常账号自动换号
+        row7 = ttk.Frame(common_frame)
+        row7.pack(fill="x", padx=5, pady=5)
         self.auto_switch_account = tk.BooleanVar(value=True)
-        ttk.Checkbutton(row5, text="异常账号自动换号", variable=self.auto_switch_account).pack(side="left", padx=20)
+        ttk.Checkbutton(row7, text="异常账号自动换号", variable=self.auto_switch_account).pack(side="left", padx=20)
         
         # 按钮行
         btn_frame = ttk.Frame(common_frame)
@@ -2420,31 +2445,41 @@ class TelegramFullGUI:
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
-        # 运行日志
+        # 运行日志放在最底部
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 关键修复：按正确顺序pack - 先pack模式设置面板，再pack通用设置
-        # 先pack单群拉人设置（默认显示）
+        # 按正确顺序pack：先pack模式设置面板，再pack通用设置，最后日志已经在底部
         self.single_frame.pack(fill="x", pady=5)
-        # 其他两个先隐藏
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
-        # 最后pack通用设置（这样通用设置就会显示在模式设置面板下面）
         common_frame.pack(fill="x", pady=5)
         
         # 拉人控制标志
         self.is_inviting = False
         self.invite_stop_flag = False
+        
+        # 初始化账号列表
+        self.refresh_invite_accounts_by_group()
     
-    def refresh_invite_accounts(self):
-        """刷新拉人账号列表"""
-        account_list = [a.get('phone', '') for a in self.accounts if a.get('status') == '正常']
-        self.invite_accounts['values'] = account_list
-        if account_list:
-            self.invite_accounts.set(account_list[0])
+    def refresh_invite_accounts_by_group(self):
+        """根据分组刷新拉人账号列表"""
+        self.invite_accounts_listbox.delete(0, tk.END)
+        filter_group = self.invite_group_filter.get()
+        for acc in self.accounts:
+            if acc.get('status') == '正常':
+                if filter_group == "全部" or acc.get('group') == filter_group:
+                    self.invite_accounts_listbox.insert(tk.END, f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]")
+        self.invite_accounts_select_all_var.set(False)
+    
+    def toggle_invite_accounts_all(self):
+        """全选/取消全选账号"""
+        if self.invite_accounts_select_all_var.get():
+            self.invite_accounts_listbox.selection_set(0, tk.END)
+        else:
+            self.invite_accounts_listbox.selection_clear(0, tk.END)
     
     def select_user_list_file(self):
         """选择用户列表文件"""
@@ -2463,7 +2498,7 @@ class TelegramFullGUI:
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
         
-        # 显示选中的模式面板（在通用设置上面）
+        # 显示选中的模式面板
         if mode == "single":
             self.single_frame.pack(fill="x", pady=5)
         elif mode == "multi":
@@ -2518,12 +2553,18 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "请先选择有效的用户列表文件")
             return
         
-        # 获取账号
-        account_phone = self.invite_accounts.get()
-        if not account_phone:
-            self.log("批量拉人", "请选择拉人账号")
-            self.show_centered_warning("提示", "请选择拉人账号")
+        # 获取选中的账号
+        selected_indices = self.invite_accounts_listbox.curselection()
+        if not selected_indices:
+            self.log("批量拉人", "请至少选择一个拉人账号")
+            self.show_centered_warning("提示", "请至少选择一个拉人账号")
             return
+        
+        selected_phones = []
+        for idx in selected_indices:
+            text = self.invite_accounts_listbox.get(idx)
+            phone = text.split(" - ")[0]
+            selected_phones.append(phone)
         
         # 获取参数
         try:
@@ -2586,7 +2627,7 @@ class TelegramFullGUI:
         self.log("批量拉人", f"拉人模式: {mode}")
         self.log("批量拉人", f"目标: {targets}")
         self.log("批量拉人", f"用户数量: {len(users)}")
-        self.log("批量拉人", f"使用账号: {account_phone}")
+        self.log("批量拉人", f"使用账号: {selected_phones}")
         self.log("批量拉人", f"单账号每次拉人数: {per_batch}")
         self.log("批量拉人", f"单账号最大拉人数: {per_account_max if per_account_max > 0 else '不限制'}")
         self.log("批量拉人", f"总限制拉人数: {total_limit if total_limit > 0 else '不限制'}")
@@ -2597,49 +2638,51 @@ class TelegramFullGUI:
         if per_account_limit > 0:
             self.log("批量拉人", f"单账号拉群数限制: {per_account_limit}")
         
-        # 获取账号对象
-        acc = None
-        for a in self.accounts:
-            if a.get('phone') == account_phone:
-                acc = a
-                break
+        # 获取账号对象列表
+        accounts_to_use = []
+        for phone in selected_phones:
+            for a in self.accounts:
+                if a.get('phone') == phone and a.get('status') == '正常':
+                    accounts_to_use.append(a)
+                    break
         
-        if not acc or acc.get('status') != '正常':
-            self.log("批量拉人", "请先登录账号")
-            self.show_centered_warning("提示", "请先登录账号")
+        if not accounts_to_use:
+            self.log("批量拉人", "没有可用的正常账号")
+            self.show_centered_warning("提示", "没有可用的正常账号")
             return
         
         self.is_inviting = True
         self.invite_stop_flag = False
-        self.update_account_task(account_phone, "批量拉人", True)
+        
+        for acc in accounts_to_use:
+            self.update_account_task(acc.get('phone'), "批量拉人", True)
         
         # 启动拉人线程
         def run_invite_task():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.run_invite_advanced(acc, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch))
+            loop.run_until_complete(self.run_invite_advanced_multi(accounts_to_use, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch))
             loop.close()
             self.is_inviting = False
-            self.update_account_task(account_phone, "", False)
-            self.update_account_task(account_phone, "批量拉人", False)
+            for acc in accounts_to_use:
+                self.update_account_task(acc.get('phone'), "", False)
+                self.update_account_task(acc.get('phone'), "批量拉人", False)
             self.log("批量拉人", "========== 拉人任务结束 ==========")
         
         threading.Thread(target=run_invite_task, daemon=True).start()
     
-    async def run_invite_advanced(self, acc, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
-        """执行拉人任务"""
-        session_path = acc.get('session_path', '')
-        api_id, api_hash = self.get_account_api_credentials(acc)
+    async def run_invite_advanced_multi(self, accounts, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
+        """执行多账号拉人任务"""
         
         total_invited = 0
-        account_invited_count = 0
-        group_invited_count = {}  # 记录每个群组已拉人数
-        current_account = acc
-        current_phone = current_account.get('phone')
+        account_invited_counts = {}
+        group_invited_counts = {}
         
-        # 初始化群组计数
+        # 初始化计数
+        for acc in accounts:
+            account_invited_counts[acc.get('phone')] = 0
         for target in targets:
-            group_invited_count[target] = 0
+            group_invited_counts[target] = 0
         
         # 分批处理用户
         for i in range(0, len(users), per_batch):
@@ -2649,60 +2692,39 @@ class TelegramFullGUI:
             
             batch_users = users[i:i+per_batch]
             
-            # 检查单账号最大拉人数限制
-            if per_account_max > 0 and account_invited_count >= per_account_max:
-                self.log("批量拉人", f"账号 {current_phone} 已达到最大拉人数 {per_account_max}，任务结束")
-                break
-            
-            # 检查总限制
-            if per_account_limit > 0 and len(targets) > 0:
-                # 对于多群拉人模式，需要检查每个群组
-                temp_targets = targets.copy()
-                for target in temp_targets:
-                    if group_invited_count[target] >= per_account_limit:
-                        self.log("批量拉人", f"账号 {current_phone} 在群组 {target} 已达到拉群数限制 {per_account_limit}，跳过该群组")
-                        targets.remove(target)
-                if not targets:
-                    self.log("批量拉人", f"账号 {current_phone} 在所有群组都已达到拉群数限制")
-                    break
-            
-            # 对每个目标群组进行拉人
-            for target in targets:
+            # 对每个账号进行拉人
+            for acc in accounts:
                 if self.invite_stop_flag:
                     break
                 
-                # 检查单账号拉群数限制
-                if per_account_limit > 0 and group_invited_count[target] >= per_account_limit:
+                phone = acc.get('phone')
+                
+                # 检查单账号最大拉人数限制
+                if per_account_max > 0 and account_invited_counts[phone] >= per_account_max:
                     continue
                 
-                self.log("批量拉人", f"[{current_phone}] 正在向 {target} 拉人，本批次 {len(batch_users)} 人")
-                
-                success = await self.invite_users_to_group(current_account, target, batch_users, invite_wait)
-                
-                if success:
-                    total_invited += len(batch_users)
-                    account_invited_count += len(batch_users)
-                    group_invited_count[target] += len(batch_users)
-                    self.log("批量拉人", f"[{current_phone}] 向 {target} 拉人成功 {len(batch_users)} 人，累计拉人 {account_invited_count} 人")
-                else:
-                    self.log("批量拉人", f"[{current_phone}] 向 {target} 拉人失败")
-                    if auto_switch:
-                        self.log("批量拉人", f"尝试切换账号...")
-                        new_account = self.get_next_available_account(current_phone)
-                        if new_account:
-                            current_account = new_account
-                            current_phone = current_account.get('phone')
-                            self.log("批量拉人", f"已切换到账号: {current_phone}")
-                            # 更新界面显示
-                            self.root.after(0, lambda: self.invite_accounts.set(current_phone))
-                            self.root.after(0, lambda: self.update_account_task(current_phone, "批量拉人", True))
-                            # 重新连接
-                            session_path = current_account.get('session_path', '')
-                            api_id, api_hash = self.get_account_api_credentials(current_account)
-                        else:
-                            self.log("批量拉人", "没有可用的备用账号，停止拉人")
-                            self.invite_stop_flag = True
-                            break
+                # 对每个目标群组进行拉人
+                for target in targets:
+                    if self.invite_stop_flag:
+                        break
+                    
+                    # 检查单账号拉群数限制
+                    if per_account_limit > 0 and group_invited_counts[target] >= per_account_limit:
+                        continue
+                    
+                    self.log("批量拉人", f"[{phone}] 正在向 {target} 拉人，本批次 {len(batch_users)} 人")
+                    
+                    success, success_count = await self.invite_users_to_group_with_count(acc, target, batch_users, invite_wait)
+                    
+                    if success:
+                        total_invited += success_count
+                        account_invited_counts[phone] += success_count
+                        group_invited_counts[target] += success_count
+                        self.log("批量拉人", f"[{phone}] 向 {target} 拉人成功 {success_count} 人，累计拉人 {account_invited_counts[phone]} 人")
+                    else:
+                        self.log("批量拉人", f"[{phone}] 向 {target} 拉人失败")
+                        if auto_switch:
+                            continue
             
             # 线程等待间隔
             if not self.invite_stop_flag and i + per_batch < len(users):
@@ -2712,20 +2734,21 @@ class TelegramFullGUI:
         if total_invited > 0:
             self.root.after(0, lambda: self.show_centered_info("拉人完成", f"共拉取 {total_invited} 人"))
     
-    async def invite_users_to_group(self, acc, target, users, invite_wait):
-        """向指定群组拉人"""
+    async def invite_users_to_group_with_count(self, acc, target, users, invite_wait):
+        """向指定群组拉人，返回成功数量和是否成功"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         
         client = None
+        success_count = 0
         try:
             client = TelegramClient(session_path, api_id, api_hash)
             await client.connect()
             
             if not await client.is_user_authorized():
                 self.log("批量拉人", f"[{phone}] 账号未登录")
-                return False
+                return False, 0
             
             # 解析目标
             if 't.me/' in target:
@@ -2736,7 +2759,6 @@ class TelegramFullGUI:
             else:
                 entity = await client.get_entity(target)
             
-            success_count = 0
             for username in users:
                 if self.invite_stop_flag:
                     break
@@ -2751,40 +2773,19 @@ class TelegramFullGUI:
                     await asyncio.sleep(e.seconds)
                 except Exception as e:
                     self.log("批量拉人", f"[{phone}] 拉人失败 {username}: {str(e)[:80]}")
-                    # 单个用户失败继续尝试下一个
                     await asyncio.sleep(1)
             
             await client.disconnect()
-            return success_count > 0
+            return success_count > 0, success_count
         except Exception as e:
             self.log("批量拉人", f"[{phone}] 拉人过程出错: {str(e)[:80]}")
-            return False
+            return False, 0
         finally:
             if client:
                 try:
                     await client.disconnect()
                 except:
                     pass
-    
-    def get_next_available_account(self, current_phone):
-        """获取下一个可用的正常账号"""
-        phones = [a.get('phone', '') for a in self.accounts if a.get('status') == '正常']
-        if not phones:
-            return None
-        
-        try:
-            idx = phones.index(current_phone)
-            next_idx = (idx + 1) % len(phones)
-            if next_idx == idx:
-                return None
-            for a in self.accounts:
-                if a.get('phone') == phones[next_idx]:
-                    return a
-        except ValueError:
-            for a in self.accounts:
-                if a.get('status') == '正常':
-                    return a
-        return None
     
     def stop_invite(self):
         """停止拉人"""
