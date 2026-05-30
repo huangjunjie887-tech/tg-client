@@ -1580,7 +1580,8 @@ class TelegramFullGUI:
         group_username = None
         
         if 't.me/' in link:
-            path = link.split('t.me/')[-1].strip('/')
+            clean_link = link.replace('https://', '').replace('http://', '')
+            path = clean_link.split('t.me/')[-1].strip('/')
             parts = path.split('/')
             group_username = parts[0]
             if len(parts) >= 2 and parts[1].isdigit():
@@ -1768,29 +1769,48 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            request_args = {
-                                "peer": input_peer,
-                                "offset_id": offset_id,
-                                "offset_date": None,
-                                "add_offset": 0,
-                                "limit": batch_size,
-                                "max_id": 0,
-                                "min_id": 0,
-                                "hash": 0
-                            }
                             if topic_id:
-                                request_args["reply_to"] = topic_id
+                                # 使用 reply_to 参数获取指定主题的消息
+                                messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
+                                if not messages:
+                                    break
+                                messages_list = messages
+                            else:
+                                request_args = {
+                                    "peer": input_peer,
+                                    "offset_id": offset_id,
+                                    "offset_date": None,
+                                    "add_offset": 0,
+                                    "limit": batch_size,
+                                    "max_id": 0,
+                                    "min_id": 0,
+                                    "hash": 0
+                                }
+                                history = await client(GetHistoryRequest(**request_args))
+                                if not history or not history.messages:
+                                    break
+                                messages_list = history.messages
                             
-                            history = await client(GetHistoryRequest(**request_args))
-                            if not history.messages:
-                                break
-                            users_map = {u.id: u for u in history.users}
-                            for msg in history.messages:
+                            # 收集用户信息
+                            users_map = {}
+                            for msg in messages_list:
+                                if hasattr(msg, 'sender') and msg.sender:
+                                    users_map[msg.sender.id] = msg.sender
+                            
+                            for msg in messages_list:
                                 if not self.is_scraping:
                                     break
                                 if not msg.sender_id:
                                     continue
+                                
                                 sender = users_map.get(msg.sender_id)
+                                if not sender:
+                                    try:
+                                        sender = await client.get_entity(msg.sender_id)
+                                        users_map[msg.sender_id] = sender
+                                    except:
+                                        continue
+                                
                                 if not sender or not sender.username:
                                     continue
                                 if sender.id in all_collected_ids:
@@ -1816,15 +1836,18 @@ class TelegramFullGUI:
                                 all_results.append(member_info)
                                 pending_infos.append(member_info)
                                 total_count += 1
+                            
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
                                 self.root.after(0, lambda c=total_count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
                                 pending_infos.clear()
                                 last_ui_update = current_time
-                            if history.messages:
-                                offset_id = history.messages[-1].id
+                            
+                            if messages_list:
+                                offset_id = messages_list[-1].id
                             else:
                                 break
+                                
                         except FloodWaitError as e:
                             self.log("采集群成员", f"等待 {e.seconds} 秒...")
                             await asyncio.sleep(e.seconds)
@@ -1849,29 +1872,46 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            request_args = {
-                                "peer": input_peer,
-                                "offset_id": offset_id,
-                                "offset_date": None,
-                                "add_offset": 0,
-                                "limit": batch_size,
-                                "max_id": 0,
-                                "min_id": 0,
-                                "hash": 0
-                            }
                             if topic_id:
-                                request_args["reply_to"] = topic_id
+                                messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
+                                if not messages:
+                                    break
+                                messages_list = messages
+                            else:
+                                request_args = {
+                                    "peer": input_peer,
+                                    "offset_id": offset_id,
+                                    "offset_date": None,
+                                    "add_offset": 0,
+                                    "limit": batch_size,
+                                    "max_id": 0,
+                                    "min_id": 0,
+                                    "hash": 0
+                                }
+                                history = await client(GetHistoryRequest(**request_args))
+                                if not history or not history.messages:
+                                    break
+                                messages_list = history.messages
                             
-                            history = await client(GetHistoryRequest(**request_args))
-                            if not history.messages:
-                                break
-                            users_map = {u.id: u for u in history.users}
-                            for msg in history.messages:
+                            users_map = {}
+                            for msg in messages_list:
+                                if hasattr(msg, 'sender') and msg.sender:
+                                    users_map[msg.sender.id] = msg.sender
+                            
+                            for msg in messages_list:
                                 if not self.is_scraping:
                                     break
                                 if not msg.sender_id:
                                     continue
+                                
                                 sender = users_map.get(msg.sender_id)
+                                if not sender:
+                                    try:
+                                        sender = await client.get_entity(msg.sender_id)
+                                        users_map[msg.sender_id] = sender
+                                    except:
+                                        continue
+                                
                                 if not sender or not sender.username:
                                     continue
                                 if sender.id in all_collected_ids:
@@ -1897,15 +1937,18 @@ class TelegramFullGUI:
                                 all_results.append(member_info)
                                 pending_infos.append(member_info)
                                 total_count += 1
+                            
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
                                 self.root.after(0, lambda c=total_count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
                                 pending_infos.clear()
                                 last_ui_update = current_time
-                            if history.messages:
-                                offset_id = history.messages[-1].id
+                            
+                            if messages_list:
+                                offset_id = messages_list[-1].id
                             else:
                                 break
+                                
                         except FloodWaitError as e:
                             self.log("采集群成员", f"等待 {e.seconds} 秒...")
                             await asyncio.sleep(e.seconds)
@@ -1946,29 +1989,47 @@ class TelegramFullGUI:
                             
                             while self.is_scraping:
                                 try:
-                                    request_args = {
-                                        "peer": input_peer,
-                                        "offset_id": offset_id,
-                                        "offset_date": None,
-                                        "add_offset": 0,
-                                        "limit": batch_size,
-                                        "max_id": 0,
-                                        "min_id": 0,
-                                        "hash": 0
-                                    }
                                     if sub_topic:
-                                        request_args["reply_to"] = sub_topic
+                                        # 使用 reply_to 参数获取指定主题的消息
+                                        messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=sub_topic)
+                                        if not messages:
+                                            break
+                                        messages_list = messages
+                                    else:
+                                        request_args = {
+                                            "peer": input_peer,
+                                            "offset_id": offset_id,
+                                            "offset_date": None,
+                                            "add_offset": 0,
+                                            "limit": batch_size,
+                                            "max_id": 0,
+                                            "min_id": 0,
+                                            "hash": 0
+                                        }
+                                        history = await client(GetHistoryRequest(**request_args))
+                                        if not history or not history.messages:
+                                            break
+                                        messages_list = history.messages
                                     
-                                    history = await client(GetHistoryRequest(**request_args))
-                                    if not history.messages:
-                                        break
-                                    users_map = {u.id: u for u in history.users}
-                                    for msg in history.messages:
+                                    users_map = {}
+                                    for msg in messages_list:
+                                        if hasattr(msg, 'sender') and msg.sender:
+                                            users_map[msg.sender.id] = msg.sender
+                                    
+                                    for msg in messages_list:
                                         if not self.is_scraping:
                                             break
                                         if not msg.sender_id:
                                             continue
+                                        
                                         sender = users_map.get(msg.sender_id)
+                                        if not sender:
+                                            try:
+                                                sender = await client.get_entity(msg.sender_id)
+                                                users_map[msg.sender_id] = sender
+                                            except:
+                                                continue
+                                        
                                         if not sender or not sender.username:
                                             continue
                                         if sender.id in all_collected_ids:
@@ -1995,10 +2056,12 @@ class TelegramFullGUI:
                                         sub_pending.append(member_info)
                                         total_count += 1
                                         sub_count += 1
-                                    if history.messages:
-                                        offset_id = history.messages[-1].id
+                                    
+                                    if messages_list:
+                                        offset_id = messages_list[-1].id
                                     else:
                                         break
+                                        
                                 except FloodWaitError as e:
                                     self.log("采集群成员", f"等待 {e.seconds} 秒...")
                                     await asyncio.sleep(e.seconds)
@@ -2027,29 +2090,46 @@ class TelegramFullGUI:
                     
                     while self.is_scraping:
                         try:
-                            request_args = {
-                                "peer": input_peer,
-                                "offset_id": offset_id,
-                                "offset_date": None,
-                                "add_offset": 0,
-                                "limit": batch_size,
-                                "max_id": 0,
-                                "min_id": 0,
-                                "hash": 0
-                            }
                             if topic_id:
-                                request_args["reply_to"] = topic_id
+                                messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
+                                if not messages:
+                                    break
+                                messages_list = messages
+                            else:
+                                request_args = {
+                                    "peer": input_peer,
+                                    "offset_id": offset_id,
+                                    "offset_date": None,
+                                    "add_offset": 0,
+                                    "limit": batch_size,
+                                    "max_id": 0,
+                                    "min_id": 0,
+                                    "hash": 0
+                                }
+                                history = await client(GetHistoryRequest(**request_args))
+                                if not history or not history.messages:
+                                    break
+                                messages_list = history.messages
                             
-                            history = await client(GetHistoryRequest(**request_args))
-                            if not history.messages:
-                                break
-                            users_map = {u.id: u for u in history.users}
-                            for msg in history.messages:
+                            users_map = {}
+                            for msg in messages_list:
+                                if hasattr(msg, 'sender') and msg.sender:
+                                    users_map[msg.sender.id] = msg.sender
+                            
+                            for msg in messages_list:
                                 if not self.is_scraping:
                                     break
                                 if not msg.sender_id:
                                     continue
+                                
                                 sender = users_map.get(msg.sender_id)
+                                if not sender:
+                                    try:
+                                        sender = await client.get_entity(msg.sender_id)
+                                        users_map[msg.sender_id] = sender
+                                    except:
+                                        continue
+                                
                                 if not sender or not sender.username:
                                     continue
                                 if sender.id in all_collected_ids:
@@ -2075,15 +2155,18 @@ class TelegramFullGUI:
                                 all_results.append(member_info)
                                 pending_infos.append(member_info)
                                 total_count += 1
+                            
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
                                 self.root.after(0, lambda c=total_count, infos=pending_infos.copy(): self.batch_update_preview(c, infos))
                                 pending_infos.clear()
                                 last_ui_update = current_time
-                            if history.messages:
-                                offset_id = history.messages[-1].id
+                            
+                            if messages_list:
+                                offset_id = messages_list[-1].id
                             else:
                                 break
+                                
                         except FloodWaitError as e:
                             self.log("采集群成员", f"等待 {e.seconds} 秒...")
                             await asyncio.sleep(e.seconds)
