@@ -2305,7 +2305,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（重构版 - 日志移到底部，高度缩小一半） ====================
+    # ==================== 批量拉人页面（正确顺序：拉人模式 → 拉人设置 → 通用设置 → 按钮 → 运行日志） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2478,7 +2478,7 @@ class TelegramFullGUI:
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
-        # ===== 5. 运行日志（高度缩小一半：原来12行改为6行） =====
+        # ===== 5. 运行日志 =====
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
