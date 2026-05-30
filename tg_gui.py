@@ -2305,7 +2305,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（正确顺序：拉人模式 → 拉人设置 → 通用设置 → 按钮 → 运行日志） ====================
+    # ==================== 批量拉人页面（修复切换模式后拉人设置位置错误的问题） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2350,7 +2350,7 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # ===== 2. 拉人设置（根据模式显示不同面板） - 注意：这个必须在通用设置之前 =====
+        # ===== 2. 拉人设置（根据模式显示不同面板） =====
         # 单群拉人设置
         self.single_frame = ttk.LabelFrame(settings_frame, text="拉人设置")
         ttk.Label(self.single_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
@@ -2381,11 +2381,6 @@ class TelegramFullGUI:
         self.admin_per_account_limit.insert(0, "0")
         self.admin_per_account_limit.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").grid(row=1, column=2, sticky="w", padx=5)
-        
-        # 默认显示单群拉人设置 - 关键：必须在通用设置之前 pack
-        self.single_frame.pack(fill="x", pady=5, padx=5)
-        self.multi_frame.pack_forget()
-        self.admin_frame.pack_forget()
         
         # ===== 3. 通用设置 =====
         common_frame = ttk.LabelFrame(settings_frame, text="通用设置")
@@ -2484,6 +2479,15 @@ class TelegramFullGUI:
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
+        # 关键：保存拉人设置面板和通用设置面板的引用，用于在切换模式时保持正确顺序
+        self.common_frame = common_frame
+        self.btn_frame = btn_frame
+        
+        # 默认显示单群拉人设置（必须在通用设置和按钮之前 pack）
+        self.single_frame.pack(fill="x", pady=5, padx=5)
+        self.multi_frame.pack_forget()
+        self.admin_frame.pack_forget()
+        
         # 初始化
         self.is_inviting = False
         self.invite_stop_flag = False
@@ -2526,19 +2530,44 @@ class TelegramFullGUI:
             self.log("批量拉人", f"选择用户列表文件: {file_path}")
     
     def on_invite_mode_change(self):
-        """拉人模式切换时显示/隐藏对应面板"""
+        """拉人模式切换时显示/隐藏对应面板，并保持正确顺序"""
         mode = self.invite_mode.get()
         
+        # 先全部隐藏
         self.single_frame.pack_forget()
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
         
+        # 确定要显示的面板
         if mode == "single":
-            self.single_frame.pack(fill="x", pady=5, padx=5)
+            target_frame = self.single_frame
         elif mode == "multi":
-            self.multi_frame.pack(fill="x", pady=5, padx=5)
-        elif mode == "admin":
-            self.admin_frame.pack(fill="x", pady=5, padx=5)
+            target_frame = self.multi_frame
+        else:  # admin
+            target_frame = self.admin_frame
+        
+        # 关键修复：将拉人设置面板重新插入到通用设置之前
+        # 获取通用设置在父容器中的索引
+        common_frame_index = None
+        btn_frame_index = None
+        for i, child in enumerate(settings_frame.winfo_children()):
+            if child == self.common_frame:
+                common_frame_index = i
+            elif child == self.btn_frame:
+                btn_frame_index = i
+        
+        # 先将拉人设置面板 pack 到最前面（相对于通用设置）
+        target_frame.pack(fill="x", pady=5, padx=5)
+        
+        # 然后重新调整顺序：将通用设置移到拉人设置之后
+        if common_frame_index is not None:
+            self.common_frame.pack_forget()
+            self.common_frame.pack(fill="x", pady=5, padx=5)
+        
+        # 确保按钮在通用设置之后
+        if btn_frame_index is not None:
+            self.btn_frame.pack_forget()
+            self.btn_frame.pack(pady=10)
     
     def load_user_list(self):
         """加载用户列表文件"""
