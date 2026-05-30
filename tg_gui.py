@@ -2291,17 +2291,20 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（合并拉人设置和通用设置） ====================
+    # ==================== 批量拉人页面（合并拉人设置和通用设置，固定布局不跳动） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
         
+        # 主容器
         main_container = ttk.Frame(page)
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
+        # 设置区域容器（可滚动）
         settings_container = ttk.Frame(main_container)
         settings_container.pack(fill="both", expand=True, pady=(0, 5))
         
+        # 可滚动画布
         settings_canvas = tk.Canvas(settings_container, highlightthickness=0)
         settings_scrollbar = ttk.Scrollbar(settings_container, orient="vertical", command=settings_canvas.yview)
         settings_frame = ttk.Frame(settings_canvas)
@@ -2312,9 +2315,9 @@ class TelegramFullGUI:
         
         canvas_window = settings_canvas.create_window((0, 0), window=settings_frame, anchor="nw", width=settings_canvas.winfo_width())
         
-        def on_settings_frame_configure(event):
+        def on_frame_configure(event):
             settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
-        settings_frame.bind("<Configure>", on_settings_frame_configure)
+        settings_frame.bind("<Configure>", on_frame_configure)
         
         def on_canvas_configure(event):
             settings_canvas.itemconfig(canvas_window, width=event.width)
@@ -2333,75 +2336,77 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # ===== 2. 合并的设置面板（拉人设置 + 通用设置） =====
-        self.settings_frame = ttk.LabelFrame(settings_frame, text="拉人设置")
-        self.settings_frame.pack(fill="x", pady=5, padx=5)
+        # ===== 2. 合并的设置面板 =====
+        self.settings_panel = ttk.LabelFrame(settings_frame, text="拉人设置")
+        self.settings_panel.pack(fill="x", pady=5, padx=5)
         
-        # 根据模式显示不同的目标输入区域
-        self.single_target_frame = ttk.Frame(self.settings_frame)
-        ttk.Label(self.single_target_frame, text="目标群组:").pack(side="left", padx=5)
-        self.single_target_group = ttk.Entry(self.single_target_frame, width=50)
+        # 单群模式目标输入
+        self.single_frame = ttk.Frame(self.settings_panel)
+        ttk.Label(self.single_frame, text="目标群组:").pack(side="left", padx=5)
+        self.single_target_group = ttk.Entry(self.single_frame, width=50)
         self.single_target_group.pack(side="left", padx=5)
-        ttk.Label(self.single_target_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        ttk.Label(self.single_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
         
-        self.multi_target_frame = ttk.Frame(self.settings_frame)
-        ttk.Label(self.multi_target_frame, text="目标群组列表（每行一个）:").pack(anchor="nw", padx=5, pady=5)
-        self.multi_target_groups = scrolledtext.ScrolledText(self.multi_target_frame, width=60, height=5)
+        # 多群模式目标输入
+        self.multi_frame = ttk.Frame(self.settings_panel)
+        ttk.Label(self.multi_frame, text="目标群组列表（每行一个）:").pack(anchor="nw", padx=5, pady=5)
+        self.multi_target_groups = scrolledtext.ScrolledText(self.multi_frame, width=60, height=5)
         self.multi_target_groups.pack(padx=5, pady=5)
-        ttk.Label(self.multi_target_frame, text="支持链接或ID，每行一个", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
-        ttk.Label(self.multi_target_frame, text="单账号拉群数:").pack(anchor="w", padx=5, pady=5)
-        self.multi_per_account_limit = ttk.Entry(self.multi_target_frame, width=15)
+        ttk.Label(self.multi_frame, text="支持链接或ID，每行一个", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
+        ttk.Label(self.multi_frame, text="单账号拉群数:").pack(anchor="w", padx=5, pady=5)
+        self.multi_per_account_limit = ttk.Entry(self.multi_frame, width=15)
         self.multi_per_account_limit.insert(0, "0")
         self.multi_per_account_limit.pack(anchor="w", padx=5)
-        ttk.Label(self.multi_target_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
+        ttk.Label(self.multi_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
         
-        self.admin_target_frame = ttk.Frame(self.settings_frame)
-        ttk.Label(self.admin_target_frame, text="目标群组或频道:").pack(side="left", padx=5)
-        self.admin_target_group = ttk.Entry(self.admin_target_frame, width=50)
+        # 管理员模式目标输入
+        self.admin_frame = ttk.Frame(self.settings_panel)
+        ttk.Label(self.admin_frame, text="目标群组或频道:").pack(side="left", padx=5)
+        self.admin_target_group = ttk.Entry(self.admin_frame, width=50)
         self.admin_target_group.pack(side="left", padx=5)
-        ttk.Label(self.admin_target_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
-        ttk.Label(self.admin_target_frame, text="单账号拉群数:").pack(anchor="w", padx=5, pady=5)
-        self.admin_per_account_limit = ttk.Entry(self.admin_target_frame, width=15)
+        ttk.Label(self.admin_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        ttk.Label(self.admin_frame, text="单账号拉群数:").pack(anchor="w", padx=5, pady=5)
+        self.admin_per_account_limit = ttk.Entry(self.admin_frame, width=15)
         self.admin_per_account_limit.insert(0, "0")
         self.admin_per_account_limit.pack(anchor="w", padx=5)
-        ttk.Label(self.admin_target_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
+        ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
         
-        # 默认显示单群目标输入
-        self.single_target_frame.pack(fill="x", pady=5)
-        self.multi_target_frame.pack_forget()
-        self.admin_target_frame.pack_forget()
+        # 默认显示单群模式，其他隐藏
+        self.single_frame.pack(fill="x", pady=5)
+        self.multi_frame.pack_forget()
+        self.admin_frame.pack_forget()
         
         # 分隔线
-        ttk.Separator(self.settings_frame, orient="horizontal").pack(fill="x", pady=10)
+        ttk.Separator(self.settings_panel, orient="horizontal").pack(fill="x", pady=10)
         
-        # 通用设置部分（合并到同一个面板内）
         # 用户列表文件
-        file_frame = ttk.Frame(self.settings_frame)
+        file_frame = ttk.Frame(self.settings_panel)
         file_frame.pack(fill="x", pady=5)
         ttk.Label(file_frame, text="选择用户列表文件:").pack(side="left", padx=5)
         self.user_list_file = ttk.Entry(file_frame, width=40)
         self.user_list_file.pack(side="left", padx=5)
         ttk.Button(file_frame, text="浏览", command=self.select_user_list_file, width=8).pack(side="left", padx=2)
         
-        # 账号分组筛选和账号多选
-        account_frame = ttk.Frame(self.settings_frame)
-        account_frame.pack(fill="x", pady=5)
-        
-        ttk.Label(account_frame, text="账号分组筛选:").pack(side="left", padx=5)
-        self.invite_group_filter = ttk.Combobox(account_frame, values=["全部"] + self.groups, width=15)
+        # 账号分组筛选
+        group_frame = ttk.Frame(self.settings_panel)
+        group_frame.pack(fill="x", pady=5)
+        ttk.Label(group_frame, text="账号分组筛选:").pack(side="left", padx=5)
+        self.invite_group_filter = ttk.Combobox(group_frame, values=["全部"] + self.groups, width=15)
         self.invite_group_filter.set("全部")
         self.invite_group_filter.pack(side="left", padx=5)
         self.invite_group_filter.bind("<<ComboboxSelected>>", self.refresh_invite_account_listbox)
         
-        ttk.Label(account_frame, text="选择账号（可多选）:").pack(side="left", padx=20)
+        # 账号多选
+        select_frame = ttk.Frame(self.settings_panel)
+        select_frame.pack(fill="x", pady=5)
+        ttk.Label(select_frame, text="选择账号（可多选）:").pack(side="left", padx=5)
         self.account_select_all_var = tk.BooleanVar()
-        ttk.Checkbutton(account_frame, text="全选", variable=self.account_select_all_var,
+        ttk.Checkbutton(select_frame, text="全选", variable=self.account_select_all_var,
                        command=lambda: self.toggle_listbox_select(self.invite_account_listbox, self.account_select_all_var)).pack(side="left", padx=5)
         
         # 账号列表
-        listbox_frame = ttk.Frame(self.settings_frame)
+        listbox_frame = ttk.Frame(self.settings_panel)
         listbox_frame.pack(fill="x", pady=5)
-        
         self.invite_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=4, exportselection=False)
         account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.invite_account_listbox.yview)
         self.invite_account_listbox.configure(yscrollcommand=account_scrollbar.set)
@@ -2409,7 +2414,7 @@ class TelegramFullGUI:
         account_scrollbar.pack(side="right", fill="y")
         
         # 拉人参数
-        param_frame = ttk.LabelFrame(self.settings_frame, text="拉人参数")
+        param_frame = ttk.LabelFrame(self.settings_panel, text="拉人参数")
         param_frame.pack(fill="x", pady=10)
         
         param_row1 = ttk.Frame(param_frame)
@@ -2455,10 +2460,8 @@ class TelegramFullGUI:
         # ===== 3. 按钮区域 =====
         btn_frame = ttk.Frame(settings_frame)
         btn_frame.pack(pady=10)
-        
         self.start_invite_btn = ttk.Button(btn_frame, text="开始拉人", command=self.start_invite_advanced, width=12)
         self.start_invite_btn.pack(side="left", padx=10)
-        
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
@@ -2509,16 +2512,16 @@ class TelegramFullGUI:
     def on_invite_mode_change(self):
         mode = self.invite_mode.get()
         
-        self.single_target_frame.pack_forget()
-        self.multi_target_frame.pack_forget()
-        self.admin_target_frame.pack_forget()
+        self.single_frame.pack_forget()
+        self.multi_frame.pack_forget()
+        self.admin_frame.pack_forget()
         
         if mode == "single":
-            self.single_target_frame.pack(fill="x", pady=5)
+            self.single_frame.pack(fill="x", pady=5)
         elif mode == "multi":
-            self.multi_target_frame.pack(fill="x", pady=5)
+            self.multi_frame.pack(fill="x", pady=5)
         else:
-            self.admin_target_frame.pack(fill="x", pady=5)
+            self.admin_frame.pack(fill="x", pady=5)
     
     def load_user_list(self):
         file_path = self.user_list_file.get().strip()
