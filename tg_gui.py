@@ -2322,7 +2322,7 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # 单群拉人设置面板
+        # 单群拉人设置面板（默认显示）
         self.single_frame = ttk.LabelFrame(main_frame, text="单群拉人设置")
         ttk.Label(self.single_frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.single_target_group = ttk.Entry(self.single_frame, width=50)
@@ -2427,8 +2427,10 @@ class TelegramFullGUI:
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 初始化显示/隐藏
-        self.on_invite_mode_change()
+        # 初始化显示/隐藏（先显示单群拉人设置）
+        self.single_frame.pack(fill="x", pady=5)
+        self.multi_frame.pack_forget()
+        self.admin_frame.pack_forget()
         
         # 拉人控制标志
         self.is_inviting = False
@@ -2458,7 +2460,7 @@ class TelegramFullGUI:
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
         
-        # 显示选中的模式面板（在通用设置上面）
+        # 显示选中的模式面板（在通用设置上面，即拉人模式选择之后、通用设置之前）
         if mode == "single":
             self.single_frame.pack(fill="x", pady=5)
         elif mode == "multi":
@@ -2652,7 +2654,8 @@ class TelegramFullGUI:
             # 检查总限制
             if per_account_limit > 0 and len(targets) > 0:
                 # 对于多群拉人模式，需要检查每个群组
-                for target in targets[:]:
+                temp_targets = targets.copy()
+                for target in temp_targets:
                     if group_invited_count[target] >= per_account_limit:
                         self.log("批量拉人", f"账号 {current_phone} 在群组 {target} 已达到拉群数限制 {per_account_limit}，跳过该群组")
                         targets.remove(target)
