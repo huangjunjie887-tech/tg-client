@@ -53,6 +53,8 @@ class TelegramFullGUI:
         self.running_tasks = {}
         self.log_widgets = {}
         self.is_paused = False
+        self.user_list_file_path = None  # 保存用户列表文件路径
+        self.user_list_lock = threading.Lock()  # 文件操作锁
         
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
@@ -145,6 +147,38 @@ class TelegramFullGUI:
                     acc['last_action'] = task_name
                 break
         self.refresh_account_list()
+    
+    def remove_user_from_file(self, username):
+        """从用户列表文件中删除已处理的用户名"""
+        if not self.user_list_file_path or not os.path.exists(self.user_list_file_path):
+            return False
+        
+        with self.user_list_lock:
+            try:
+                # 读取所有用户
+                with open(self.user_list_file_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                # 过滤掉已处理的用户名
+                clean_username = username.lstrip('@')
+                new_lines = []
+                removed = False
+                for line in lines:
+                    line_username = line.strip().lstrip('@')
+                    if line_username != clean_username:
+                        new_lines.append(line)
+                    else:
+                        removed = True
+                
+                # 写回文件
+                if removed:
+                    with open(self.user_list_file_path, 'w', encoding='utf-8') as f:
+                        f.writelines(new_lines)
+                    return True
+                return False
+            except Exception as e:
+                self.log("批量拉人", f"⚠️ 删除用户失败 {username}: {str(e)}")
+                return False
     
     def show_card_login(self):
         login_window = tk.Toplevel(self.root)
@@ -2264,7 +2298,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（增强版） ====================
+    # ==================== 批量拉人页面（增强版 - 带自动删除功能） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2358,6 +2392,7 @@ class TelegramFullGUI:
         self.user_list_file = ttk.Entry(file_frame, width=40)
         self.user_list_file.pack(side="left", padx=5)
         ttk.Button(file_frame, text="浏览", command=self.select_user_list_file, width=8).pack(side="left", padx=2)
+        ttk.Label(file_frame, text="⚠️ 执行后自动删除已处理的用户", font=("微软雅黑", 8), foreground="red").pack(side="left", padx=10)
         current_row += 1
         
         group_frame = ttk.Frame(self.settings_panel)
@@ -2394,11 +2429,11 @@ class TelegramFullGUI:
         param_row1.pack(fill="x", padx=5, pady=5)
         ttk.Label(param_row1, text="单账号每次拉人数:").pack(side="left", padx=5)
         self.invite_per_batch = ttk.Entry(param_row1, width=10)
-        self.invite_per_batch.insert(0, "5")
+        self.invite_per_batch.insert(0, "1")
         self.invite_per_batch.pack(side="left", padx=5)
         ttk.Label(param_row1, text="单账号最大拉人数:").pack(side="left", padx=20)
         self.invite_per_account_max = ttk.Entry(param_row1, width=10)
-        self.invite_per_account_max.insert(0, "0")
+        self.invite_per_account_max.insert(0, "3")
         self.invite_per_account_max.pack(side="left", padx=5)
         ttk.Label(param_row1, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
         
@@ -2411,18 +2446,18 @@ class TelegramFullGUI:
         ttk.Label(param_row2, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
         ttk.Label(param_row2, text="线程数:").pack(side="left", padx=20)
         self.thread_count = ttk.Entry(param_row2, width=10)
-        self.thread_count.insert(0, "1")
+        self.thread_count.insert(0, "2")
         self.thread_count.pack(side="left", padx=5)
         
         param_row3 = ttk.Frame(param_frame)
         param_row3.pack(fill="x", padx=5, pady=5)
         ttk.Label(param_row3, text="线程等待间隔（秒）:").pack(side="left", padx=5)
         self.thread_interval = ttk.Entry(param_row3, width=10)
-        self.thread_interval.insert(0, "1")
+        self.thread_interval.insert(0, "20")
         self.thread_interval.pack(side="left", padx=5)
         ttk.Label(param_row3, text="账号每次拉人间隔（秒）:").pack(side="left", padx=20)
         self.invite_interval = ttk.Entry(param_row3, width=10)
-        self.invite_interval.insert(0, "3")
+        self.invite_interval.insert(0, "20")
         self.invite_interval.pack(side="left", padx=5)
         
         param_row4 = ttk.Frame(param_frame)
@@ -2475,6 +2510,7 @@ class TelegramFullGUI:
         if file_path:
             self.user_list_file.delete(0, tk.END)
             self.user_list_file.insert(0, file_path)
+            self.user_list_file_path = file_path  # 保存文件路径
             self.log("批量拉人", f"选择用户列表文件: {file_path}")
     
     def on_invite_mode_change(self):
@@ -2497,6 +2533,7 @@ class TelegramFullGUI:
         if not os.path.exists(file_path):
             self.log("批量拉人", f"文件不存在: {file_path}")
             return None
+        self.user_list_file_path = file_path  # 保存文件路径
         users = []
         try:
             if file_path.endswith('.json'):
@@ -2524,16 +2561,19 @@ class TelegramFullGUI:
         if self.is_inviting:
             self.log("批量拉人", "拉人任务正在进行中")
             return
+        
         users = self.load_user_list()
         if not users:
             self.log("批量拉人", "请先选择有效的用户列表文件")
             self.show_centered_warning("提示", "请先选择有效的用户列表文件")
             return
+        
         selected_accounts = self.get_selected_invite_accounts()
         if not selected_accounts:
             self.log("批量拉人", "请至少选择一个账号")
             self.show_centered_warning("提示", "请至少选择一个账号")
             return
+        
         try:
             per_batch = int(self.invite_per_batch.get())
             per_account_max = int(self.invite_per_account_max.get())
@@ -2546,11 +2586,13 @@ class TelegramFullGUI:
             self.log("批量拉人", f"参数格式错误: {str(e)}")
             self.show_centered_warning("提示", "请检查参数格式")
             return
+        
         if per_batch <= 0:
             self.log("批量拉人", "单账号每次拉人数必须大于0")
             return
         if thread_cnt <= 0:
             thread_cnt = 1
+        
         mode = self.invite_mode.get()
         targets = []
         if mode == "single":
@@ -2580,15 +2622,27 @@ class TelegramFullGUI:
                 per_account_limit = int(self.admin_per_account_limit.get())
             except:
                 per_account_limit = 0
+        
         if total_limit > 0 and total_limit < len(users):
             users = users[:total_limit]
+        
+        # 计算每个账号分配的用户数量（轮流分配）
+        user_index = 0
+        account_users = [[] for _ in range(len(selected_accounts))]
+        while user_index < len(users):
+            for i in range(len(selected_accounts)):
+                if user_index >= len(users):
+                    break
+                account_users[i].append(users[user_index])
+                user_index += 1
+        
         self.log("批量拉人", f"========== 开始拉人任务 ==========")
         self.log("批量拉人", f"拉人模式: {mode}")
         self.log("批量拉人", f"目标: {targets}")
         self.log("批量拉人", f"用户数量: {len(users)}")
         self.log("批量拉人", f"使用账号数量: {len(selected_accounts)}")
-        for acc in selected_accounts:
-            self.log("批量拉人", f"  - {acc.get('phone')} ({acc.get('nickname')})")
+        for i, acc in enumerate(selected_accounts):
+            self.log("批量拉人", f"  - {acc.get('phone')} ({acc.get('nickname')}) 分配 {len(account_users[i])} 个用户")
         self.log("批量拉人", f"单账号每次拉人数: {per_batch}")
         self.log("批量拉人", f"单账号最大拉人数: {per_account_max if per_account_max > 0 else '不限制'}")
         self.log("批量拉人", f"总限制拉人数: {total_limit if total_limit > 0 else '不限制'}")
@@ -2596,35 +2650,45 @@ class TelegramFullGUI:
         self.log("批量拉人", f"线程等待间隔: {thread_wait}秒")
         self.log("批量拉人", f"账号每次拉人间隔: {invite_wait}秒")
         self.log("批量拉人", f"异常账号自动换号: {'是' if auto_switch else '否'}")
+        self.log("批量拉人", f"⚠️ 重要提示：每个用户执行后会自动从列表中删除")
         if per_account_limit > 0:
             self.log("批量拉人", f"单账号拉群数限制: {per_account_limit}")
+        
         self.is_inviting = True
         self.invite_stop_flag = False
+        
         for acc in selected_accounts:
             self.update_account_task(acc.get('phone'), "批量拉人", True)
+        
         def run_invite_task():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.run_invite_advanced_multi_accounts(selected_accounts, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch))
+            # 传入分配好的用户列表
+            loop.run_until_complete(self.run_invite_advanced_multi_accounts(
+                selected_accounts, account_users, targets, per_batch, per_account_max, 
+                per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch
+            ))
             loop.close()
             self.is_inviting = False
             for acc in selected_accounts:
                 self.update_account_task(acc.get('phone'), "", False)
                 self.update_account_task(acc.get('phone'), "批量拉人", False)
             self.log("批量拉人", "========== 拉人任务结束 ==========")
+        
         threading.Thread(target=run_invite_task, daemon=True).start()
     
-    async def run_invite_advanced_multi_accounts(self, accounts, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
-        total_users = len(users)
-        users_per_account = (total_users + len(accounts) - 1) // len(accounts)
+    async def run_invite_advanced_multi_accounts(self, accounts, account_users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
         tasks = []
         for i, acc in enumerate(accounts):
-            start_idx = i * users_per_account
-            end_idx = min(start_idx + users_per_account, total_users)
-            user_slice = users[start_idx:end_idx]
+            user_slice = account_users[i]
             if user_slice:
-                task = self.run_single_account_invite(acc, targets, user_slice, per_batch, per_account_max, per_account_limit, invite_wait)
+                task = self.run_single_account_invite(
+                    acc, targets, user_slice, per_batch, per_account_max, 
+                    per_account_limit, invite_wait
+                )
                 tasks.append(task)
+                # 添加延迟避免同时启动太多
+                await asyncio.sleep(1)
         await asyncio.gather(*tasks)
     
     async def invite_user_with_detailed_logging(self, client, phone, entity, username, stats, invite_wait):
@@ -2910,19 +2974,23 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone}] ❌ 无有效目标群组")
                 return
             
+            # 处理用户列表
             for i in range(0, len(users), per_batch):
                 if self.invite_stop_flag:
                     break
                 if per_account_max > 0 and account_invited_count >= per_account_max:
                     self.log("批量拉人", f"[{phone}] 📊 已达最大拉人数 {per_account_max}")
                     break
+                
                 batch_users = users[i:i+per_batch]
                 for target, entity in target_entities:
                     if self.invite_stop_flag:
                         break
                     if per_account_limit > 0 and group_invited_count[target] >= per_account_limit:
                         continue
+                    
                     self.log("批量拉人", f"[{phone}] 📤 向 {target} 拉人，本批 {len(batch_users)} 人")
+                    
                     for username in batch_users:
                         if self.invite_stop_flag:
                             break
@@ -2933,6 +3001,12 @@ class TelegramFullGUI:
                         )
                         
                         self.log("批量拉人", log_msg)
+                        
+                        # 无论成功还是失败，都从文件中删除该用户
+                        if self.remove_user_from_file(username):
+                            self.log("批量拉人", f"[{phone}] 🗑️ 已从列表中删除: {username}")
+                        else:
+                            self.log("批量拉人", f"[{phone}] ⚠️ 删除失败: {username}（可能已被删除）")
                         
                         if success:
                             account_invited_count += 1
@@ -3442,7 +3516,7 @@ class TelegramFullGUI:
             self.log("多账号管理", "配置已导入")
     
     def about(self):
-        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
+        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人（自动删除已处理用户）\n- 群发广告\n- 自动群聊\n- 话术配置")
 
 if __name__ == "__main__":
     from telethon import events
