@@ -1379,7 +1379,6 @@ class TelegramFullGUI:
         self.scrape_mode.set("获取全部成员(公开群)")
         self.scrape_mode.grid(row=3, column=1, padx=5, pady=5, columnspan=2)
         
-        # 子群链接列表（默认隐藏）
         self.sub_groups_label = ttk.Label(left_frame, text="子群链接列表(每行一个):")
         self.sub_groups_text = scrolledtext.ScrolledText(left_frame, width=40, height=4)
         
@@ -1436,13 +1435,10 @@ class TelegramFullGUI:
         
         self.start_btn = ttk.Button(btn_frame, text="开始采集", command=self.start_scrape, width=12)
         self.start_btn.pack(side="left", padx=5)
-        
         self.complete_btn = ttk.Button(btn_frame, text="完成采集", command=self.complete_scrape, width=12)
         self.complete_btn.pack(side="left", padx=5)
-        
         self.stop_btn = ttk.Button(btn_frame, text="停止", command=self.pause_scrape, width=12)
         self.stop_btn.pack(side="left", padx=5)
-        
         self.continue_btn = ttk.Button(btn_frame, text="继续", command=self.resume_scrape, width=12)
         self.continue_btn.pack(side="left", padx=5)
         
@@ -1601,23 +1597,15 @@ class TelegramFullGUI:
         
         for idx, info in enumerate(self.scraped_members):
             current_num = idx + 1
-            
             display_name = info.get('first_name', '') or info.get('username', '') or str(info.get('id', ''))
             if len(display_name) > 20:
                 display_name = display_name[:20] + "..."
-            
             is_bot = info.get('is_bot', False)
-            
             self.preview_tree.insert("", "end", values=(
-                current_num,
-                info.get('id', ''),
-                info.get('username', '')[:20] if info.get('username') else "-",
-                display_name,
-                info.get('online_status', '未知'),
-                "是" if info.get('is_admin', False) else "否",
-                "是" if is_bot else "否"
+                current_num, info.get('id', ''), info.get('username', '')[:20] if info.get('username') else "-",
+                display_name, info.get('online_status', '未知'),
+                "是" if info.get('is_admin', False) else "否", "是" if is_bot else "否"
             ))
-        
         total_count = len(self.scraped_members)
         self.scrape_stats.config(text=f"已采集: {total_count} 人")
         self.preview_tree.yview_moveto(1)
@@ -1625,7 +1613,6 @@ class TelegramFullGUI:
     def parse_group_link(self, link):
         topic_id = None
         group_username = None
-        
         if 't.me/' in link:
             clean_link = link.replace('https://', '').replace('http://', '')
             path = clean_link.split('t.me/')[-1].strip('/')
@@ -1639,7 +1626,6 @@ class TelegramFullGUI:
             group_username = link.split('/')[-1]
         else:
             group_username = link
-        
         return group_username, topic_id
     
     def start_scrape(self):
@@ -1683,7 +1669,6 @@ class TelegramFullGUI:
             return
         
         os.makedirs(save_dir, exist_ok=True)
-        
         group_username, topic_id = self.parse_group_link(group)
         
         keywords_text = self.filter_keywords.get().strip()
@@ -2269,8 +2254,7 @@ class TelegramFullGUI:
                 if self.scraped_members:
                     is_stop = not self.is_scraping
                     self.save_scraped_members(group_username if group else "multi_groups", is_stop)
-                    self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", 
-                                                                       f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
+                    self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
                 else:
                     self.log("采集群成员", "没有采集到任何成员")
                 await client.disconnect()
@@ -2487,19 +2471,16 @@ class TelegramFullGUI:
     def refresh_invite_account_listbox(self, event=None):
         self.invite_account_listbox.delete(0, tk.END)
         filter_group = self.invite_group_filter.get()
-        
         for acc in self.accounts:
             if acc.get('status') == '正常':
                 if filter_group == "全部" or acc.get('group') == filter_group:
                     display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
                     self.invite_account_listbox.insert(tk.END, display_text)
-        
         self.account_select_all_var.set(False)
     
     def get_selected_invite_accounts(self):
         selected_indices = self.invite_account_listbox.curselection()
         selected_accounts = []
-        
         for idx in selected_indices:
             text = self.invite_account_listbox.get(idx)
             phone = text.split(" - ")[0]
@@ -2507,7 +2488,6 @@ class TelegramFullGUI:
                 if acc.get('phone') == phone and acc.get('status') == '正常':
                     selected_accounts.append(acc)
                     break
-        
         return selected_accounts
     
     def select_user_list_file(self):
@@ -2519,11 +2499,9 @@ class TelegramFullGUI:
     
     def on_invite_mode_change(self):
         mode = self.invite_mode.get()
-        
         self.single_frame.pack_forget()
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
-        
         if mode == "single":
             self.single_frame.pack(fill="x")
         elif mode == "multi":
@@ -2536,11 +2514,9 @@ class TelegramFullGUI:
         if not file_path:
             self.log("批量拉人", "请先选择用户列表文件")
             return None
-        
         if not os.path.exists(file_path):
             self.log("批量拉人", f"文件不存在: {file_path}")
             return None
-        
         users = []
         try:
             if file_path.endswith('.json'):
@@ -2568,19 +2544,16 @@ class TelegramFullGUI:
         if self.is_inviting:
             self.log("批量拉人", "拉人任务正在进行中")
             return
-        
         users = self.load_user_list()
         if not users:
             self.log("批量拉人", "请先选择有效的用户列表文件")
             self.show_centered_warning("提示", "请先选择有效的用户列表文件")
             return
-        
         selected_accounts = self.get_selected_invite_accounts()
         if not selected_accounts:
             self.log("批量拉人", "请至少选择一个账号")
             self.show_centered_warning("提示", "请至少选择一个账号")
             return
-        
         try:
             per_batch = int(self.invite_per_batch.get())
             per_account_max = int(self.invite_per_account_max.get())
@@ -2593,17 +2566,13 @@ class TelegramFullGUI:
             self.log("批量拉人", f"参数格式错误: {str(e)}")
             self.show_centered_warning("提示", "请检查参数格式")
             return
-        
         if per_batch <= 0:
             self.log("批量拉人", "单账号每次拉人数必须大于0")
             return
-        
         if thread_cnt <= 0:
             thread_cnt = 1
-        
         mode = self.invite_mode.get()
         targets = []
-        
         if mode == "single":
             target = self.single_target_group.get().strip()
             if not target:
@@ -2631,10 +2600,8 @@ class TelegramFullGUI:
                 per_account_limit = int(self.admin_per_account_limit.get())
             except:
                 per_account_limit = 0
-        
         if total_limit > 0 and total_limit < len(users):
             users = users[:total_limit]
-        
         self.log("批量拉人", f"========== 开始拉人任务 ==========")
         self.log("批量拉人", f"拉人模式: {mode}")
         self.log("批量拉人", f"目标: {targets}")
@@ -2651,13 +2618,10 @@ class TelegramFullGUI:
         self.log("批量拉人", f"异常账号自动换号: {'是' if auto_switch else '否'}")
         if per_account_limit > 0:
             self.log("批量拉人", f"单账号拉群数限制: {per_account_limit}")
-        
         self.is_inviting = True
         self.invite_stop_flag = False
-        
         for acc in selected_accounts:
             self.update_account_task(acc.get('phone'), "批量拉人", True)
-        
         def run_invite_task():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -2668,231 +2632,174 @@ class TelegramFullGUI:
                 self.update_account_task(acc.get('phone'), "", False)
                 self.update_account_task(acc.get('phone'), "批量拉人", False)
             self.log("批量拉人", "========== 拉人任务结束 ==========")
-        
         threading.Thread(target=run_invite_task, daemon=True).start()
     
     async def run_invite_advanced_multi_accounts(self, accounts, targets, users, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
         total_users = len(users)
         users_per_account = (total_users + len(accounts) - 1) // len(accounts)
-        
         tasks = []
         for i, acc in enumerate(accounts):
             start_idx = i * users_per_account
             end_idx = min(start_idx + users_per_account, total_users)
             user_slice = users[start_idx:end_idx]
-            
             if user_slice:
                 task = self.run_single_account_invite(acc, targets, user_slice, per_batch, per_account_max, per_account_limit, invite_wait)
                 tasks.append(task)
-        
         await asyncio.gather(*tasks)
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
-    """单个账号拉人 - 完整检测：用户名有效性、是否已在群、隐私设置、账号权限、账号限制"""
-    from telethon.tl.functions.channels import InviteToChannelRequest
-    from telethon.tl.functions.messages import ImportChatInviteRequest
-    from telethon.errors import (
-        UserAlreadyParticipantError, UserPrivacyRestrictedError, FloodWaitError,
-        PeerFloodError, UsernameInvalidError, UserInvalidError
-    )
-    
-    phone = acc.get('phone', '')
-    session_path = acc.get('session_path', '')
-    api_id, api_hash = self.get_account_api_credentials(acc)
-    
-    client = None
-    account_invited_count = 0
-    group_invited_count = {target: 0 for target in targets}
-    
-    # 统计各种失败原因
-    stats = {
-        "success": 0,
-        "already_in_group": 0,
-        "user_not_exist": 0,
-        "privacy_restricted": 0,
-        "flood_wait": 0,
-        "other_error": 0
-    }
-    
-    try:
-        client = TelegramClient(session_path, api_id, api_hash)
-        await client.connect()
+        from telethon.tl.functions.channels import InviteToChannelRequest
+        from telethon.tl.functions.messages import ImportChatInviteRequest
+        from telethon.errors import (
+            UserAlreadyParticipantError, UserPrivacyRestrictedError, FloodWaitError,
+            PeerFloodError, UsernameInvalidError, UserInvalidError
+        )
         
-        if not await client.is_user_authorized():
-            self.log("批量拉人", f"[{phone}] 账号未登录")
-            return
+        phone = acc.get('phone', '')
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
         
-        # 解析目标群组实体并自动加入
-        target_entities = []
-        for target in targets:
-            try:
-                entity = None
-                
-                if 't.me/' in target:
-                    if '/+' in target or '/joinchat/' in target:
-                        self.log("批量拉人", f"[{phone}] 检测到邀请链接，正在加入群组: {target}")
-                        
-                        if '/+' in target:
-                            invite_hash = target.split('/+')[-1].split('?')[0]
+        client = None
+        account_invited_count = 0
+        group_invited_count = {target: 0 for target in targets}
+        
+        stats = {"success": 0, "already_in_group": 0, "user_not_exist": 0, "privacy_restricted": 0, "flood_wait": 0, "other_error": 0}
+        
+        try:
+            client = TelegramClient(session_path, api_id, api_hash)
+            await client.connect()
+            if not await client.is_user_authorized():
+                self.log("批量拉人", f"[{phone}] 账号未登录")
+                return
+            
+            target_entities = []
+            for target in targets:
+                try:
+                    entity = None
+                    if 't.me/' in target:
+                        if '/+' in target or '/joinchat/' in target:
+                            self.log("批量拉人", f"[{phone}] 检测到邀请链接，正在加入群组: {target}")
+                            if '/+' in target:
+                                invite_hash = target.split('/+')[-1].split('?')[0]
+                            else:
+                                invite_hash = target.split('/joinchat/')[-1].split('?')[0]
+                            try:
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                if result.chats:
+                                    entity = result.chats[0]
+                                    self.log("批量拉人", f"[{phone}] 成功加入群组: {getattr(entity, 'title', target)}")
+                            except UserAlreadyParticipantError:
+                                self.log("批量拉人", f"[{phone}] 已经是群组成员")
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
+                            except FloodWaitError as e:
+                                self.log("批量拉人", f"[{phone}] 加入群组被限制，等待{e.seconds}秒")
+                                await asyncio.sleep(e.seconds)
+                            except Exception as e:
+                                self.log("批量拉人", f"[{phone}] 加入群组失败: {str(e)[:80]}")
+                            if not entity:
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
                         else:
-                            invite_hash = target.split('/joinchat/')[-1].split('?')[0]
-                        
-                        try:
-                            result = await client(ImportChatInviteRequest(invite_hash))
-                            if result.chats:
-                                entity = result.chats[0]
-                                self.log("批量拉人", f"[{phone}] 成功加入群组: {getattr(entity, 'title', target)}")
-                        except UserAlreadyParticipantError:
-                            self.log("批量拉人", f"[{phone}] 已经是群组成员")
-                            try:
-                                entity = await client.get_entity(target)
-                            except:
-                                pass
-                        except FloodWaitError as e:
-                            self.log("批量拉人", f"[{phone}] 加入群组被限制，等待{e.seconds}秒")
-                            await asyncio.sleep(e.seconds)
-                        except Exception as e:
-                            self.log("批量拉人", f"[{phone}] 加入群组失败: {str(e)[:80]}")
-                        
-                        if not entity:
-                            try:
-                                entity = await client.get_entity(target)
-                            except:
-                                pass
+                            target_username = target.split('t.me/')[-1]
+                            entity = await client.get_entity(target_username)
+                    elif target.isdigit():
+                        entity = await client.get_entity(int(target))
                     else:
-                        target_username = target.split('t.me/')[-1]
-                        entity = await client.get_entity(target_username)
-                elif target.isdigit():
-                    entity = await client.get_entity(int(target))
-                else:
-                    entity = await client.get_entity(target)
-                
-                if entity:
-                    target_entities.append((target, entity))
-                    self.log("批量拉人", f"[{phone}] 成功解析目标群组: {getattr(entity, 'title', target)}")
-                else:
-                    self.log("批量拉人", f"[{phone}] 无法解析目标群组: {target}")
-                    
-            except Exception as e:
-                self.log("批量拉人", f"[{phone}] 解析目标群组失败 {target}: {str(e)[:80]}")
-        
-        if not target_entities:
-            self.log("批量拉人", f"[{phone}] 没有有效的目标群组")
-            return
-        
-        for i in range(0, len(users), per_batch):
-            if self.invite_stop_flag:
-                break
+                        entity = await client.get_entity(target)
+                    if entity:
+                        target_entities.append((target, entity))
+                        self.log("批量拉人", f"[{phone}] 成功解析目标群组: {getattr(entity, 'title', target)}")
+                    else:
+                        self.log("批量拉人", f"[{phone}] 无法解析目标群组: {target}")
+                except Exception as e:
+                    self.log("批量拉人", f"[{phone}] 解析目标群组失败 {target}: {str(e)[:80]}")
             
-            if per_account_max > 0 and account_invited_count >= per_account_max:
-                self.log("批量拉人", f"[{phone}] 已达到最大拉人数 {per_account_max}")
-                break
+            if not target_entities:
+                self.log("批量拉人", f"[{phone}] 没有有效的目标群组")
+                return
             
-            batch_users = users[i:i+per_batch]
-            
-            for target, entity in target_entities:
+            for i in range(0, len(users), per_batch):
                 if self.invite_stop_flag:
                     break
-                
-                if per_account_limit > 0 and group_invited_count[target] >= per_account_limit:
-                    continue
-                
-                self.log("批量拉人", f"[{phone}] 正在向 {target} 拉人，本批次 {len(batch_users)} 人")
-                
-                for username in batch_users:
+                if per_account_max > 0 and account_invited_count >= per_account_max:
+                    self.log("批量拉人", f"[{phone}] 已达到最大拉人数 {per_account_max}")
+                    break
+                batch_users = users[i:i+per_batch]
+                for target, entity in target_entities:
                     if self.invite_stop_flag:
                         break
-                    
-                    try:
-                        clean_username = username
-                        if clean_username.startswith('@'):
-                            clean_username = clean_username[1:]
-                        
-                        # 1. 检查用户是否存在
+                    if per_account_limit > 0 and group_invited_count[target] >= per_account_limit:
+                        continue
+                    self.log("批量拉人", f"[{phone}] 正在向 {target} 拉人，本批次 {len(batch_users)} 人")
+                    for username in batch_users:
+                        if self.invite_stop_flag:
+                            break
                         try:
-                            user_entity = await client.get_entity(clean_username)
-                        except (UsernameInvalidError, UserInvalidError, ValueError) as e:
-                            self.log("批量拉人", f"[{phone}] ❌ 用户不存在: {username}")
-                            stats["user_not_exist"] += 1
-                            await asyncio.sleep(1)
-                            continue
-                        except Exception as e:
-                            self.log("批量拉人", f"[{phone}] ❌ 获取用户失败 {username}: {str(e)[:50]}")
-                            stats["other_error"] += 1
-                            await asyncio.sleep(1)
-                            continue
-                        
-                        # 2. 尝试邀请
-                        try:
-                            result = await client(InviteToChannelRequest(entity, [user_entity.id]))
-                            
-                            if result:
-                                self.log("批量拉人", f"[{phone}] ✅ 拉人成功: {username} -> {getattr(entity, 'title', target)}")
-                                stats["success"] += 1
+                            clean_username = username
+                            if clean_username.startswith('@'):
+                                clean_username = clean_username[1:]
+                            try:
+                                user_entity = await client.get_entity(clean_username)
+                            except (UsernameInvalidError, UserInvalidError, ValueError):
+                                self.log("批量拉人", f"[{phone}] ❌ 用户不存在: {username}")
+                                stats["user_not_exist"] += 1
+                                await asyncio.sleep(1)
+                                continue
+                            except Exception as e:
+                                self.log("批量拉人", f"[{phone}] ❌ 获取用户失败 {username}: {str(e)[:50]}")
+                                stats["other_error"] += 1
+                                await asyncio.sleep(1)
+                                continue
+                            try:
+                                result = await client(InviteToChannelRequest(entity, [user_entity.id]))
+                                if result:
+                                    self.log("批量拉人", f"[{phone}] ✅ 拉人成功: {username} -> {getattr(entity, 'title', target)}")
+                                    stats["success"] += 1
+                                    account_invited_count += 1
+                                    group_invited_count[target] += 1
+                            except UserAlreadyParticipantError:
+                                self.log("批量拉人", f"[{phone}] ℹ️ {username} 已经是群成员")
+                                stats["already_in_group"] += 1
                                 account_invited_count += 1
                                 group_invited_count[target] += 1
-                            else:
-                                self.log("批量拉人", f"[{phone}] ⚠️ 邀请无响应: {username}")
-                                stats["other_error"] += 1
-                                
-                        except UserAlreadyParticipantError:
-                            self.log("批量拉人", f"[{phone}] ℹ️ {username} 已经是群成员")
-                            stats["already_in_group"] += 1
-                            account_invited_count += 1
-                            group_invited_count[target] += 1
-                            
-                        except UserPrivacyRestrictedError:
-                            self.log("批量拉人", f"[{phone}] 🔒 {username} 隐私设置禁止被拉入群组")
-                            stats["privacy_restricted"] += 1
-                            
-                        except FloodWaitError as e:
-                            self.log("批量拉人", f"[{phone}] ⏰ 请求频繁，等待{e.seconds}秒")
-                            stats["flood_wait"] += 1
-                            await asyncio.sleep(e.seconds)
-                            
-                        except PeerFloodError:
-                            self.log("批量拉人", f"[{phone}] 🚫 账号被限制拉人，可能需要等待或更换账号")
-                            stats["other_error"] += 1
-                            break
-                            
-                        except Exception as e:
-                            error_msg = str(e)
-                            if "USER_PRIVACY_RESTRICTED" in error_msg:
-                                self.log("批量拉人", f"[{phone}] 🔒 {username} 隐私设置禁止被拉入")
+                            except UserPrivacyRestrictedError:
+                                self.log("批量拉人", f"[{phone}] 🔒 {username} 隐私设置禁止被拉入群组")
                                 stats["privacy_restricted"] += 1
-                            elif "USER_NOT_PARTICIPANT" in error_msg:
-                                self.log("批量拉人", f"[{phone}] ❌ 账号不在群组中，无法拉人")
-                                break
-                            else:
-                                self.log("批量拉人", f"[{phone}] ❌ 拉人失败 {username}: {error_msg[:80]}")
+                            except FloodWaitError as e:
+                                self.log("批量拉人", f"[{phone}] ⏰ 请求频繁，等待{e.seconds}秒")
+                                stats["flood_wait"] += 1
+                                await asyncio.sleep(e.seconds)
+                            except PeerFloodError:
+                                self.log("批量拉人", f"[{phone}] 🚫 账号被限制拉人，可能需要等待或更换账号")
                                 stats["other_error"] += 1
-                        
-                        await asyncio.sleep(invite_wait)
-                    
-                    except Exception as e:
-                        self.log("批量拉人", f"[{phone}] 处理用户 {username} 时出错: {str(e)[:80]}")
-                        await asyncio.sleep(1)
-                
-                # 输出本批次统计
-                batch_msg = (f"[{phone}] 向 {target} 拉人批次完成 - "
-                            f"成功:{stats['success']} 已在群:{stats['already_in_group']} "
-                            f"用户不存在:{stats['user_not_exist']} 隐私限制:{stats['privacy_restricted']} "
-                            f"频率限制:{stats['flood_wait']} 其他错误:{stats['other_error']}")
-                self.log("批量拉人", batch_msg)
-        
-        final_msg = (f"[{phone}] 拉人完成！总计拉取 {stats['success']} 人，"
-                    f"已在群 {stats['already_in_group']} 人，"
-                    f"失败 {stats['user_not_exist'] + stats['privacy_restricted'] + stats['flood_wait'] + stats['other_error']} 人")
-        self.log("批量拉人", final_msg)
-        
-    except Exception as e:
-        self.log("批量拉人", f"[{phone}] 拉人过程出错: {str(e)[:80]}")
-    finally:
-        if client:
-            try:
-                await client.disconnect()
-            except:
-                pass
+                                break
+                            except Exception as e:
+                                error_msg = str(e)
+                                if "USER_PRIVACY_RESTRICTED" in error_msg:
+                                    self.log("批量拉人", f"[{phone}] 🔒 {username} 隐私设置禁止被拉入")
+                                    stats["privacy_restricted"] += 1
+                                elif "USER_NOT_PARTICIPANT" in error_msg:
+                                    self.log("批量拉人", f"[{phone}] ❌ 账号不在群组中，无法拉人")
+                                    break
+                                else:
+                                    self.log("批量拉人", f"[{phone}] ❌ 拉人失败 {username}: {error_msg[:80]}")
+                                    stats["other_error"] += 1
+                            await asyncio.sleep(invite_wait)
+                    self.log("批量拉人", f"[{phone}] 向 {target} 拉人批次完成 - 成功:{stats['success']} 已在群:{stats['already_in_group']} 用户不存在:{stats['user_not_exist']} 隐私限制:{stats['privacy_restricted']} 频率限制:{stats['flood_wait']} 其他错误:{stats['other_error']}")
+            self.log("批量拉人", f"[{phone}] 拉人完成！总计拉取 {stats['success']} 人，已在群 {stats['already_in_group']} 人，失败 {stats['user_not_exist'] + stats['privacy_restricted'] + stats['flood_wait'] + stats['other_error']} 人")
+        except Exception as e:
+            self.log("批量拉人", f"[{phone}] 拉人过程出错: {str(e)[:80]}")
+        finally:
+            if client:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
     
     def stop_invite(self):
         if self.is_inviting:
@@ -2952,36 +2859,28 @@ class TelegramFullGUI:
         ad_content = self.ad_text.get("1.0", tk.END).strip()
         account_phone = self.send_account.get()
         delay = int(self.send_delay.get())
-        
         if not ad_content:
             self.log("群发广告", "请输入广告词")
             return
-        
         save_dir = self.save_path.get().strip()
         if not save_dir:
             self.log("群发广告", "请先在采集页面选择保存目录")
             self.show_centered_warning("提示", "请先在采集页面选择保存目录")
             return
-        
         if os.path.exists(save_dir):
             json_files = [f for f in os.listdir(save_dir) if f.startswith("members_") and f.endswith(".json")]
         else:
             json_files = []
-        
         if not json_files:
             self.log("群发广告", "请先采集群成员")
             self.show_centered_warning("提示", "请先采集群成员")
             return
-        
         latest_file = max(json_files, key=lambda f: os.path.getmtime(os.path.join(save_dir, f)))
         with open(os.path.join(save_dir, latest_file), "r", encoding="utf-8") as f:
             usernames = json.load(f)
-        
         self.log("群发广告", f"开始群发: {len(usernames)} 个用户, 间隔: {delay}秒")
-        
         if account_phone != "全部账号":
             self.update_account_task(account_phone, "群发广告", True)
-        
         async def do_send():
             client = None
             try:
@@ -3046,13 +2945,11 @@ class TelegramFullGUI:
                         await client.disconnect()
                     except:
                         pass
-        
         def run_send():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(do_send())
             loop.close()
-        
         threading.Thread(target=run_send, daemon=True).start()
     
     # ==================== 自动群聊页面 ====================
@@ -3110,20 +3007,17 @@ class TelegramFullGUI:
         account_phone = self.chat_account.get()
         interval = int(self.chat_interval.get())
         daily_limit = int(self.chat_daily.get())
-        
         if not group:
             self.log("自动群聊", "请输入目标群组")
             return
         if not account_phone:
             self.log("自动群聊", "请选择账号")
             return
-        
         acc = None
         for a in self.accounts:
             if a.get('phone') == account_phone:
                 acc = a
                 break
-        
         if not acc:
             self.log("自动群聊", "未找到账号")
             return
@@ -3131,26 +3025,21 @@ class TelegramFullGUI:
             self.log("自动群聊", "请先登录账号")
             self.show_centered_warning("提示", "请先登录账号")
             return
-        
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
-        
         self.log("自动群聊", f"启动炒群: {group} 使用账号: {account_phone}")
         self.running_tasks['chat'] = True
         self.update_account_task(account_phone, "自动群聊", True)
-        
         scripts = []
         if os.path.exists("scripts.txt"):
             with open("scripts.txt", "r", encoding="utf-8") as f:
                 scripts = [line.strip() for line in f if line.strip()]
         if not scripts:
             scripts = ["Hello!", "Good morning!", "Nice to meet you!"]
-        
         keywords = {}
         if os.path.exists("keywords.json"):
             with open("keywords.json", "r") as f:
                 keywords = json.load(f)
-        
         async def do_chat():
             from telethon import events
             client = None
@@ -3165,7 +3054,6 @@ class TelegramFullGUI:
                     entity = await client.get_entity(group_username)
                 else:
                     entity = await client.get_entity(int(group))
-                
                 @client.on(events.NewMessage(chats=entity))
                 async def handle_reply(event):
                     if not self.running_tasks.get('chat', False):
@@ -3176,7 +3064,6 @@ class TelegramFullGUI:
                             await event.reply(reply)
                             self.log("自动群聊", f"自动回复: {reply[:30]}...")
                             break
-                
                 async def auto_speak():
                     import random
                     count = 0
@@ -3186,7 +3073,6 @@ class TelegramFullGUI:
                         self.log("自动群聊", f"自动发言: {script[:30]}...")
                         count += 1
                         await asyncio.sleep(interval)
-                
                 asyncio.create_task(auto_speak())
                 await client.run_until_disconnected()
             except Exception as e:
@@ -3197,7 +3083,6 @@ class TelegramFullGUI:
                         await client.disconnect()
                     except:
                         pass
-        
         def run_chat():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -3205,7 +3090,6 @@ class TelegramFullGUI:
             loop.close()
             self.update_account_task(account_phone, "", False)
             self.update_account_task(account_phone, "自动群聊", False)
-        
         threading.Thread(target=run_chat, daemon=True).start()
     
     def stop_group_chat(self):
@@ -3236,35 +3120,27 @@ class TelegramFullGUI:
     def create_auto_register_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动注册账号")
-        
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        
         frame = ttk.LabelFrame(main_frame, text="注册设置")
         frame.pack(fill="x", pady=5)
-        
         ttk.Label(frame, text="接码平台API:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.sms_api = ttk.Entry(frame, width=50)
         self.sms_api.grid(row=0, column=1, padx=5, pady=5)
-        
         ttk.Label(frame, text="API Key:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.sms_key = ttk.Entry(frame, width=50, show="*")
         self.sms_key.grid(row=1, column=1, padx=5, pady=5)
-        
         ttk.Label(frame, text="注册数量:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.register_count = ttk.Entry(frame, width=10)
         self.register_count.insert(0, "10")
         self.register_count.grid(row=2, column=1, sticky="w", padx=5, pady=5)
-        
         ttk.Label(frame, text="保存路径:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
         self.save_path_register = ttk.Entry(frame, width=40)
         self.save_path_register.grid(row=3, column=1, sticky="w", padx=5, pady=5)
         ttk.Button(frame, text="浏览", command=self.select_register_path).grid(row=3, column=2, padx=5)
-        
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=4, column=0, columnspan=3, pady=10)
         ttk.Button(btn_frame, text="开始批量注册", command=self.start_register).pack()
-        
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["自动注册"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
@@ -3285,39 +3161,30 @@ class TelegramFullGUI:
     def create_monitor_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="监听群组")
-        
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        
         frame = ttk.LabelFrame(main_frame, text="监听设置")
         frame.pack(fill="x", pady=5)
-        
         ttk.Label(frame, text="选择监听账号:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.monitor_account = ttk.Combobox(frame, values=[a.get('phone', '') for a in self.accounts], width=30)
         self.monitor_account.grid(row=0, column=1, padx=5, pady=5)
-        
         ttk.Label(frame, text="监听群组列表(每行一个):").grid(row=1, column=0, sticky="nw", padx=5, pady=5)
         self.monitor_groups = scrolledtext.ScrolledText(frame, width=50, height=6)
         self.monitor_groups.grid(row=1, column=1, padx=5, pady=5)
-        
         ttk.Label(frame, text="触发动作:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.monitor_action = ttk.Combobox(frame, values=["私信", "拉入群组", "两者都做"], width=20)
         self.monitor_action.set("私信")
         self.monitor_action.grid(row=2, column=1, sticky="w", padx=5, pady=5)
-        
         ttk.Label(frame, text="目标群组(拉人用):").grid(row=3, column=0, sticky="w", padx=5, pady=5)
         self.monitor_target = ttk.Entry(frame, width=40)
         self.monitor_target.grid(row=3, column=1, padx=5, pady=5)
-        
         ttk.Label(frame, text="私信内容:").grid(row=4, column=0, sticky="nw", padx=5, pady=5)
         self.monitor_msg = scrolledtext.ScrolledText(frame, width=50, height=4)
         self.monitor_msg.grid(row=4, column=1, padx=5, pady=5)
-        
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="启动监听", command=self.start_monitor).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="停止监听", command=self.stop_monitor).pack(side="left", padx=5)
-        
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["监听群组"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
@@ -3335,23 +3202,17 @@ class TelegramFullGUI:
     def create_script_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="话术配置")
-        
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        
         frame = ttk.LabelFrame(main_frame, text="话术库")
         frame.pack(fill="both", expand=True, pady=5)
-        
         self.script_text = scrolledtext.ScrolledText(frame, width=80, height=15)
         self.script_text.pack(fill="both", expand=True, padx=5, pady=5)
-        
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", pady=5)
-        
         ttk.Button(btn_frame, text="导入TXT", command=self.import_script).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="保存配置", command=self.save_scripts).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="加载配置", command=self.load_scripts).pack(side="left", padx=5)
-        
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["话术配置"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
