@@ -23,7 +23,7 @@ from telethon.errors import (
     UserKickedError, UserBannedInChannelError, ChatAdminRequiredError,
     UserNotMutualContactError, ChatWriteForbiddenError, UserChannelsTooMuchError
 )
-from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest
+from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.tl.types import ChannelParticipantsSearch
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
@@ -53,8 +53,8 @@ class TelegramFullGUI:
         self.running_tasks = {}
         self.log_widgets = {}
         self.is_paused = False
-        self.user_list_file_path = None  # 保存用户列表文件路径
-        self.user_list_lock = threading.Lock()  # 文件操作锁
+        self.user_list_file_path = None
+        self.user_list_lock = threading.Lock()
         
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
@@ -149,17 +149,14 @@ class TelegramFullGUI:
         self.refresh_account_list()
     
     def remove_user_from_file(self, username):
-        """从用户列表文件中删除已处理的用户名"""
         if not self.user_list_file_path or not os.path.exists(self.user_list_file_path):
             return False
         
         with self.user_list_lock:
             try:
-                # 读取所有用户
                 with open(self.user_list_file_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 
-                # 过滤掉已处理的用户名
                 clean_username = username.lstrip('@')
                 new_lines = []
                 removed = False
@@ -170,7 +167,6 @@ class TelegramFullGUI:
                     else:
                         removed = True
                 
-                # 写回文件
                 if removed:
                     with open(self.user_list_file_path, 'w', encoding='utf-8') as f:
                         f.writelines(new_lines)
@@ -2298,7 +2294,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（增强版 - 带自动删除功能） ====================
+    # ==================== 批量拉人页面（增强版 - 带自动加入群组功能） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2510,7 +2506,7 @@ class TelegramFullGUI:
         if file_path:
             self.user_list_file.delete(0, tk.END)
             self.user_list_file.insert(0, file_path)
-            self.user_list_file_path = file_path  # 保存文件路径
+            self.user_list_file_path = file_path
             self.log("批量拉人", f"选择用户列表文件: {file_path}")
     
     def on_invite_mode_change(self):
@@ -2533,7 +2529,7 @@ class TelegramFullGUI:
         if not os.path.exists(file_path):
             self.log("批量拉人", f"文件不存在: {file_path}")
             return None
-        self.user_list_file_path = file_path  # 保存文件路径
+        self.user_list_file_path = file_path
         users = []
         try:
             if file_path.endswith('.json'):
@@ -2626,7 +2622,7 @@ class TelegramFullGUI:
         if total_limit > 0 and total_limit < len(users):
             users = users[:total_limit]
         
-        # 计算每个账号分配的用户数量（轮流分配）
+        # 轮流分配用户给每个账号
         user_index = 0
         account_users = [[] for _ in range(len(selected_accounts))]
         while user_index < len(users):
@@ -2663,7 +2659,6 @@ class TelegramFullGUI:
         def run_invite_task():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            # 传入分配好的用户列表
             loop.run_until_complete(self.run_invite_advanced_multi_accounts(
                 selected_accounts, account_users, targets, per_batch, per_account_max, 
                 per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch
@@ -2687,17 +2682,12 @@ class TelegramFullGUI:
                     per_account_limit, invite_wait
                 )
                 tasks.append(task)
-                # 添加延迟避免同时启动太多
                 await asyncio.sleep(1)
         await asyncio.gather(*tasks)
     
     async def invite_user_with_detailed_logging(self, client, phone, entity, username, stats, invite_wait):
-        """
-        邀请单个用户，返回详细的失败原因（增强版）
-        """
         clean_username = username.lstrip('@')
         
-        # ========== 步骤1：检查用户是否存在 ==========
         try:
             user_entity = await client.get_entity(clean_username)
         except UsernameInvalidError:
@@ -2713,17 +2703,14 @@ class TelegramFullGUI:
             stats["other_error"] += 1
             return False, f"[{phone}] ❌ 获取用户异常 {clean_username}: {str(e)[:80]}"
         
-        # 检查是否为已注销账号
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             stats["user_deleted"] += 1
             return False, f"[{phone}] 💀 用户已注销: {clean_username}（账号已删除）"
         
-        # 检查是否为机器人
         if hasattr(user_entity, 'bot') and user_entity.bot:
             stats["user_is_bot"] += 1
             return False, f"[{phone}] 🤖 用户是机器人: {clean_username}（无法邀请机器人）"
         
-        # ========== 步骤2：检查用户是否已在群中 ==========
         try:
             participants = await client(GetParticipantsRequest(
                 channel=entity,
@@ -2736,14 +2723,12 @@ class TelegramFullGUI:
                 stats["already_in_group"] += 1
                 return False, f"[{phone}] ℹ️ {clean_username} 已在群中（无需重复邀请）"
         except Exception:
-            pass  # 查询失败不影响后续邀请
+            pass
         
-        # ========== 步骤3：尝试邀请 ==========
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             await asyncio.sleep(1)
             
-            # 验证是否真的被邀请了
             try:
                 verify_participants = await client(GetParticipantsRequest(
                     channel=entity,
@@ -2762,7 +2747,6 @@ class TelegramFullGUI:
                 stats["verify_failed"] += 1
                 return False, f"[{phone}] ⚠️ 无法验证 {clean_username}: {str(verify_e)[:50]}"
         
-        # ========== 步骤4：详细错误分类 ==========
         except UserPrivacyRestrictedError:
             stats["user_privacy"] += 1
             return False, f"[{phone}] 🔒 {clean_username} 隐私设置禁止被拉入群组\n    └─ 原因: 用户在「设置->隐私与安全->群组」中设置为「我的联系人」或「没有人」\n    └─ 建议: 无法突破，请跳过此用户"
@@ -2830,7 +2814,6 @@ class TelegramFullGUI:
         except Exception as e:
             error_msg = str(e).lower()
             
-            # 更精细的错误分类
             if "banned" in error_msg or "deactivated" in error_msg:
                 stats["account_banned"] += 1
                 return False, f"[{phone}] 🚫 账号被封禁或限制: {str(e)[:100]}"
@@ -2860,7 +2843,7 @@ class TelegramFullGUI:
                 return False, f"[{phone}] ❌ 未知错误 {clean_username}: {str(e)[:100]}"
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
-        from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest
+        from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import (
             UserAlreadyParticipantError, UserPrivacyRestrictedError, FloodWaitError,
@@ -2879,30 +2862,14 @@ class TelegramFullGUI:
         account_invited_count = 0
         group_invited_count = {target: 0 for target in targets}
         
-        # 增强的统计字典
         stats = {
-            "success": 0,
-            "already_in_group": 0,
-            "user_not_exist": 0,
-            "user_deleted": 0,
-            "user_is_bot": 0,
-            "user_privacy": 0,
-            "user_not_mutual": 0,
-            "user_kicked": 0,
-            "user_banned": 0,
-            "user_channels_too_much": 0,
-            "account_flood": 0,
-            "account_peer_flood": 0,
-            "account_banned": 0,
-            "account_deactivated": 0,
-            "group_admin_needed": 0,
-            "group_invite_expired": 0,
-            "group_invite_invalid": 0,
-            "group_private": 0,
-            "group_invalid": 0,
-            "chat_write_forbidden": 0,
-            "verify_failed": 0,
-            "other_error": 0
+            "success": 0, "already_in_group": 0, "user_not_exist": 0,
+            "user_deleted": 0, "user_is_bot": 0, "user_privacy": 0,
+            "user_not_mutual": 0, "user_kicked": 0, "user_banned": 0,
+            "user_channels_too_much": 0, "account_flood": 0, "account_peer_flood": 0,
+            "account_banned": 0, "account_deactivated": 0, "group_admin_needed": 0,
+            "group_invite_expired": 0, "group_invite_invalid": 0, "group_private": 0,
+            "group_invalid": 0, "chat_write_forbidden": 0, "verify_failed": 0, "other_error": 0
         }
         
         try:
@@ -2912,60 +2879,81 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone}] ❌ 账号未登录")
                 return
             
-            # 解析目标群组实体并自动加入
             target_entities = []
             for target in targets:
                 try:
                     entity = None
-                    if 't.me/' in target:
-                        if '/+' in target or '/joinchat/' in target:
-                            self.log("批量拉人", f"[{phone}] 🔗 检测到邀请链接: {target}")
-                            if '/+' in target:
-                                invite_hash = target.split('/+')[-1].split('?')[0]
-                            else:
-                                invite_hash = target.split('/joinchat/')[-1].split('?')[0]
-                            try:
-                                result = await client(ImportChatInviteRequest(invite_hash))
-                                if result.chats:
-                                    entity = result.chats[0]
-                                    self.log("批量拉人", f"[{phone}] ✅ 成功加入群组: {getattr(entity, 'title', target)}")
-                            except UserAlreadyParticipantError:
-                                self.log("批量拉人", f"[{phone}] ℹ️ 已是群成员")
-                                try:
-                                    entity = await client.get_entity(target)
-                                except:
-                                    pass
-                            except InviteHashExpiredError:
-                                self.log("批量拉人", f"[{phone}] ❌ 邀请链接已过期")
-                                stats["group_invite_expired"] += 1
-                            except InviteHashInvalidError:
-                                self.log("批量拉人", f"[{phone}] ❌ 邀请链接无效")
-                                stats["group_invite_invalid"] += 1
-                            except FloodWaitError as e:
-                                self.log("批量拉人", f"[{phone}] ⏰ 加入群组被限制，等待{e.seconds}秒")
-                                await asyncio.sleep(e.seconds)
-                            except Exception as e:
-                                self.log("批量拉人", f"[{phone}] ❌ 加入群组失败: {str(e)[:80]}")
-                            if not entity:
-                                try:
-                                    entity = await client.get_entity(target)
-                                except:
-                                    pass
+                    
+                    if 't.me/+' in target or 't.me/joinchat' in target:
+                        self.log("批量拉人", f"[{phone}] 🔗 检测到邀请链接: {target}")
+                        if '/+' in target:
+                            invite_hash = target.split('/+')[-1].split('?')[0]
                         else:
-                            entity = await client.get_entity(target.split('t.me/')[-1])
-                    elif target.isdigit():
-                        entity = await client.get_entity(int(target))
+                            invite_hash = target.split('/joinchat/')[-1].split('?')[0]
+                        try:
+                            result = await client(ImportChatInviteRequest(invite_hash))
+                            if result.chats:
+                                entity = result.chats[0]
+                                self.log("批量拉人", f"[{phone}] ✅ 成功加入群组: {getattr(entity, 'title', target)}")
+                        except UserAlreadyParticipantError:
+                            self.log("批量拉人", f"[{phone}] ℹ️ 已是群成员")
+                            try:
+                                entity = await client.get_entity(target)
+                            except:
+                                pass
+                        except InviteHashExpiredError:
+                            self.log("批量拉人", f"[{phone}] ❌ 邀请链接已过期")
+                            stats["group_invite_expired"] += 1
+                        except InviteHashInvalidError:
+                            self.log("批量拉人", f"[{phone}] ❌ 邀请链接无效")
+                            stats["group_invite_invalid"] += 1
+                        except FloodWaitError as e:
+                            self.log("批量拉人", f"[{phone}] ⏰ 加入群组被限制，等待{e.seconds}秒")
+                            await asyncio.sleep(e.seconds)
+                        except Exception as e:
+                            self.log("批量拉人", f"[{phone}] ❌ 加入群组失败: {str(e)[:80]}")
+                        if not entity:
+                            try:
+                                entity = await client.get_entity(target)
+                            except:
+                                pass
                     else:
-                        entity = await client.get_entity(target)
+                        if 't.me/' in target:
+                            username = target.split('t.me/')[-1]
+                        elif target.isdigit():
+                            username = int(target)
+                        else:
+                            username = target
+                        
+                        entity = await client.get_entity(username)
+                        
+                        try:
+                            await client(GetParticipantsRequest(
+                                channel=entity,
+                                filter=ChannelParticipantsSearch(''),
+                                offset=0,
+                                limit=1,
+                                hash=0
+                            ))
+                            self.log("批量拉人", f"[{phone}] ℹ️ 已在群组中: {getattr(entity, 'title', target)}")
+                        except Exception as e:
+                            error_str = str(e)
+                            if "USER_NOT_PARTICIPANT" in error_str or "not in the chat" in error_str or "USER_NOT_PARTICIPANT" in error_str.upper():
+                                self.log("批量拉人", f"[{phone}] 🔗 账号不在群组中，正在尝试加入: {getattr(entity, 'title', target)}")
+                                try:
+                                    await client(JoinChannelRequest(entity))
+                                    self.log("批量拉人", f"[{phone}] ✅ 成功加入群组: {getattr(entity, 'title', target)}")
+                                    await asyncio.sleep(2)
+                                except Exception as join_err:
+                                    self.log("批量拉人", f"[{phone}] ❌ 加入群组失败: {str(join_err)[:80]}")
+                                    continue
+                            else:
+                                self.log("批量拉人", f"[{phone}] ❌ 无法访问群组: {error_str[:80]}")
+                                continue
+                    
                     if entity:
                         target_entities.append((target, entity))
                         self.log("批量拉人", f"[{phone}] ✅ 解析目标群组成功: {getattr(entity, 'title', target)}")
-                except ChannelPrivateError:
-                    self.log("批量拉人", f"[{phone}] ❌ 群组是私有的，无法访问")
-                    stats["group_private"] += 1
-                except ChannelInvalidError:
-                    self.log("批量拉人", f"[{phone}] ❌ 群组无效或不存在")
-                    stats["group_invalid"] += 1
                 except Exception as e:
                     self.log("批量拉人", f"[{phone}] ❌ 解析目标失败: {str(e)[:80]}")
                     stats["other_error"] += 1
@@ -2974,7 +2962,6 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone}] ❌ 无有效目标群组")
                 return
             
-            # 处理用户列表
             for i in range(0, len(users), per_batch):
                 if self.invite_stop_flag:
                     break
@@ -2995,14 +2982,12 @@ class TelegramFullGUI:
                         if self.invite_stop_flag:
                             break
                         
-                        # 使用增强版邀请函数
                         success, log_msg = await self.invite_user_with_detailed_logging(
                             client, phone, entity, username, stats, invite_wait
                         )
                         
                         self.log("批量拉人", log_msg)
                         
-                        # 无论成功还是失败，都从文件中删除该用户
                         if self.remove_user_from_file(username):
                             self.log("批量拉人", f"[{phone}] 🗑️ 已从列表中删除: {username}")
                         else:
@@ -3516,7 +3501,7 @@ class TelegramFullGUI:
             self.log("多账号管理", "配置已导入")
     
     def about(self):
-        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人（自动删除已处理用户）\n- 群发广告\n- 自动群聊\n- 话术配置")
+        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人（自动加入群组+自动删除已处理用户）\n- 群发广告\n- 自动群聊\n- 话术配置")
 
 if __name__ == "__main__":
     from telethon import events
