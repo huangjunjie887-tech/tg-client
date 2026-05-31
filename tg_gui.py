@@ -36,6 +36,7 @@ from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotos
 
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
+CONFIG_FILE = "tg_config.json"
 
 class TelegramFullGUI:
     def __init__(self, root):
@@ -60,6 +61,10 @@ class TelegramFullGUI:
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
         
         self.machine_id = self.get_machine_id()
+        
+        # 加载保存的配置
+        self.load_config()
+        
         self.show_card_login()
     
     def get_machine_id(self):
@@ -69,6 +74,53 @@ class TelegramFullGUI:
             return hashlib.md5(f"{mac}{hostname}".encode()).hexdigest()
         except:
             return hashlib.md5(platform.node().encode()).hexdigest()
+    
+    def save_config(self):
+        """保存配置到文件"""
+        try:
+            config = {
+                "accounts": [],
+                "proxies": self.proxies,
+                "groups": self.groups,
+                "proxy_groups": self.proxy_groups
+            }
+            
+            # 只保存账号的基本信息，不保存session路径（太大）
+            for acc in self.accounts:
+                config["accounts"].append({
+                    "phone": acc.get("phone", ""),
+                    "nickname": acc.get("nickname", ""),
+                    "group": acc.get("group", "默认分组"),
+                    "status": acc.get("status", ""),
+                    "register_time": acc.get("register_time", ""),
+                    "session_path": acc.get("session_path", ""),
+                    "json_path": acc.get("json_path", ""),
+                    "proxy": acc.get("proxy", "")
+                })
+            
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
+    
+    def load_config(self):
+        """加载配置文件"""
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                
+                self.accounts = config.get("accounts", [])
+                self.proxies = config.get("proxies", [])
+                self.groups = config.get("groups", ["默认分组"])
+                self.proxy_groups = config.get("proxy_groups", ["默认分组"])
+                
+                if not self.groups:
+                    self.groups = ["默认分组"]
+                if not self.proxy_groups:
+                    self.proxy_groups = ["默认分组"]
+        except Exception as e:
+            print(f"加载配置失败: {e}")
     
     def center_window(self, window, width, height):
         window.update_idletasks()
@@ -131,14 +183,7 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="否", command=on_no, width=10).pack(side="left", padx=20)
         return dialog
     
-    def log(self, page_name, msg, level="INFO"):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {msg}\n"
-        if page_name in self.log_widgets:
-            self.log_widgets[page_name].insert(tk.END, log_entry)
-            self.log_widgets[page_name].see(tk.END)
-    
-    def log_simple(self, page_name, msg):
+    def log(self, page_name, msg):
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] {msg}\n"
         if page_name in self.log_widgets:
@@ -180,7 +225,6 @@ class TelegramFullGUI:
                     return True
                 return False
             except Exception as e:
-                self.log_simple("批量拉人", f"⚠️ 删除失败 {username}: {str(e)}")
                 return False
     
     def show_card_login(self):
@@ -265,8 +309,24 @@ class TelegramFullGUI:
         
         self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 联系@Tian2547", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
+        
+        # 刷新分组筛选下拉框
+        self.refresh_invite_group_filter()
+        
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
+    
+    def refresh_invite_group_filter(self):
+        """刷新拉人页面的分组筛选下拉框"""
+        if hasattr(self, 'invite_group_filter'):
+            self.invite_group_filter['values'] = ["全部"] + self.groups
+            self.invite_group_filter.set("全部")
+        if hasattr(self, 'account_group_filter'):
+            self.account_group_filter['values'] = ["全部"] + self.groups
+            self.account_group_filter.set("全部")
+        if hasattr(self, 'proxy_group_filter'):
+            self.proxy_group_filter['values'] = ["全部"] + self.proxy_groups
+            self.proxy_group_filter.set("全部")
     
     def create_menu(self):
         menubar = tk.Menu(self.root)
@@ -277,10 +337,15 @@ class TelegramFullGUI:
         file_menu.add_command(label="导入配置", command=self.import_config)
         file_menu.add_separator()
         file_menu.add_command(label="卡密信息", command=self.show_card_info)
-        file_menu.add_command(label="退出", command=self.root.quit)
+        file_menu.add_command(label="退出", command=self.on_exit)
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="帮助", menu=help_menu)
         help_menu.add_command(label="关于", command=self.about)
+    
+    def on_exit(self):
+        """退出时保存配置"""
+        self.save_config()
+        self.root.quit()
     
     def show_card_info(self):
         if self.card_info:
@@ -349,6 +414,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="保存配置", command=self.save_config).pack(side="left", padx=2)
         
         frame = ttk.LabelFrame(main_frame, text="账号列表")
         frame.pack(fill="both", expand=True, pady=5)
@@ -689,6 +755,8 @@ class TelegramFullGUI:
             self.accounts[idx]['group'] = target_group
             self.refresh_account_list()
             refresh_account_combo()
+            self.refresh_invite_group_filter()
+            self.save_config()
             self.log("多账号管理", f"移动账号 {self.accounts[idx].get('phone')} 到分组「{target_group}」")
         
         def refresh_all():
@@ -709,6 +777,8 @@ class TelegramFullGUI:
             self.groups.append(name)
             listbox.insert(tk.END, name)
             name_entry.delete(0, tk.END)
+            self.refresh_invite_group_filter()
+            self.save_config()
             self.log("多账号管理", f"创建分组: {name}")
         elif name in self.groups:
             self.show_centered_error("错误", "分组已存在")
@@ -730,6 +800,8 @@ class TelegramFullGUI:
                 listbox.delete(selected[0])
                 listbox.insert(selected[0], new_name)
                 self.refresh_account_list()
+                self.refresh_invite_group_filter()
+                self.save_config()
                 self.log("多账号管理", f"重命名分组: {old_name} -> {new_name}")
                 name_entry.delete(0, tk.END)
     
@@ -747,6 +819,8 @@ class TelegramFullGUI:
                 self.groups.remove(group_name)
                 listbox.delete(selected[0])
                 self.refresh_account_list()
+                self.refresh_invite_group_filter()
+                self.save_config()
                 self.log("多账号管理", f"删除分组: {group_name}")
             self.show_centered_yesno("确认", f"确定删除分组「{group_name}」？账号将移至默认分组", do_delete)
     
@@ -850,6 +924,8 @@ class TelegramFullGUI:
         
         self.refresh_account_list()
         self.refresh_scrape_accounts()
+        self.refresh_invite_group_filter()
+        self.save_config()
         self.log("多账号管理", f"导入 {count} 个账号到分组「{target_group}」")
         if count > 0:
             self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
@@ -905,23 +981,23 @@ class TelegramFullGUI:
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"✅ {phone}: 登录成功 | 昵称: {nickname}")
+                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
                     await client.disconnect()
                     return True
                 else:
-                    self.log("多账号管理", f"❌ {phone}: session未授权")
+                    self.log("多账号管理", f"[{phone}] session未授权")
                     acc['status'] = '未授权'
                     return False
             except FloodWaitError as e:
-                self.log("多账号管理", f"⛔ {phone}: 被限制，需等待{e.seconds}秒")
+                self.log("多账号管理", f"[{phone}] 被限制，需等待{e.seconds}秒")
                 acc['status'] = f'限制({e.seconds}秒)'
                 return False
             except UserDeactivatedError:
-                self.log("多账号管理", f"💀 {phone}: 账号已注销")
+                self.log("多账号管理", f"[{phone}] 账号已注销")
                 acc['status'] = '销号'
                 return False
             except PhoneNumberBannedError:
-                self.log("多账号管理", f"🚫 {phone}: 账号已被封禁")
+                self.log("多账号管理", f"[{phone}] 账号已被封禁")
                 acc['status'] = '封禁'
                 return False
             except SessionPasswordNeededError:
@@ -931,17 +1007,17 @@ class TelegramFullGUI:
                         me = await client.get_me()
                         acc['nickname'] = me.first_name or phone
                         acc['status'] = '正常'
-                        self.log("多账号管理", f"✅ {phone}: 2FA登录成功")
+                        self.log("多账号管理", f"[{phone}] 2FA登录成功")
                         return True
                     except:
-                        self.log("多账号管理", f"❌ {phone}: 2FA密码错误")
+                        self.log("多账号管理", f"[{phone}] 2FA密码错误")
                         acc['status'] = '2FA错误'
                 else:
-                    self.log("多账号管理", f"🔐 {phone}: 需要2FA密码")
+                    self.log("多账号管理", f"[{phone}] 需要2FA密码")
                     acc['status'] = '需要2FA'
                 return False
             except Exception as e:
-                self.log("多账号管理", f"❌ {phone}: 登录失败 - {str(e)[:80]}")
+                self.log("多账号管理", f"[{phone}] 登录失败 - {str(e)[:80]}")
                 acc['status'] = '登录失败'
                 return False
             finally:
@@ -958,6 +1034,7 @@ class TelegramFullGUI:
         
         self.root.after(0, self.refresh_account_list)
         self.root.after(0, self.refresh_scrape_accounts)
+        self.save_config()
         return result
     
     def login_and_check_all(self):
@@ -975,6 +1052,7 @@ class TelegramFullGUI:
                 self.login_single_account(acc)
                 time.sleep(2)
             self.log("多账号管理", "登录检测完成")
+            self.save_config()
         
         threading.Thread(target=do_login, daemon=True).start()
     
@@ -998,6 +1076,8 @@ class TelegramFullGUI:
                     self.accounts.pop(idx)
                 self.refresh_account_list()
                 self.refresh_scrape_accounts()
+                self.refresh_invite_group_filter()
+                self.save_config()
                 self.log("多账号管理", f"删除 {len(selected)} 个选中账号")
             self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
     
@@ -1010,6 +1090,8 @@ class TelegramFullGUI:
                     self.accounts.pop(idx)
                 self.refresh_account_list()
                 self.refresh_scrape_accounts()
+                self.refresh_invite_group_filter()
+                self.save_config()
                 self.log("多账号管理", f"删除 {len(dead_indices)} 个已失效账号")
             self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已失效账号？", do_delete)
         else:
@@ -1036,6 +1118,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="检测所有代理", command=self.check_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="分配代理IP", command=self.assign_proxies_to_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="保存配置", command=self.save_config).pack(side="left", padx=2)
         
         frame = ttk.LabelFrame(main_frame, text="代理列表")
         frame.pack(fill="both", expand=True, pady=5)
@@ -1065,6 +1148,8 @@ class TelegramFullGUI:
         group_name = simpledialog.askstring("新建分组", "请输入分组名称:", parent=self.root)
         if group_name and group_name not in self.proxy_groups:
             self.proxy_groups.append(group_name)
+            self.refresh_invite_group_filter()
+            self.save_config()
             self.log("代理IP", f"创建代理分组: {group_name}")
         elif group_name in self.proxy_groups:
             self.show_centered_warning("提示", "分组已存在")
@@ -1094,9 +1179,9 @@ class TelegramFullGUI:
         right_frame.pack(side="right", fill="both", expand=True, padx=5)
         
         ttk.Label(left_frame, text="账号分组筛选:").pack(anchor="w", padx=5, pady=5)
-        account_group_filter = ttk.Combobox(left_frame, values=["全部"] + self.groups, width=20)
-        account_group_filter.set("全部")
-        account_group_filter.pack(fill="x", padx=5, pady=5)
+        self.account_group_filter = ttk.Combobox(left_frame, values=["全部"] + self.groups, width=20)
+        self.account_group_filter.set("全部")
+        self.account_group_filter.pack(fill="x", padx=5, pady=5)
         
         account_select_all_frame = ttk.Frame(left_frame)
         account_select_all_frame.pack(fill="x", padx=5, pady=5)
@@ -1111,9 +1196,9 @@ class TelegramFullGUI:
         account_scrollbar.pack(side="right", fill="y")
         
         ttk.Label(right_frame, text="代理分组筛选:").pack(anchor="w", padx=5, pady=5)
-        proxy_group_filter = ttk.Combobox(right_frame, values=["全部"] + self.proxy_groups, width=20)
-        proxy_group_filter.set("全部")
-        proxy_group_filter.pack(fill="x", padx=5, pady=5)
+        self.proxy_group_filter = ttk.Combobox(right_frame, values=["全部"] + self.proxy_groups, width=20)
+        self.proxy_group_filter.set("全部")
+        self.proxy_group_filter.pack(fill="x", padx=5, pady=5)
         
         proxy_select_all_frame = ttk.Frame(right_frame)
         proxy_select_all_frame.pack(fill="x", padx=5, pady=5)
@@ -1129,7 +1214,7 @@ class TelegramFullGUI:
         
         def refresh_account_list():
             account_listbox.delete(0, tk.END)
-            filter_group = account_group_filter.get()
+            filter_group = self.account_group_filter.get()
             for acc in self.accounts:
                 if acc.get('status') == '正常':
                     if filter_group == "全部" or acc.get('group') == filter_group:
@@ -1137,7 +1222,7 @@ class TelegramFullGUI:
         
         def refresh_proxy_list():
             proxy_listbox.delete(0, tk.END)
-            filter_group = proxy_group_filter.get()
+            filter_group = self.proxy_group_filter.get()
             for p in self.proxies:
                 p_group = p.get('group', '默认分组')
                 if filter_group == "全部" or p_group == filter_group:
@@ -1152,8 +1237,8 @@ class TelegramFullGUI:
             refresh_proxy_list()
             proxy_select_all_var.set(False)
         
-        account_group_filter.bind("<<ComboboxSelected>>", on_account_filter_change)
-        proxy_group_filter.bind("<<ComboboxSelected>>", on_proxy_filter_change)
+        self.account_group_filter.bind("<<ComboboxSelected>>", on_account_filter_change)
+        self.proxy_group_filter.bind("<<ComboboxSelected>>", on_proxy_filter_change)
         
         refresh_account_list()
         refresh_proxy_list()
@@ -1227,6 +1312,7 @@ class TelegramFullGUI:
             
             self.refresh_account_list()
             self.refresh_proxy_list()
+            self.save_config()
             self.log("代理IP", f"分配完成，共为 {len(selected_accounts)} 个账号分配代理")
             self.show_centered_info("完成", f"已为 {len(selected_accounts)} 个账号分配代理")
         
@@ -1317,6 +1403,7 @@ class TelegramFullGUI:
         
         self.refresh_proxy_list()
         self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
+        self.save_config()
         if added_count > 0:
             self.log("代理IP", f"导入完成，共导入 {added_count} 个代理")
             self.show_centered_info("导入完成", f"成功导入 {added_count} 个代理")
@@ -1332,6 +1419,7 @@ class TelegramFullGUI:
                 self.proxies.pop(idx)
             self.refresh_proxy_list()
             self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
+            self.save_config()
             self.log("代理IP", f"删除 {len(selected)} 个代理")
     
     def clear_all_proxies(self):
@@ -1340,6 +1428,7 @@ class TelegramFullGUI:
                 self.proxies.clear()
                 self.refresh_proxy_list()
                 self.proxy_count_label.config(text=f"代理数量: 0")
+                self.save_config()
                 self.log("代理IP", "清空所有代理")
             self.show_centered_yesno("确认", "确定要清空所有代理吗？", do_clear)
         else:
@@ -1366,14 +1455,14 @@ class TelegramFullGUI:
                     resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
                     elapsed = time.time() - start_time
                     if resp.status_code == 200:
-                        p['status'] = f"✅ 可用 ({elapsed:.1f}s) - IP: {resp.text}"
-                        self.log("代理IP", f"✅ {p.get('type')}://{proxy_str}: 可用")
+                        p['status'] = f"可用 ({elapsed:.1f}s) - IP: {resp.text}"
+                        self.log("代理IP", f"{p.get('type')}://{proxy_str}: 可用")
                     else:
-                        p['status'] = "❌ 不可用"
-                        self.log("代理IP", f"❌ {p.get('type')}://{proxy_str}: 不可用")
+                        p['status'] = "不可用"
+                        self.log("代理IP", f"{p.get('type')}://{proxy_str}: 不可用")
                 except Exception as e:
-                    p['status'] = f"❌ 不可用"
-                    self.log("代理IP", f"❌ {p.get('type')}://{proxy_str}: 不可用")
+                    p['status'] = f"不可用"
+                    self.log("代理IP", f"{p.get('type')}://{proxy_str}: 不可用")
                 self.root.after(0, self.refresh_proxy_list)
             self.log("代理IP", "代理检测完成")
         
@@ -2266,7 +2355,7 @@ class TelegramFullGUI:
                         self.root.after(0, lambda: self.batch_update_preview([]))
                 
                 self.scraped_members = all_results
-                self.log("采集群成员", f"⚡ 采集完成！累计 {total_count} 人")
+                self.log("采集群成员", f"采集完成！累计 {total_count} 人")
                 
                 if self.scraped_members:
                     is_stop = not self.is_scraping
@@ -2390,7 +2479,7 @@ class TelegramFullGUI:
         self.user_list_file = ttk.Entry(file_frame, width=40)
         self.user_list_file.pack(side="left", padx=5)
         ttk.Button(file_frame, text="浏览", command=self.select_user_list_file, width=8).pack(side="left", padx=2)
-        ttk.Label(file_frame, text="⚠️ 执行后自动删除已处理的用户", font=("微软雅黑", 8), foreground="red").pack(side="left", padx=10)
+        ttk.Label(file_frame, text="执行后自动删除已处理的用户", font=("微软雅黑", 8), foreground="red").pack(side="left", padx=10)
         current_row += 1
         
         group_frame = ttk.Frame(self.settings_panel)
@@ -2509,7 +2598,7 @@ class TelegramFullGUI:
             self.user_list_file.delete(0, tk.END)
             self.user_list_file.insert(0, file_path)
             self.user_list_file_path = file_path
-            self.log_simple("批量拉人", f"选择文件: {os.path.basename(file_path)}")
+            self.log("批量拉人", f"选择文件: {os.path.basename(file_path)}")
     
     def on_invite_mode_change(self):
         mode = self.invite_mode.get()
@@ -2526,10 +2615,10 @@ class TelegramFullGUI:
     def load_user_list(self):
         file_path = self.user_list_file.get().strip()
         if not file_path:
-            self.log_simple("批量拉人", "请先选择用户列表文件")
+            self.log("批量拉人", "请先选择用户列表文件")
             return None
         if not os.path.exists(file_path):
-            self.log_simple("批量拉人", f"文件不存在: {file_path}")
+            self.log("批量拉人", f"文件不存在: {file_path}")
             return None
         self.user_list_file_path = file_path
         users = []
@@ -2549,26 +2638,26 @@ class TelegramFullGUI:
                             if username.startswith('@'):
                                 username = username[1:]
                             users.append(username)
-            self.log_simple("批量拉人", f"加载用户: {len(users)} 个")
+            self.log("批量拉人", f"加载用户: {len(users)} 个")
             return users
         except Exception as e:
-            self.log_simple("批量拉人", f"加载失败: {str(e)}")
+            self.log("批量拉人", f"加载失败: {str(e)}")
             return None
     
     def start_invite_advanced(self):
         if self.is_inviting:
-            self.log_simple("批量拉人", "任务进行中")
+            self.log("批量拉人", "任务进行中")
             return
         
         users = self.load_user_list()
         if not users:
-            self.log_simple("批量拉人", "请先选择用户列表文件")
+            self.log("批量拉人", "请先选择用户列表文件")
             self.show_centered_warning("提示", "请先选择用户列表文件")
             return
         
         selected_accounts = self.get_selected_invite_accounts()
         if not selected_accounts:
-            self.log_simple("批量拉人", "请至少选择一个账号")
+            self.log("批量拉人", "请至少选择一个账号")
             self.show_centered_warning("提示", "请至少选择一个账号")
             return
         
@@ -2581,12 +2670,12 @@ class TelegramFullGUI:
             invite_wait = float(self.invite_interval.get())
             auto_switch = self.auto_switch_account.get()
         except ValueError as e:
-            self.log_simple("批量拉人", f"参数错误: {str(e)}")
+            self.log("批量拉人", f"参数错误: {str(e)}")
             self.show_centered_warning("提示", "请检查参数格式")
             return
         
         if per_batch <= 0:
-            self.log_simple("批量拉人", "每次拉人数必须大于0")
+            self.log("批量拉人", "每次拉人数必须大于0")
             return
         if thread_cnt <= 0:
             thread_cnt = 1
@@ -2596,14 +2685,14 @@ class TelegramFullGUI:
         if mode == "single":
             target = self.single_target_group.get().strip()
             if not target:
-                self.log_simple("批量拉人", "请输入目标群组")
+                self.log("批量拉人", "请输入目标群组")
                 return
             targets = [target]
             per_account_limit = 0
         elif mode == "multi":
             target_text = self.multi_target_groups.get().strip()
             if not target_text:
-                self.log_simple("批量拉人", "请输入目标群组列表")
+                self.log("批量拉人", "请输入目标群组列表")
                 return
             targets = [t.strip() for t in target_text.split(',') if t.strip()]
             try:
@@ -2613,7 +2702,7 @@ class TelegramFullGUI:
         else:
             target = self.admin_target_group.get().strip()
             if not target:
-                self.log_simple("批量拉人", "请输入目标群组或频道")
+                self.log("批量拉人", "请输入目标群组或频道")
                 return
             targets = [target]
             try:
@@ -2633,10 +2722,10 @@ class TelegramFullGUI:
                 account_users[i].append(users[user_index])
                 user_index += 1
         
-        self.log_simple("批量拉人", f"========== 开始拉人 ==========")
-        self.log_simple("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
+        self.log("批量拉人", f"========== 开始拉人 ==========")
+        self.log("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
         for i, acc in enumerate(selected_accounts):
-            self.log_simple("批量拉人", f"  [{acc.get('phone')[-6:]}] {acc.get('nickname')[:10]} → {len(account_users[i])}人")
+            self.log("批量拉人", f"  [{acc.get('phone')[-6:]}] {acc.get('nickname')[:10]} -> {len(account_users[i])}人")
         
         self.is_inviting = True
         self.invite_stop_flag = False
@@ -2656,7 +2745,7 @@ class TelegramFullGUI:
             for acc in selected_accounts:
                 self.update_account_task(acc.get('phone'), "", False)
                 self.update_account_task(acc.get('phone'), "批量拉人", False)
-            self.log_simple("批量拉人", f"========== 拉人结束 ==========")
+            self.log("批量拉人", f"========== 拉人结束 ==========")
         
         threading.Thread(target=run_invite_task, daemon=True).start()
     
@@ -2678,76 +2767,70 @@ class TelegramFullGUI:
         
         try:
             user_entity = await client.get_entity(clean_username)
-        except UsernameInvalidError:
+        except:
             stats["not_exist"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 用户不存在"
-        except ValueError:
-            stats["not_exist"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 用户不存在"
-        except Exception as e:
-            stats["other_error"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 获取失败"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 用户不存在"
         
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             stats["deleted"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 已注销"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 已注销"
         
         if hasattr(user_entity, 'bot') and user_entity.bot:
             stats["is_bot"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 机器人"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 机器人"
         
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             await asyncio.sleep(0.5)
             stats["success"] += 1
-            return True, f"[{phone[-6:]}] ✅ {clean_username[:15]}"
+            return True, f"[{phone[-6:]}] 成功 {clean_username[:15]}"
         except UserPrivacyRestrictedError:
             stats["privacy"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 隐私设置"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 隐私设置"
         except UserNotMutualContactError:
             stats["not_mutual"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 非双向联系人"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 非双向联系人"
         except UserAlreadyParticipantError:
             stats["already_in"] += 1
-            return False, f"[{phone[-6:]}] ⚠️ {clean_username[:15]} | 已在群"
+            return False, f"[{phone[-6:]}] 跳过 {clean_username[:15]} | 已在群"
         except UserKickedError:
             stats["kicked"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 曾被踢出"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 曾被踢出"
         except UserBannedInChannelError:
             stats["banned"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 被封禁"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 被封禁"
         except UserChannelsTooMuchError:
             stats["channels_full"] += 1
-            return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 群组已满"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 群组已满"
         except FloodWaitError as e:
             stats["flood"] += 1
-            return False, f"[{phone[-6:]}] ⏰ {clean_username[:15]} | 频率限制 {e.seconds}s"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 频率限制 {e.seconds}s"
         except PeerFloodError:
             stats["peer_flood"] += 1
-            return False, f"[{phone[-6:]}] 🚫 {clean_username[:15]} | 账号风控"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号风控"
         except ChatAdminRequiredError:
             stats["need_admin"] += 1
-            return False, f"[{phone[-6:]}] 👑 {clean_username[:15]} | 需管理员权限"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 需管理员权限"
         except ChatWriteForbiddenError:
             stats["no_permission"] += 1
-            return False, f"[{phone[-6:]}] ✍️ {clean_username[:15]} | 账号被禁言"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号被禁言"
         except PhoneNumberBannedError:
             stats["account_banned"] += 1
-            return False, f"[{phone[-6:]}] 🚫 {clean_username[:15]} | 账号已封禁"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号已封禁"
         except UserDeactivatedError:
             stats["account_deleted"] += 1
-            return False, f"[{phone[-6:]}] 💀 {clean_username[:15]} | 账号已注销"
+            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号已注销"
         except Exception as e:
             error_msg = str(e).lower()
             if "banned" in error_msg:
                 stats["account_banned"] += 1
-                return False, f"[{phone[-6:]}] 🚫 {clean_username[:15]} | 账号封禁"
+                return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号封禁"
             elif "flood" in error_msg:
                 stats["flood"] += 1
-                return False, f"[{phone[-6:]}] ⏰ {clean_username[:15]} | 频率限制"
+                return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 频率限制"
             else:
                 stats["other_error"] += 1
-                return False, f"[{phone[-6:]}] ❌ {clean_username[:15]} | 未知错误"
+                return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 未知错误"
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
         from telethon.tl.functions.channels import JoinChannelRequest
@@ -2773,7 +2856,7 @@ class TelegramFullGUI:
             client = TelegramClient(session_path, api_id, api_hash)
             await client.connect()
             if not await client.is_user_authorized():
-                self.log_simple("批量拉人", f"[{phone[-6:]}] ❌ 未登录")
+                self.log("批量拉人", f"[{phone[-6:]}] 未登录")
                 return
             
             target_entities = []
@@ -2790,15 +2873,15 @@ class TelegramFullGUI:
                             result = await client(ImportChatInviteRequest(invite_hash))
                             if result.chats:
                                 entity = result.chats[0]
-                                self.log_simple("批量拉人", f"[{phone[-6:]}] ✅ 加入群组")
+                                self.log("批量拉人", f"[{phone[-6:]}] 加入群组成功")
                         except UserAlreadyParticipantError:
-                            self.log_simple("批量拉人", f"[{phone[-6:]}] ℹ️ 已是成员")
+                            self.log("批量拉人", f"[{phone[-6:]}] 已是群成员")
                             try:
                                 entity = await client.get_entity(target)
                             except:
                                 pass
                         except Exception as e:
-                            self.log_simple("批量拉人", f"[{phone[-6:]}] ❌ 加入失败: {str(e)[:30]}")
+                            self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {str(e)[:30]}")
                         if not entity:
                             try:
                                 entity = await client.get_entity(target)
@@ -2814,31 +2897,31 @@ class TelegramFullGUI:
                         
                         entity = await client.get_entity(username)
                         
-                        self.log_simple("批量拉人", f"[{phone[-6:]}] 🔗 加入群组: {getattr(entity, 'title', target)[:20]}")
+                        self.log("批量拉人", f"[{phone[-6:]}] 加入群组: {getattr(entity, 'title', target)[:20]}")
                         try:
                             await client(JoinChannelRequest(entity))
-                            self.log_simple("批量拉人", f"[{phone[-6:]}] ✅ 加入成功")
+                            self.log("批量拉人", f"[{phone[-6:]}] 加入成功")
                             await asyncio.sleep(1)
                         except UserAlreadyParticipantError:
-                            self.log_simple("批量拉人", f"[{phone[-6:]}] ℹ️ 已是成员")
+                            self.log("批量拉人", f"[{phone[-6:]}] 已是成员")
                         except Exception as e:
-                            self.log_simple("批量拉人", f"[{phone[-6:]}] ❌ 加入失败: {str(e)[:30]}")
+                            self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {str(e)[:30]}")
                             continue
                     
                     if entity:
                         target_entities.append((target, entity))
                 except Exception as e:
-                    self.log_simple("批量拉人", f"[{phone[-6:]}] ❌ 解析失败: {str(e)[:30]}")
+                    self.log("批量拉人", f"[{phone[-6:]}] 解析失败: {str(e)[:30]}")
             
             if not target_entities:
-                self.log_simple("批量拉人", f"[{phone[-6:]}] ❌ 无有效目标")
+                self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
                 return
             
             for i in range(0, len(users), per_batch):
                 if self.invite_stop_flag:
                     break
                 if per_account_max > 0 and account_invited_count >= per_account_max:
-                    self.log_simple("批量拉人", f"[{phone[-6:]}] 📊 已达上限 {per_account_max}")
+                    self.log("批量拉人", f"[{phone[-6:]}] 已达上限 {per_account_max}")
                     break
                 
                 batch_users = users[i:i+per_batch]
@@ -2856,26 +2939,20 @@ class TelegramFullGUI:
                             client, phone, entity, username, stats
                         )
                         
-                        self.log_simple("批量拉人", log_msg)
+                        self.log("批量拉人", log_msg)
                         
-                        if self.remove_user_from_file(username):
-                            self.log_simple("批量拉人", f"[{phone[-6:]}] 🗑️ 已删除")
+                        self.remove_user_from_file(username)
                         
                         if success:
                             account_invited_count += 1
                         
                         await asyncio.sleep(invite_wait)
             
-            total_processed = (stats["success"] + stats["already_in"] + stats["not_exist"] + stats["deleted"] + 
-                              stats["is_bot"] + stats["privacy"] + stats["not_mutual"] + stats["kicked"] + 
-                              stats["banned"] + stats["channels_full"] + stats["flood"] + stats["peer_flood"] + 
-                              stats["need_admin"] + stats["no_permission"] + stats["account_banned"] + 
-                              stats["account_deleted"] + stats["other_error"])
-            
-            self.log_simple("批量拉人", f"[{phone[-6:]}] 📊 完成 | ✅成功:{stats['success']} | 🔒隐私:{stats['privacy']} | 🤝非双向:{stats['not_mutual']} | ❌不存在:{stats['not_exist']} | 🚫风控:{stats['peer_flood']} | 👑需管理:{stats['need_admin']} | 🗑️已删:{total_processed}")
+            total_processed = len(users)
+            self.log("批量拉人", f"[{phone[-6:]}] 完成 | 成功:{stats['success']} | 失败:{total_processed - stats['success']} | 处理:{total_processed}")
             
         except Exception as e:
-            self.log_simple("批量拉人", f"[{phone[-6:]}] 💥 异常: {str(e)[:50]}")
+            self.log("批量拉人", f"[{phone[-6:]}] 异常: {str(e)[:50]}")
         finally:
             if client:
                 await client.disconnect()
@@ -2883,9 +2960,9 @@ class TelegramFullGUI:
     def stop_invite(self):
         if self.is_inviting:
             self.invite_stop_flag = True
-            self.log_simple("批量拉人", "正在停止...")
+            self.log("批量拉人", "正在停止...")
         else:
-            self.log_simple("批量拉人", "无进行中的任务")
+            self.log("批量拉人", "无进行中的任务")
     
     # ==================== 群发广告页面 ====================
     def create_send_page(self):
@@ -3321,34 +3398,21 @@ class TelegramFullGUI:
             self.log("话术配置", "话术已加载")
     
     def export_config(self):
-        config = {
-            "accounts": [{"phone": a.get('phone'), "group": a.get('group'), "session_path": a.get('session_path'), "json_path": a.get('json_path')} for a in self.accounts],
-            "proxies": self.proxies,
-            "groups": self.groups,
-            "proxy_groups": self.proxy_groups
-        }
+        self.save_config()
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
         if file_path:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
+            shutil.copy(CONFIG_FILE, file_path)
             self.log("多账号管理", "配置已导出")
     
     def import_config(self):
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
         if file_path:
-            with open(file_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            self.accounts = config.get("accounts", [])
-            self.proxies = config.get("proxies", [])
-            self.groups = config.get("groups", ["默认分组"])
-            self.proxy_groups = config.get("proxy_groups", ["默认分组"])
-            if not self.groups:
-                self.groups = ["默认分组"]
-            if not self.proxy_groups:
-                self.proxy_groups = ["默认分组"]
+            shutil.copy(file_path, CONFIG_FILE)
+            self.load_config()
             self.refresh_account_list()
             self.refresh_proxy_list()
             self.refresh_scrape_accounts()
+            self.refresh_invite_group_filter()
             self.log("多账号管理", "配置已导入")
     
     def about(self):
