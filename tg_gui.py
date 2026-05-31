@@ -2291,7 +2291,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（合并拉人设置和通用设置，固定布局不跳动） ====================
+    # ==================== 批量拉人页面（固定布局，切换模式时目标群组位置不变） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2336,7 +2336,7 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # ===== 2. 合并的设置面板 =====
+        # ===== 2. 拉人设置面板（所有模式的输入框都在同一个固定容器中） =====
         self.settings_panel = ttk.LabelFrame(settings_frame, text="拉人设置")
         self.settings_panel.pack(fill="x", pady=5, padx=5)
         
@@ -2371,7 +2371,7 @@ class TelegramFullGUI:
         self.admin_per_account_limit.pack(anchor="w", padx=5)
         ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
         
-        # 默认显示单群模式，其他隐藏
+        # 默认显示单群模式
         self.single_frame.pack(fill="x", pady=5)
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
@@ -2510,17 +2510,20 @@ class TelegramFullGUI:
             self.log("批量拉人", f"选择用户列表文件: {file_path}")
     
     def on_invite_mode_change(self):
+        """切换拉人模式 - 只切换目标输入框的显示，位置固定不变"""
         mode = self.invite_mode.get()
         
+        # 隐藏所有目标输入框
         self.single_frame.pack_forget()
         self.multi_frame.pack_forget()
         self.admin_frame.pack_forget()
         
+        # 只显示当前模式对应的输入框（在固定位置显示）
         if mode == "single":
             self.single_frame.pack(fill="x", pady=5)
         elif mode == "multi":
             self.multi_frame.pack(fill="x", pady=5)
-        else:
+        else:  # admin
             self.admin_frame.pack(fill="x", pady=5)
     
     def load_user_list(self):
