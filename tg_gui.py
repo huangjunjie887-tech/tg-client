@@ -2624,7 +2624,8 @@ class TelegramFullGUI:
                 tasks.append(task)
         await asyncio.gather(*tasks)
     
-    async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
+        async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
+        """单个账号拉人 - 完整检测：用户名有效性、是否已在群、隐私设置、账号权限、账号限制"""
         from telethon.tl.functions.channels import InviteToChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import (
