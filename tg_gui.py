@@ -23,7 +23,7 @@ from telethon.errors import (
     UserKickedError, UserBannedInChannelError, ChatAdminRequiredError,
     UserNotMutualContactError, ChatWriteForbiddenError, UserChannelsTooMuchError
 )
-from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest
+from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest, GetFullChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.tl.types import ChannelParticipantsSearch
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
@@ -2294,7 +2294,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（增强版 - 带自动加入群组功能） ====================
+    # ==================== 批量拉人页面（增强版） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2843,7 +2843,7 @@ class TelegramFullGUI:
                 return False, f"[{phone}] ❌ 未知错误 {clean_username}: {str(e)[:100]}"
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
-        from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest
+        from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest, GetFullChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import (
             UserAlreadyParticipantError, UserPrivacyRestrictedError, FloodWaitError,
@@ -2927,14 +2927,9 @@ class TelegramFullGUI:
                         
                         entity = await client.get_entity(username)
                         
+                        # 使用 GetFullChannelRequest 更准确地检测是否在群组中
                         try:
-                            await client(GetParticipantsRequest(
-                                channel=entity,
-                                filter=ChannelParticipantsSearch(''),
-                                offset=0,
-                                limit=1,
-                                hash=0
-                            ))
+                            full_chat = await client(GetFullChannelRequest(entity))
                             self.log("批量拉人", f"[{phone}] ℹ️ 已在群组中: {getattr(entity, 'title', target)}")
                         except Exception as e:
                             error_str = str(e)
@@ -2944,6 +2939,8 @@ class TelegramFullGUI:
                                     await client(JoinChannelRequest(entity))
                                     self.log("批量拉人", f"[{phone}] ✅ 成功加入群组: {getattr(entity, 'title', target)}")
                                     await asyncio.sleep(2)
+                                except UserAlreadyParticipantError:
+                                    self.log("批量拉人", f"[{phone}] ℹ️ 已是群成员: {getattr(entity, 'title', target)}")
                                 except Exception as join_err:
                                     self.log("批量拉人", f"[{phone}] ❌ 加入群组失败: {str(join_err)[:80]}")
                                     continue
