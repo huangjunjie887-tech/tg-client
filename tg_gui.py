@@ -21,8 +21,9 @@ from telethon.errors import (
     PeerFloodError, InviteHashExpiredError, InviteHashInvalidError,
     ChannelInvalidError, ChannelPrivateError, UserInvalidError, UsernameInvalidError
 )
-from telethon.tl.functions.channels import InviteToChannelRequest
+from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
+from telethon.tl.types import ChannelParticipantsSearch
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
 from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message, InputPeerChannel, InputPhoto
 from telethon.tl.functions.users import GetFullUserRequest
@@ -2625,183 +2626,180 @@ class TelegramFullGUI:
         await asyncio.gather(*tasks)
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
-    from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest
-    from telethon.tl.functions.messages import ImportChatInviteRequest
-    from telethon.errors import UserAlreadyParticipantError, UserPrivacyRestrictedError, FloodWaitError, PeerFloodError, UsernameInvalidError, UserInvalidError
-    from telethon.tl.types import ChannelParticipantsSearch
-    
-    phone = acc.get('phone', '')
-    session_path = acc.get('session_path', '')
-    api_id, api_hash = self.get_account_api_credentials(acc)
-    
-    client = None
-    account_invited_count = 0
-    group_invited_count = {target: 0 for target in targets}
-    stats = {"success": 0, "already_in_group": 0, "user_not_exist": 0, "privacy_restricted": 0, "flood_wait": 0, "other_error": 0, "verify_failed": 0}
-    
-    try:
-        client = TelegramClient(session_path, api_id, api_hash)
-        await client.connect()
-        if not await client.is_user_authorized():
-            self.log("批量拉人", f"[{phone}] 账号未登录")
-            return
+        from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest
+        from telethon.tl.functions.messages import ImportChatInviteRequest
+        from telethon.errors import UserAlreadyParticipantError, UserPrivacyRestrictedError, FloodWaitError, PeerFloodError, UsernameInvalidError, UserInvalidError
+        from telethon.tl.types import ChannelParticipantsSearch
         
-        # 解析目标群组实体并自动加入
-        target_entities = []
-        for target in targets:
-            try:
-                entity = None
-                if 't.me/' in target:
-                    if '/+' in target or '/joinchat/' in target:
-                        self.log("批量拉人", f"[{phone}] 检测到邀请链接: {target}")
-                        if '/+' in target:
-                            invite_hash = target.split('/+')[-1].split('?')[0]
+        phone = acc.get('phone', '')
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
+        
+        client = None
+        account_invited_count = 0
+        group_invited_count = {target: 0 for target in targets}
+        stats = {"success": 0, "already_in_group": 0, "user_not_exist": 0, "privacy_restricted": 0, "flood_wait": 0, "other_error": 0, "verify_failed": 0}
+        
+        try:
+            client = TelegramClient(session_path, api_id, api_hash)
+            await client.connect()
+            if not await client.is_user_authorized():
+                self.log("批量拉人", f"[{phone}] 账号未登录")
+                return
+            
+            # 解析目标群组实体并自动加入
+            target_entities = []
+            for target in targets:
+                try:
+                    entity = None
+                    if 't.me/' in target:
+                        if '/+' in target or '/joinchat/' in target:
+                            self.log("批量拉人", f"[{phone}] 检测到邀请链接: {target}")
+                            if '/+' in target:
+                                invite_hash = target.split('/+')[-1].split('?')[0]
+                            else:
+                                invite_hash = target.split('/joinchat/')[-1].split('?')[0]
+                            try:
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                if result.chats:
+                                    entity = result.chats[0]
+                                    self.log("批量拉人", f"[{phone}] 成功加入群组: {getattr(entity, 'title', target)}")
+                            except UserAlreadyParticipantError:
+                                self.log("批量拉人", f"[{phone}] 已是群成员")
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
+                            except FloodWaitError as e:
+                                self.log("批量拉人", f"[{phone}] 加入群组被限制，等待{e.seconds}秒")
+                                await asyncio.sleep(e.seconds)
+                            except Exception as e:
+                                self.log("批量拉人", f"[{phone}] 加入群组失败: {str(e)[:80]}")
+                            if not entity:
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
                         else:
-                            invite_hash = target.split('/joinchat/')[-1].split('?')[0]
-                        try:
-                            result = await client(ImportChatInviteRequest(invite_hash))
-                            if result.chats:
-                                entity = result.chats[0]
-                                self.log("批量拉人", f"[{phone}] 成功加入群组: {getattr(entity, 'title', target)}")
-                        except UserAlreadyParticipantError:
-                            self.log("批量拉人", f"[{phone}] 已是群成员")
-                            try:
-                                entity = await client.get_entity(target)
-                            except:
-                                pass
-                        except FloodWaitError as e:
-                            self.log("批量拉人", f"[{phone}] 加入群组被限制，等待{e.seconds}秒")
-                            await asyncio.sleep(e.seconds)
-                        except Exception as e:
-                            self.log("批量拉人", f"[{phone}] 加入群组失败: {str(e)[:80]}")
-                        if not entity:
-                            try:
-                                entity = await client.get_entity(target)
-                            except:
-                                pass
+                            entity = await client.get_entity(target.split('t.me/')[-1])
+                    elif target.isdigit():
+                        entity = await client.get_entity(int(target))
                     else:
-                        entity = await client.get_entity(target.split('t.me/')[-1])
-                elif target.isdigit():
-                    entity = await client.get_entity(int(target))
-                else:
-                    entity = await client.get_entity(target)
-                if entity:
-                    target_entities.append((target, entity))
-                    self.log("批量拉人", f"[{phone}] 解析目标群组成功: {getattr(entity, 'title', target)}")
-            except Exception as e:
-                self.log("批量拉人", f"[{phone}] 解析目标失败: {str(e)[:80]}")
-        
-        if not target_entities:
-            self.log("批量拉人", f"[{phone}] 无有效目标群组")
-            return
-        
-        for i in range(0, len(users), per_batch):
-            if self.invite_stop_flag:
-                break
-            if per_account_max > 0 and account_invited_count >= per_account_max:
-                self.log("批量拉人", f"[{phone}] 已达最大拉人数 {per_account_max}")
-                break
-            batch_users = users[i:i+per_batch]
-            for target, entity in target_entities:
+                        entity = await client.get_entity(target)
+                    if entity:
+                        target_entities.append((target, entity))
+                        self.log("批量拉人", f"[{phone}] 解析目标群组成功: {getattr(entity, 'title', target)}")
+                except Exception as e:
+                    self.log("批量拉人", f"[{phone}] 解析目标失败: {str(e)[:80]}")
+            
+            if not target_entities:
+                self.log("批量拉人", f"[{phone}] 无有效目标群组")
+                return
+            
+            for i in range(0, len(users), per_batch):
                 if self.invite_stop_flag:
                     break
-                if per_account_limit > 0 and group_invited_count[target] >= per_account_limit:
-                    continue
-                self.log("批量拉人", f"[{phone}] 向 {target} 拉人，本批 {len(batch_users)} 人")
-                for username in batch_users:
+                if per_account_max > 0 and account_invited_count >= per_account_max:
+                    self.log("批量拉人", f"[{phone}] 已达最大拉人数 {per_account_max}")
+                    break
+                batch_users = users[i:i+per_batch]
+                for target, entity in target_entities:
                     if self.invite_stop_flag:
                         break
-                    clean_username = username.lstrip('@')
-                    try:
-                        user_entity = await client.get_entity(clean_username)
-                    except (UsernameInvalidError, UserInvalidError, ValueError):
-                        self.log("批量拉人", f"[{phone}] 用户不存在: {username}")
-                        stats["user_not_exist"] += 1
-                        await asyncio.sleep(1)
+                    if per_account_limit > 0 and group_invited_count[target] >= per_account_limit:
                         continue
-                    except Exception as e:
-                        self.log("批量拉人", f"[{phone}] 获取用户失败: {username} - {str(e)[:50]}")
-                        stats["other_error"] += 1
-                        await asyncio.sleep(1)
-                        continue
-                    
-                    # 先检查用户是否已经在群里
-                    try:
-                        # 尝试获取群组成员信息
-                        participants = await client(GetParticipantsRequest(
-                            channel=entity,
-                            filter=ChannelParticipantsSearch(user_entity.username or ''),
-                            offset=0,
-                            limit=1,
-                            hash=0
-                        ))
-                        if participants.users:
-                            self.log("批量拉人", f"[{phone}] {username} 已在群中（验证）")
-                            stats["already_in_group"] += 1
-                            account_invited_count += 1
-                            group_invited_count[target] += 1
+                    self.log("批量拉人", f"[{phone}] 向 {target} 拉人，本批 {len(batch_users)} 人")
+                    for username in batch_users:
+                        if self.invite_stop_flag:
+                            break
+                        clean_username = username.lstrip('@')
+                        try:
+                            user_entity = await client.get_entity(clean_username)
+                        except (UsernameInvalidError, UserInvalidError, ValueError):
+                            self.log("批量拉人", f"[{phone}] 用户不存在: {username}")
+                            stats["user_not_exist"] += 1
                             await asyncio.sleep(1)
                             continue
-                    except:
-                        pass
-                    
-                    # 尝试邀请
-                    try:
-                        await client(InviteToChannelRequest(entity, [user_entity.id]))
-                        # 等待1秒后验证
-                        await asyncio.sleep(1)
+                        except Exception as e:
+                            self.log("批量拉人", f"[{phone}] 获取用户失败: {username} - {str(e)[:50]}")
+                            stats["other_error"] += 1
+                            await asyncio.sleep(1)
+                            continue
                         
-                        # 验证是否真的被邀请了
+                        # 先检查用户是否已经在群里
                         try:
-                            verify_participants = await client(GetParticipantsRequest(
+                            participants = await client(GetParticipantsRequest(
                                 channel=entity,
                                 filter=ChannelParticipantsSearch(user_entity.username or ''),
                                 offset=0,
                                 limit=1,
                                 hash=0
                             ))
-                            if verify_participants.users:
-                                self.log("批量拉人", f"[{phone}] ✅ 验证成功: {username} 已在群中")
+                            if participants.users:
+                                self.log("批量拉人", f"[{phone}] {username} 已在群中（验证）")
+                                stats["already_in_group"] += 1
+                                account_invited_count += 1
+                                group_invited_count[target] += 1
+                                await asyncio.sleep(1)
+                                continue
+                        except:
+                            pass
+                        
+                        # 尝试邀请
+                        try:
+                            await client(InviteToChannelRequest(entity, [user_entity.id]))
+                            await asyncio.sleep(1)
+                            
+                            # 验证是否真的被邀请了
+                            try:
+                                verify_participants = await client(GetParticipantsRequest(
+                                    channel=entity,
+                                    filter=ChannelParticipantsSearch(user_entity.username or ''),
+                                    offset=0,
+                                    limit=1,
+                                    hash=0
+                                ))
+                                if verify_participants.users:
+                                    self.log("批量拉人", f"[{phone}] 验证成功: {username} 已在群中")
+                                    stats["success"] += 1
+                                    account_invited_count += 1
+                                    group_invited_count[target] += 1
+                                else:
+                                    self.log("批量拉人", f"[{phone}] 邀请成功但用户不在群中: {username}")
+                                    stats["verify_failed"] += 1
+                            except Exception as verify_e:
+                                self.log("批量拉人", f"[{phone}] 无法验证 {username}: {str(verify_e)[:50]}")
                                 stats["success"] += 1
                                 account_invited_count += 1
                                 group_invited_count[target] += 1
-                            else:
-                                self.log("批量拉人", f"[{phone}] ⚠️ 邀请成功但用户不在群中: {username}")
-                                stats["verify_failed"] += 1
-                        except Exception as verify_e:
-                            self.log("批量拉人", f"[{phone}] ⚠️ 无法验证 {username}: {str(verify_e)[:50]}")
-                            # 即使无法验证，也计为成功
-                            stats["success"] += 1
+                                
+                        except UserAlreadyParticipantError:
+                            self.log("批量拉人", f"[{phone}] {username} 已是群成员")
+                            stats["already_in_group"] += 1
                             account_invited_count += 1
                             group_invited_count[target] += 1
-                            
-                    except UserAlreadyParticipantError:
-                        self.log("批量拉人", f"[{phone}] {username} 已是群成员")
-                        stats["already_in_group"] += 1
-                        account_invited_count += 1
-                        group_invited_count[target] += 1
-                    except UserPrivacyRestrictedError:
-                        self.log("批量拉人", f"[{phone}] {username} 隐私限制无法拉入")
-                        stats["privacy_restricted"] += 1
-                    except FloodWaitError as e:
-                        self.log("批量拉人", f"[{phone}] 请求频繁，等待{e.seconds}秒")
-                        stats["flood_wait"] += 1
-                        await asyncio.sleep(e.seconds)
-                    except PeerFloodError:
-                        self.log("批量拉人", f"[{phone}] 账号被限制拉人")
-                        stats["other_error"] += 1
-                        break
-                    except Exception as e:
-                        self.log("批量拉人", f"[{phone}] 拉人失败 {username}: {str(e)[:80]}")
-                        stats["other_error"] += 1
-                    await asyncio.sleep(invite_wait)
-                self.log("批量拉人", f"[{phone}] 批次完成 - 成功:{stats['success']} 已在群:{stats['already_in_group']} 验证失败:{stats['verify_failed']}")
-        self.log("批量拉人", f"[{phone}] 拉人完成！成功:{stats['success']} 已在群:{stats['already_in_group']} 验证失败:{stats['verify_failed']}")
-    except Exception as e:
-        self.log("批量拉人", f"[{phone}] 拉人出错: {str(e)[:80]}")
-    finally:
-        if client:
-            await client.disconnect()
+                        except UserPrivacyRestrictedError:
+                            self.log("批量拉人", f"[{phone}] {username} 隐私限制无法拉入")
+                            stats["privacy_restricted"] += 1
+                        except FloodWaitError as e:
+                            self.log("批量拉人", f"[{phone}] 请求频繁，等待{e.seconds}秒")
+                            stats["flood_wait"] += 1
+                            await asyncio.sleep(e.seconds)
+                        except PeerFloodError:
+                            self.log("批量拉人", f"[{phone}] 账号被限制拉人")
+                            stats["other_error"] += 1
+                            break
+                        except Exception as e:
+                            self.log("批量拉人", f"[{phone}] 拉人失败 {username}: {str(e)[:80]}")
+                            stats["other_error"] += 1
+                        await asyncio.sleep(invite_wait)
+                    self.log("批量拉人", f"[{phone}] 批次完成 - 成功:{stats['success']} 已在群:{stats['already_in_group']} 验证失败:{stats['verify_failed']}")
+            self.log("批量拉人", f"[{phone}] 拉人完成！成功:{stats['success']} 已在群:{stats['already_in_group']} 验证失败:{stats['verify_failed']}")
+        except Exception as e:
+            self.log("批量拉人", f"[{phone}] 拉人出错: {str(e)[:80]}")
+        finally:
+            if client:
+                await client.disconnect()
     
     def stop_invite(self):
         if self.is_inviting:
