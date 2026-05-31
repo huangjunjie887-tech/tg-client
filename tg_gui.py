@@ -2291,7 +2291,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（优化后，三个模式都简洁美观，位置固定不跳动） ====================
+    # ==================== 批量拉人页面（优化后，三个模式都简洁美观，一屏显示完整） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2340,60 +2340,47 @@ class TelegramFullGUI:
         self.settings_panel = ttk.LabelFrame(settings_frame, text="拉人设置")
         self.settings_panel.pack(fill="x", pady=5, padx=5)
         
-        # 使用grid布局，固定目标输入框在顶部第0行
-        current_row = 0
+        # 目标输入区域（使用grid布局，固定在第0行，切换时只切换这个区域的内容）
+        self.target_container = ttk.Frame(self.settings_panel)
+        self.target_container.grid(row=0, column=0, sticky="ew", pady=5)
         
         # 单群模式目标输入（简洁）
-        self.single_frame = ttk.Frame(self.settings_panel)
+        self.single_frame = ttk.Frame(self.target_container)
         ttk.Label(self.single_frame, text="目标群组:").pack(side="left", padx=5)
         self.single_target_group = ttk.Entry(self.single_frame, width=50)
         self.single_target_group.pack(side="left", padx=5)
         ttk.Label(self.single_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
         
-        # 多群模式目标输入（简洁，缩小高度）
-        self.multi_frame = ttk.Frame(self.settings_panel)
-        target_row1 = ttk.Frame(self.multi_frame)
-        target_row1.pack(fill="x", pady=5)
-        ttk.Label(target_row1, text="目标群组列表:").pack(side="left", padx=5)
-        self.multi_target_groups = ttk.Entry(target_row1, width=50)
+        # 多群模式目标输入（简洁）
+        self.multi_frame = ttk.Frame(self.target_container)
+        ttk.Label(self.multi_frame, text="目标群组列表（多个用英文逗号分隔）:").pack(side="left", padx=5)
+        self.multi_target_groups = ttk.Entry(self.multi_frame, width=50)
         self.multi_target_groups.pack(side="left", padx=5)
-        ttk.Label(target_row1, text="（多个群组链接用英文逗号分隔）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
-        
-        target_row2 = ttk.Frame(self.multi_frame)
-        target_row2.pack(fill="x", pady=5)
-        ttk.Label(target_row2, text="单账号拉群数:").pack(side="left", padx=5)
-        self.multi_per_account_limit = ttk.Entry(target_row2, width=15)
+        ttk.Label(self.multi_frame, text="单账号拉群数:").pack(side="left", padx=20)
+        self.multi_per_account_limit = ttk.Entry(self.multi_frame, width=10)
         self.multi_per_account_limit.insert(0, "0")
         self.multi_per_account_limit.pack(side="left", padx=5)
-        ttk.Label(target_row2, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        ttk.Label(self.multi_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
         
         # 管理员模式目标输入（简洁）
-        self.admin_frame = ttk.Frame(self.settings_panel)
-        admin_row1 = ttk.Frame(self.admin_frame)
-        admin_row1.pack(fill="x", pady=5)
-        ttk.Label(admin_row1, text="目标群组或频道:").pack(side="left", padx=5)
-        self.admin_target_group = ttk.Entry(admin_row1, width=50)
+        self.admin_frame = ttk.Frame(self.target_container)
+        ttk.Label(self.admin_frame, text="目标群组或频道:").pack(side="left", padx=5)
+        self.admin_target_group = ttk.Entry(self.admin_frame, width=50)
         self.admin_target_group.pack(side="left", padx=5)
-        ttk.Label(admin_row1, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
-        
-        admin_row2 = ttk.Frame(self.admin_frame)
-        admin_row2.pack(fill="x", pady=5)
-        ttk.Label(admin_row2, text="单账号拉群数:").pack(side="left", padx=5)
-        self.admin_per_account_limit = ttk.Entry(admin_row2, width=15)
+        ttk.Label(self.admin_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        ttk.Label(self.admin_frame, text="单账号拉群数:").pack(side="left", padx=20)
+        self.admin_per_account_limit = ttk.Entry(self.admin_frame, width=10)
         self.admin_per_account_limit.insert(0, "0")
         self.admin_per_account_limit.pack(side="left", padx=5)
-        ttk.Label(admin_row2, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
-        
-        # 将目标输入框放到第0行
-        self.single_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
-        self.multi_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
-        self.admin_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
-        current_row += 1
+        ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=2)
         
         # 默认显示单群模式
-        self.single_frame.grid()
-        self.multi_frame.grid_remove()
-        self.admin_frame.grid_remove()
+        self.single_frame.pack(fill="x")
+        self.multi_frame.pack_forget()
+        self.admin_frame.pack_forget()
+        
+        # 当前行号
+        current_row = 1
         
         # 分隔线
         separator = ttk.Separator(self.settings_panel, orient="horizontal")
@@ -2539,21 +2526,21 @@ class TelegramFullGUI:
             self.log("批量拉人", f"选择用户列表文件: {file_path}")
     
     def on_invite_mode_change(self):
-        """切换拉人模式 - 使用grid_remove/grid保持位置固定"""
+        """切换拉人模式 - 只切换目标输入区域的内容，位置固定"""
         mode = self.invite_mode.get()
         
         # 隐藏所有目标输入框
-        self.single_frame.grid_remove()
-        self.multi_frame.grid_remove()
-        self.admin_frame.grid_remove()
+        self.single_frame.pack_forget()
+        self.multi_frame.pack_forget()
+        self.admin_frame.pack_forget()
         
-        # 只显示当前模式对应的输入框（位置始终在第0行，不会移动）
+        # 只显示当前模式对应的输入框（位置始终在目标容器顶部，不会移动）
         if mode == "single":
-            self.single_frame.grid()
+            self.single_frame.pack(fill="x")
         elif mode == "multi":
-            self.multi_frame.grid()
+            self.multi_frame.pack(fill="x")
         else:  # admin
-            self.admin_frame.grid()
+            self.admin_frame.pack(fill="x")
     
     def load_user_list(self):
         file_path = self.user_list_file.get().strip()
