@@ -20,9 +20,8 @@ from telethon.errors import (
     PhoneNumberBannedError, UserAlreadyParticipantError, UserPrivacyRestrictedError,
     PeerFloodError, InviteHashExpiredError, InviteHashInvalidError,
     ChannelInvalidError, ChannelPrivateError, UserInvalidError, UsernameInvalidError,
-    UserKickedError, UserBannedInChannelError, ChatWriteForbiddenError,
-    ChatAdminRequiredError, UserNotMutualContactError, ChatSendInlineForbiddenError,
-    UserChannelsTooMuchError, ChannelTooMuchError
+    UserKickedError, UserBannedInChannelError, ChatAdminRequiredError,
+    UserNotMutualContactError, ChatWriteForbiddenError, UserChannelsTooMuchError
 )
 from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
@@ -2629,7 +2628,6 @@ class TelegramFullGUI:
         await asyncio.gather(*tasks)
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
-        """单个账号拉人 - 详细错误分类"""
         from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import (
@@ -2875,22 +2873,19 @@ class TelegramFullGUI:
                                 stats["other_error"] += 1
                         await asyncio.sleep(invite_wait)
                     
-                    # 输出本批次统计
                     batch_summary = (f"[{phone}] 📊 批次完成 - "
                                     f"成功:{stats['success']} 已在群:{stats['already_in_group']} "
                                     f"验证失败:{stats['verify_failed']} 用户不存在:{stats['user_not_exist']} "
-                                    f"用户隐私:{stats['user_privacy']} 非双向联系人:{stats['user_not_mutual']} "
+                                    f"用户隐私:{stats['user_privacy']} 非双向:{stats['user_not_mutual']} "
                                     f"用户被踢:{stats['user_kicked']} 用户被禁:{stats['user_banned']} "
                                     f"用户群过多:{stats['user_channels_too_much']} 群需管理员:{stats['group_admin_needed']} "
-                                    f"账号风控:{stats['account_peer_flood']} 频率限制:{stats['account_flood']} "
-                                    f"其他:{stats['other_error']}")
+                                    f"账号风控:{stats['account_peer_flood']} 频率限制:{stats['account_flood']}")
                     self.log("批量拉人", batch_summary)
             
-            # 最终统计
             final_summary = (f"[{phone}] 🎯 拉人完成！"
                             f"成功:{stats['success']} 已在群:{stats['already_in_group']} "
                             f"验证失败:{stats['verify_failed']} 用户不存在:{stats['user_not_exist']} "
-                            f"隐私限制:{stats['user_privacy']} 非双向联系人:{stats['user_not_mutual']} "
+                            f"隐私限制:{stats['user_privacy']} 非双向:{stats['user_not_mutual']} "
                             f"用户被踢:{stats['user_kicked']} 用户被禁:{stats['user_banned']} "
                             f"用户群过多:{stats['user_channels_too_much']} 群需管理员:{stats['group_admin_needed']} "
                             f"账号风控:{stats['account_peer_flood']} 频率限制:{stats['account_flood']} "
