@@ -2291,7 +2291,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（固定布局，切换模式时目标群组位置不变） ====================
+    # ==================== 批量拉人页面（使用grid固定布局，彻底解决位置跳动问题） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2336,10 +2336,11 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_frame, text="多群拉人", variable=self.invite_mode, value="multi", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         ttk.Radiobutton(mode_frame, text="管理员拉人", variable=self.invite_mode, value="admin", command=self.on_invite_mode_change).pack(side="left", padx=20, pady=5)
         
-        # ===== 2. 拉人设置面板（所有模式的输入框都在同一个固定容器中） =====
+        # ===== 2. 拉人设置面板 =====
         self.settings_panel = ttk.LabelFrame(settings_frame, text="拉人设置")
         self.settings_panel.pack(fill="x", pady=5, padx=5)
         
+        # 创建所有目标输入框，但使用grid管理位置
         # 单群模式目标输入
         self.single_frame = ttk.Frame(self.settings_panel)
         ttk.Label(self.single_frame, text="目标群组:").pack(side="left", padx=5)
@@ -2371,51 +2372,66 @@ class TelegramFullGUI:
         self.admin_per_account_limit.pack(anchor="w", padx=5)
         ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
         
-        # 默认显示单群模式
-        self.single_frame.pack(fill="x", pady=5)
-        self.multi_frame.pack_forget()
-        self.admin_frame.pack_forget()
+        # 将目标输入框放到第0行（顶部）
+        self.single_frame.grid(row=0, column=0, sticky="ew", pady=5)
+        self.multi_frame.grid(row=0, column=0, sticky="ew", pady=5)
+        self.admin_frame.grid(row=0, column=0, sticky="ew", pady=5)
         
-        # 分隔线
-        ttk.Separator(self.settings_panel, orient="horizontal").pack(fill="x", pady=10)
+        # 默认显示单群模式，隐藏其他
+        self.single_frame.grid()
+        self.multi_frame.grid_remove()
+        self.admin_frame.grid_remove()
+        
+        # 当前行号
+        current_row = 1
+        
+        # 分隔线（放在第1行）
+        separator = ttk.Separator(self.settings_panel, orient="horizontal")
+        separator.grid(row=current_row, column=0, sticky="ew", pady=10)
+        current_row += 1
         
         # 用户列表文件
         file_frame = ttk.Frame(self.settings_panel)
-        file_frame.pack(fill="x", pady=5)
+        file_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
         ttk.Label(file_frame, text="选择用户列表文件:").pack(side="left", padx=5)
         self.user_list_file = ttk.Entry(file_frame, width=40)
         self.user_list_file.pack(side="left", padx=5)
         ttk.Button(file_frame, text="浏览", command=self.select_user_list_file, width=8).pack(side="left", padx=2)
+        current_row += 1
         
         # 账号分组筛选
         group_frame = ttk.Frame(self.settings_panel)
-        group_frame.pack(fill="x", pady=5)
+        group_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
         ttk.Label(group_frame, text="账号分组筛选:").pack(side="left", padx=5)
         self.invite_group_filter = ttk.Combobox(group_frame, values=["全部"] + self.groups, width=15)
         self.invite_group_filter.set("全部")
         self.invite_group_filter.pack(side="left", padx=5)
         self.invite_group_filter.bind("<<ComboboxSelected>>", self.refresh_invite_account_listbox)
+        current_row += 1
         
         # 账号多选
         select_frame = ttk.Frame(self.settings_panel)
-        select_frame.pack(fill="x", pady=5)
+        select_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
         ttk.Label(select_frame, text="选择账号（可多选）:").pack(side="left", padx=5)
         self.account_select_all_var = tk.BooleanVar()
         ttk.Checkbutton(select_frame, text="全选", variable=self.account_select_all_var,
                        command=lambda: self.toggle_listbox_select(self.invite_account_listbox, self.account_select_all_var)).pack(side="left", padx=5)
+        current_row += 1
         
         # 账号列表
         listbox_frame = ttk.Frame(self.settings_panel)
-        listbox_frame.pack(fill="x", pady=5)
+        listbox_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
         self.invite_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=4, exportselection=False)
         account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.invite_account_listbox.yview)
         self.invite_account_listbox.configure(yscrollcommand=account_scrollbar.set)
         self.invite_account_listbox.pack(side="left", fill="x", expand=True)
         account_scrollbar.pack(side="right", fill="y")
+        current_row += 1
         
         # 拉人参数
         param_frame = ttk.LabelFrame(self.settings_panel, text="拉人参数")
-        param_frame.pack(fill="x", pady=10)
+        param_frame.grid(row=current_row, column=0, sticky="ew", pady=10)
+        current_row += 1
         
         param_row1 = ttk.Frame(param_frame)
         param_row1.pack(fill="x", padx=5, pady=5)
@@ -2456,6 +2472,9 @@ class TelegramFullGUI:
         param_row4.pack(fill="x", padx=5, pady=5)
         self.auto_switch_account = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_row4, text="异常账号自动换号", variable=self.auto_switch_account).pack(side="left", padx=20)
+        
+        # 设置列权重
+        self.settings_panel.columnconfigure(0, weight=1)
         
         # ===== 3. 按钮区域 =====
         btn_frame = ttk.Frame(settings_frame)
@@ -2510,21 +2529,21 @@ class TelegramFullGUI:
             self.log("批量拉人", f"选择用户列表文件: {file_path}")
     
     def on_invite_mode_change(self):
-        """切换拉人模式 - 只切换目标输入框的显示，位置固定不变"""
+        """切换拉人模式 - 使用grid_remove/grid来保持位置固定"""
         mode = self.invite_mode.get()
         
         # 隐藏所有目标输入框
-        self.single_frame.pack_forget()
-        self.multi_frame.pack_forget()
-        self.admin_frame.pack_forget()
+        self.single_frame.grid_remove()
+        self.multi_frame.grid_remove()
+        self.admin_frame.grid_remove()
         
-        # 只显示当前模式对应的输入框（在固定位置显示）
+        # 只显示当前模式对应的输入框（位置始终在第0行，不会移动）
         if mode == "single":
-            self.single_frame.pack(fill="x", pady=5)
+            self.single_frame.grid()
         elif mode == "multi":
-            self.multi_frame.pack(fill="x", pady=5)
+            self.multi_frame.grid()
         else:  # admin
-            self.admin_frame.pack(fill="x", pady=5)
+            self.admin_frame.grid()
     
     def load_user_list(self):
         file_path = self.user_list_file.get().strip()
