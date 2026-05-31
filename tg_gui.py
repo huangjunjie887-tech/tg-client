@@ -2291,7 +2291,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（使用grid固定布局，彻底解决位置跳动问题） ====================
+    # ==================== 批量拉人页面（优化后，三个模式都简洁美观，位置固定不跳动） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2340,52 +2340,62 @@ class TelegramFullGUI:
         self.settings_panel = ttk.LabelFrame(settings_frame, text="拉人设置")
         self.settings_panel.pack(fill="x", pady=5, padx=5)
         
-        # 创建所有目标输入框，但使用grid管理位置
-        # 单群模式目标输入
+        # 使用grid布局，固定目标输入框在顶部第0行
+        current_row = 0
+        
+        # 单群模式目标输入（简洁）
         self.single_frame = ttk.Frame(self.settings_panel)
         ttk.Label(self.single_frame, text="目标群组:").pack(side="left", padx=5)
         self.single_target_group = ttk.Entry(self.single_frame, width=50)
         self.single_target_group.pack(side="left", padx=5)
         ttk.Label(self.single_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
         
-        # 多群模式目标输入
+        # 多群模式目标输入（简洁，缩小高度）
         self.multi_frame = ttk.Frame(self.settings_panel)
-        ttk.Label(self.multi_frame, text="目标群组列表（每行一个）:").pack(anchor="nw", padx=5, pady=5)
-        self.multi_target_groups = scrolledtext.ScrolledText(self.multi_frame, width=60, height=5)
-        self.multi_target_groups.pack(padx=5, pady=5)
-        ttk.Label(self.multi_frame, text="支持链接或ID，每行一个", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
-        ttk.Label(self.multi_frame, text="单账号拉群数:").pack(anchor="w", padx=5, pady=5)
-        self.multi_per_account_limit = ttk.Entry(self.multi_frame, width=15)
+        target_row1 = ttk.Frame(self.multi_frame)
+        target_row1.pack(fill="x", pady=5)
+        ttk.Label(target_row1, text="目标群组列表:").pack(side="left", padx=5)
+        self.multi_target_groups = ttk.Entry(target_row1, width=50)
+        self.multi_target_groups.pack(side="left", padx=5)
+        ttk.Label(target_row1, text="（多个群组链接用英文逗号分隔）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        
+        target_row2 = ttk.Frame(self.multi_frame)
+        target_row2.pack(fill="x", pady=5)
+        ttk.Label(target_row2, text="单账号拉群数:").pack(side="left", padx=5)
+        self.multi_per_account_limit = ttk.Entry(target_row2, width=15)
         self.multi_per_account_limit.insert(0, "0")
-        self.multi_per_account_limit.pack(anchor="w", padx=5)
-        ttk.Label(self.multi_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
+        self.multi_per_account_limit.pack(side="left", padx=5)
+        ttk.Label(target_row2, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
         
-        # 管理员模式目标输入
+        # 管理员模式目标输入（简洁）
         self.admin_frame = ttk.Frame(self.settings_panel)
-        ttk.Label(self.admin_frame, text="目标群组或频道:").pack(side="left", padx=5)
-        self.admin_target_group = ttk.Entry(self.admin_frame, width=50)
+        admin_row1 = ttk.Frame(self.admin_frame)
+        admin_row1.pack(fill="x", pady=5)
+        ttk.Label(admin_row1, text="目标群组或频道:").pack(side="left", padx=5)
+        self.admin_target_group = ttk.Entry(admin_row1, width=50)
         self.admin_target_group.pack(side="left", padx=5)
-        ttk.Label(self.admin_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
-        ttk.Label(self.admin_frame, text="单账号拉群数:").pack(anchor="w", padx=5, pady=5)
-        self.admin_per_account_limit = ttk.Entry(self.admin_frame, width=15)
+        ttk.Label(admin_row1, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        
+        admin_row2 = ttk.Frame(self.admin_frame)
+        admin_row2.pack(fill="x", pady=5)
+        ttk.Label(admin_row2, text="单账号拉群数:").pack(side="left", padx=5)
+        self.admin_per_account_limit = ttk.Entry(admin_row2, width=15)
         self.admin_per_account_limit.insert(0, "0")
-        self.admin_per_account_limit.pack(anchor="w", padx=5)
-        ttk.Label(self.admin_frame, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5)
+        self.admin_per_account_limit.pack(side="left", padx=5)
+        ttk.Label(admin_row2, text="（0=不限制）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
         
-        # 将目标输入框放到第0行（顶部）
-        self.single_frame.grid(row=0, column=0, sticky="ew", pady=5)
-        self.multi_frame.grid(row=0, column=0, sticky="ew", pady=5)
-        self.admin_frame.grid(row=0, column=0, sticky="ew", pady=5)
+        # 将目标输入框放到第0行
+        self.single_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
+        self.multi_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
+        self.admin_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
+        current_row += 1
         
-        # 默认显示单群模式，隐藏其他
+        # 默认显示单群模式
         self.single_frame.grid()
         self.multi_frame.grid_remove()
         self.admin_frame.grid_remove()
         
-        # 当前行号
-        current_row = 1
-        
-        # 分隔线（放在第1行）
+        # 分隔线
         separator = ttk.Separator(self.settings_panel, orient="horizontal")
         separator.grid(row=current_row, column=0, sticky="ew", pady=10)
         current_row += 1
@@ -2529,7 +2539,7 @@ class TelegramFullGUI:
             self.log("批量拉人", f"选择用户列表文件: {file_path}")
     
     def on_invite_mode_change(self):
-        """切换拉人模式 - 使用grid_remove/grid来保持位置固定"""
+        """切换拉人模式 - 使用grid_remove/grid保持位置固定"""
         mode = self.invite_mode.get()
         
         # 隐藏所有目标输入框
@@ -2626,11 +2636,12 @@ class TelegramFullGUI:
             targets = [target]
             per_account_limit = 0
         elif mode == "multi":
-            target_text = self.multi_target_groups.get("1.0", tk.END).strip()
+            target_text = self.multi_target_groups.get().strip()
             if not target_text:
                 self.log("批量拉人", "请输入目标群组列表")
                 return
-            targets = [line.strip() for line in target_text.split('\n') if line.strip()]
+            # 支持英文逗号分隔
+            targets = [t.strip() for t in target_text.split(',') if t.strip()]
             try:
                 per_account_limit = int(self.multi_per_account_limit.get())
             except:
