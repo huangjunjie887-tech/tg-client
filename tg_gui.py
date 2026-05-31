@@ -15,7 +15,9 @@ import sqlite3
 import asyncio
 import re
 from telethon import TelegramClient
-from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, PhoneNumberBannedError
+from telethon.errors import FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, PhoneNumberBannedError, UserAlreadyParticipantError
+from telethon.tl.functions.channels import JoinChannelRequest, InviteToChannelRequest
+from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
 from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message, InputPeerChannel, InputPhoto
 from telethon.tl.functions.users import GetFullUserRequest
@@ -2733,18 +2735,34 @@ class TelegramFullGUI:
                         # 私有邀请链接格式：https://t.me/+xxx 或 https://t.me/joinchat/xxx
                         if '/+' in target or '/joinchat/' in target:
                             self.log("批量拉人", f"[{phone}] 检测到邀请链接，正在加入群组: {target}")
+                            
+                            # 提取邀请hash
+                            if '/+' in target:
+                                invite_hash = target.split('/+')[-1].split('?')[0]
+                            else:
+                                invite_hash = target.split('/joinchat/')[-1].split('?')[0]
+                            
                             # 尝试加入群组
                             try:
-                                # 使用 join_chat 方法加入私有群组
-                                updates = await client.join_chat(target)
-                                entity = updates.chats[0] if updates.chats else None
-                                if entity:
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                if result.chats:
+                                    entity = result.chats[0]
                                     self.log("批量拉人", f"[{phone}] 成功加入群组: {getattr(entity, 'title', target)}")
                                 else:
-                                    self.log("批量拉人", f"[{phone}] 加入群组失败，可能已经是群成员或链接无效")
+                                    self.log("批量拉人", f"[{phone}] 加入群组结果异常")
+                            except UserAlreadyParticipantError:
+                                self.log("批量拉人", f"[{phone}] 已经是群组成员")
+                                # 已经是成员，尝试直接获取实体
+                                try:
+                                    # 通过链接获取实体
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
                             except Exception as e:
                                 self.log("批量拉人", f"[{phone}] 加入群组失败: {str(e)[:80]}")
-                                # 如果加入失败，尝试直接获取实体
+                            
+                            # 如果没有获取到实体，尝试通过链接获取
+                            if not entity:
                                 try:
                                     entity = await client.get_entity(target)
                                 except:
@@ -2802,7 +2820,7 @@ class TelegramFullGUI:
                                 clean_username = clean_username[1:]
                             
                             user_entity = await client.get_entity(clean_username)
-                            await client.invite_to_channel(entity, [user_entity.id])
+                            await client(InviteToChannelRequest(entity, [user_entity.id]))
                             self.log("批量拉人", f"[{phone}] 拉人成功: {username} -> {getattr(entity, 'title', target)}")
                             success_count += 1
                             account_invited_count += 1
