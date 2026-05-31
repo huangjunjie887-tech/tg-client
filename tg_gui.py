@@ -1616,6 +1616,7 @@ class TelegramFullGUI:
         self.preview_tree.yview_moveto(1)
     
     def parse_group_link(self, link):
+        """解析群组链接，提取用户名和topic_id"""
         topic_id = None
         group_username = None
         
@@ -1624,6 +1625,10 @@ class TelegramFullGUI:
             path = clean_link.split('t.me/')[-1].strip('/')
             parts = path.split('/')
             group_username = parts[0]
+            # 处理私有邀请链接格式：+xxx 或 joinchat/xxx
+            if group_username.startswith('+') or group_username == 'joinchat':
+                # 私有邀请链接需要保留完整路径
+                group_username = path
             if len(parts) >= 2 and parts[1].isdigit():
                 topic_id = int(parts[1])
         elif 'https://' in link:
@@ -2291,7 +2296,7 @@ class TelegramFullGUI:
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
     
-    # ==================== 批量拉人页面（优化后，三个模式都简洁美观，一屏显示完整） ====================
+    # ==================== 批量拉人页面（优化后，三个模式都简洁美观，支持自动加入群组） ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -2700,6 +2705,7 @@ class TelegramFullGUI:
         await asyncio.gather(*tasks)
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
+        """单个账号拉人 - 自动加入群组后拉人"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -2716,17 +2722,48 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone}] 账号未登录")
                 return
             
+            # 解析目标群组实体并自动加入
             target_entities = []
             for target in targets:
                 try:
+                    entity = None
+                    
+                    # 判断是否为邀请链接
                     if 't.me/' in target:
-                        target_username = target.split('t.me/')[-1]
-                        entity = await client.get_entity(target_username)
+                        # 私有邀请链接格式：https://t.me/+xxx 或 https://t.me/joinchat/xxx
+                        if '/+' in target or '/joinchat/' in target:
+                            self.log("批量拉人", f"[{phone}] 检测到邀请链接，正在加入群组: {target}")
+                            # 尝试加入群组
+                            try:
+                                # 使用 join_chat 方法加入私有群组
+                                updates = await client.join_chat(target)
+                                entity = updates.chats[0] if updates.chats else None
+                                if entity:
+                                    self.log("批量拉人", f"[{phone}] 成功加入群组: {getattr(entity, 'title', target)}")
+                                else:
+                                    self.log("批量拉人", f"[{phone}] 加入群组失败，可能已经是群成员或链接无效")
+                            except Exception as e:
+                                self.log("批量拉人", f"[{phone}] 加入群组失败: {str(e)[:80]}")
+                                # 如果加入失败，尝试直接获取实体
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
+                        else:
+                            # 公开群组链接
+                            target_username = target.split('t.me/')[-1]
+                            entity = await client.get_entity(target_username)
                     elif target.isdigit():
                         entity = await client.get_entity(int(target))
                     else:
                         entity = await client.get_entity(target)
-                    target_entities.append((target, entity))
+                    
+                    if entity:
+                        target_entities.append((target, entity))
+                        self.log("批量拉人", f"[{phone}] 成功解析目标群组: {getattr(entity, 'title', target)}")
+                    else:
+                        self.log("批量拉人", f"[{phone}] 无法解析目标群组: {target}")
+                        
                 except Exception as e:
                     self.log("批量拉人", f"[{phone}] 解析目标群组失败 {target}: {str(e)[:80]}")
             
@@ -2759,9 +2796,14 @@ class TelegramFullGUI:
                             break
                         
                         try:
-                            user_entity = await client.get_entity(username)
+                            # 处理用户名格式
+                            clean_username = username
+                            if clean_username.startswith('@'):
+                                clean_username = clean_username[1:]
+                            
+                            user_entity = await client.get_entity(clean_username)
                             await client.invite_to_channel(entity, [user_entity.id])
-                            self.log("批量拉人", f"[{phone}] 拉人成功: {username} -> {target}")
+                            self.log("批量拉人", f"[{phone}] 拉人成功: {username} -> {getattr(entity, 'title', target)}")
                             success_count += 1
                             account_invited_count += 1
                             group_invited_count[target] += 1
