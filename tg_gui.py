@@ -1594,7 +1594,6 @@ class TelegramFullGUI:
     
     def batch_update_preview(self, member_infos):
         self.preview_tree.delete(*self.preview_tree.get_children())
-        
         for idx, info in enumerate(self.scraped_members):
             current_num = idx + 1
             display_name = info.get('first_name', '') or info.get('username', '') or str(info.get('id', ''))
@@ -1842,7 +1841,6 @@ class TelegramFullGUI:
                                     break
                                 if not msg.sender_id:
                                     continue
-                                
                                 if 'users_map' in locals() and msg.sender_id in users_map:
                                     sender = users_map.get(msg.sender_id)
                                 elif hasattr(msg, 'sender') and msg.sender:
@@ -1852,7 +1850,6 @@ class TelegramFullGUI:
                                         sender = await client.get_input_entity(msg.sender_id)
                                     except:
                                         continue
-                                
                                 if not sender:
                                     continue
                                 if not hasattr(sender, 'username') or not sender.username:
@@ -1882,13 +1879,11 @@ class TelegramFullGUI:
                                 self.scraped_members = all_results.copy()
                                 pending_infos.append(member_info)
                                 total_count += 1
-                            
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
                                 self.root.after(0, lambda: self.batch_update_preview([]))
                                 pending_infos.clear()
                                 last_ui_update = current_time
-                            
                             if messages_list:
                                 offset_id = messages_list[-1].id
                             else:
@@ -1951,7 +1946,6 @@ class TelegramFullGUI:
                                     break
                                 if not msg.sender_id:
                                     continue
-                                
                                 if 'users_map' in locals() and msg.sender_id in users_map:
                                     sender = users_map.get(msg.sender_id)
                                 elif hasattr(msg, 'sender') and msg.sender:
@@ -1961,7 +1955,6 @@ class TelegramFullGUI:
                                         sender = await client.get_input_entity(msg.sender_id)
                                     except:
                                         continue
-                                
                                 if not sender:
                                     continue
                                 if not hasattr(sender, 'username') or not sender.username:
@@ -1991,13 +1984,11 @@ class TelegramFullGUI:
                                 self.scraped_members = all_results.copy()
                                 pending_infos.append(member_info)
                                 total_count += 1
-                            
                             current_time = time.time()
                             if current_time - last_ui_update >= 1.0 and pending_infos:
                                 self.root.after(0, lambda: self.batch_update_preview([]))
                                 pending_infos.clear()
                                 last_ui_update = current_time
-                            
                             if messages_list:
                                 offset_id = messages_list[-1].id
                             else:
@@ -2015,13 +2006,10 @@ class TelegramFullGUI:
                     self.log("采集群成员", "开始多讨论组采集...")
                     sub_groups_text = self.sub_groups_text.get("1.0", tk.END).strip()
                     sub_group_links = [link.strip() for link in sub_groups_text.split('\n') if link.strip()]
-                    
                     if not sub_group_links:
                         self.log("采集群成员", "请填写子群链接列表")
                         return
-                    
                     self.log("采集群成员", f"共 {len(sub_group_links)} 个子群待采集")
-                    
                     for idx, link in enumerate(sub_group_links, 1):
                         if not self.is_scraping:
                             break
@@ -2035,15 +2023,12 @@ class TelegramFullGUI:
                             if not sub_username:
                                 self.log("采集群成员", f"无效的子群链接: {link}")
                                 continue
-                            
                             entity = await client.get_entity(sub_username)
-                            
                             offset_id = 0
                             batch_size = 3000
                             input_peer = InputPeerChannel(entity.id, entity.access_hash)
                             sub_pending = []
                             sub_count = 0
-                            
                             while self.is_scraping:
                                 while self.is_paused:
                                     await asyncio.sleep(0.5)
@@ -2067,10 +2052,8 @@ class TelegramFullGUI:
                                         history = await client(GetHistoryRequest(**request_args))
                                         messages_list = history.messages
                                         users_map = {u.id: u for u in history.users}
-                                    
                                     if not messages_list:
                                         break
-                                    
                                     for msg in messages_list:
                                         if not self.is_scraping:
                                             break
@@ -2080,7 +2063,6 @@ class TelegramFullGUI:
                                             break
                                         if not msg.sender_id:
                                             continue
-                                        
                                         if 'users_map' in locals() and msg.sender_id in users_map:
                                             sender = users_map.get(msg.sender_id)
                                         elif hasattr(msg, 'sender') and msg.sender:
@@ -2090,7 +2072,6 @@ class TelegramFullGUI:
                                                 sender = await client.get_input_entity(msg.sender_id)
                                             except:
                                                 continue
-                                        
                                         if not sender:
                                             continue
                                         if not hasattr(sender, 'username') or not sender.username:
@@ -2121,7 +2102,6 @@ class TelegramFullGUI:
                                         sub_pending.append(member_info)
                                         total_count += 1
                                         sub_count += 1
-                                    
                                     if messages_list:
                                         offset_id = messages_list[-1].id
                                     else:
@@ -2135,7 +2115,6 @@ class TelegramFullGUI:
                             self.log("采集群成员", f"子群 {link} 采集完成，本群采集 {sub_count} 人，当前累计 {total_count} 人")
                         except Exception as e:
                             self.log("采集群成员", f"获取子群 {link} 失败: {str(e)}")
-                    
                     if total_count > 0:
                         self.root.after(0, lambda: self.batch_update_preview([]))
                 
@@ -2188,7 +2167,6 @@ class TelegramFullGUI:
                                     break
                                 if not msg.sender_id:
                                     continue
-                                
                                 if 'users_map' in locals() and msg.sender_id in users_map:
                                     sender = users_map.get(msg.sender_id)
                                 elif hasattr(msg, 'sender') and msg.sender:
@@ -2198,7 +2176,6 @@ class TelegramFullGUI:
                                         sender = await client.get_input_entity(msg.sender_id)
                                     except:
                                         continue
-                                
                                 if not sender:
                                     continue
                                 if not hasattr(sender, 'username') or not sender.username:
@@ -2672,6 +2649,7 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone}] 账号未登录")
                 return
             
+            # 解析目标群组实体并自动加入
             target_entities = []
             for target in targets:
                 try:
@@ -2790,8 +2768,10 @@ class TelegramFullGUI:
                                     self.log("批量拉人", f"[{phone}] ❌ 拉人失败 {username}: {error_msg[:80]}")
                                     stats["other_error"] += 1
                             await asyncio.sleep(invite_wait)
-                    self.log("批量拉人", f"[{phone}] 向 {target} 拉人批次完成 - 成功:{stats['success']} 已在群:{stats['already_in_group']} 用户不存在:{stats['user_not_exist']} 隐私限制:{stats['privacy_restricted']} 频率限制:{stats['flood_wait']} 其他错误:{stats['other_error']}")
-            self.log("批量拉人", f"[{phone}] 拉人完成！总计拉取 {stats['success']} 人，已在群 {stats['already_in_group']} 人，失败 {stats['user_not_exist'] + stats['privacy_restricted'] + stats['flood_wait'] + stats['other_error']} 人")
+                    batch_msg = f"[{phone}] 向 {target} 拉人批次完成 - 成功:{stats['success']} 已在群:{stats['already_in_group']} 用户不存在:{stats['user_not_exist']} 隐私限制:{stats['privacy_restricted']} 频率限制:{stats['flood_wait']} 其他错误:{stats['other_error']}"
+                    self.log("批量拉人", batch_msg)
+            final_msg = f"[{phone}] 拉人完成！总计拉取 {stats['success']} 人，已在群 {stats['already_in_group']} 人，失败 {stats['user_not_exist'] + stats['privacy_restricted'] + stats['flood_wait'] + stats['other_error']} 人"
+            self.log("批量拉人", final_msg)
         except Exception as e:
             self.log("批量拉人", f"[{phone}] 拉人过程出错: {str(e)[:80]}")
         finally:
