@@ -404,7 +404,6 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="保存配置", command=self.save_config).pack(side="left", padx=2)
         
         frame = ttk.LabelFrame(main_frame, text="账号列表")
         frame.pack(fill="both", expand=True, pady=5)
@@ -530,14 +529,14 @@ class TelegramFullGUI:
         return result
     
     def deep_check_all_accounts(self):
-        """深度检测所有账号的风控状态和邀请权限"""
+        """深度检测所有账号的状态"""
         if not self.accounts:
             self.log("多账号管理", "没有账号可检测")
             self.show_centered_warning("提示", "请先导入账号")
             return
         
         self.log("多账号管理", f"开始深度检测 {len(self.accounts)} 个账号...")
-        self.log("多账号管理", "检测项目: 登录状态 | 邀请权限 | 风控状态")
+        self.log("多账号管理", "检测项目: 登录状态 | 封禁/注销/限制/双向")
         
         def do_deep_check():
             for idx, acc in enumerate(self.accounts, 1):
@@ -551,10 +550,11 @@ class TelegramFullGUI:
         threading.Thread(target=do_deep_check, daemon=True).start()
     
     def deep_check_single_account(self, acc):
-        """深度检测单个账号"""
+        """深度检测单个账号的状态（封禁、注销、限制、双向等）"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
+        twofa = self.get_account_twofa(acc)
         
         async def do_check():
             client = None
@@ -571,55 +571,66 @@ class TelegramFullGUI:
                 nickname = me.first_name or me.username or phone
                 acc['nickname'] = nickname
                 
-                # 检测注册时间
                 if hasattr(me, 'date'):
                     reg_time = me.date.strftime("%Y-%m-%d")
                     acc['register_time'] = reg_time
                     days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
                     self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
                 
-                # 检测邀请权限 - 使用一个公开测试群组
-                test_group = "https://t.me/joinchat/AAAAAE9B8uLx5lLVu_1dXg"
+                # 检测账号是否被限制 - 尝试发送消息给自己
                 try:
-                    # 尝试加入测试群组并邀请一个测试用户
-                    # 这里只检测是否有ChatWriteForbiddenError或ChatAdminRequiredError
-                    # 简化检测：尝试获取群组成员
-                    test_entity = await client.get_entity("https://t.me/joinchat/AAAAAE9B8uLx5lLVu_1dXg")
-                    await client(GetParticipantsRequest(
-                        channel=test_entity,
-                        filter=ChannelParticipantsSearch(''),
-                        offset=0,
-                        limit=1,
-                        hash=0
-                    ))
+                    await client.send_message('me', '状态检测')
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 正常 (可邀请)")
-                except ChatAdminRequiredError:
-                    acc['status'] = '需管理员权限'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 需管理员权限")
-                except ChatWriteForbiddenError:
-                    acc['status'] = '被禁言'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 被禁言")
+                    self.log("多账号管理", f"[{phone}] 检测结果: 正常")
+                except UserNotMutualContactError:
+                    acc['status'] = '双向限制'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 双向限制(只能给双向联系人发消息)")
                 except FloodWaitError as e:
                     acc['status'] = f'频率限制({e.seconds}秒)'
                     self.log("多账号管理", f"[{phone}] 检测结果: 频率限制({e.seconds}秒)")
                 except PeerFloodError:
-                    acc['status'] = '风控-邀请限制'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 风控-邀请限制")
+                    acc['status'] = '风控限制'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 风控限制")
+                except ChatWriteForbiddenError:
+                    acc['status'] = '被禁言'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 被禁言")
+                except ChatAdminRequiredError:
+                    acc['status'] = '需管理员权限'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 需管理员权限")
                 except Exception as e:
                     error_msg = str(e).lower()
                     if "flood" in error_msg:
                         acc['status'] = '频率限制'
                         self.log("多账号管理", f"[{phone}] 检测结果: 频率限制")
+                    elif "mutual" in error_msg:
+                        acc['status'] = '双向限制'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 双向限制")
                     else:
-                        acc['status'] = '正常(权限未知)'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 正常(权限未知)")
+                        acc['status'] = '正常'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 正常")
                 
                 await client.disconnect()
                 
+            except UserDeactivatedError:
+                acc['status'] = '销号'
+                self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+            except PhoneNumberBannedError:
+                acc['status'] = '封禁'
+                self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+            except SessionPasswordNeededError:
+                acc['status'] = '需要2FA'
+                self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA")
             except Exception as e:
-                self.log("多账号管理", f"[{phone}] 检测异常: {str(e)[:80]}")
-                acc['status'] = '检测失败'
+                error_msg = str(e).lower()
+                if "deactivated" in error_msg:
+                    acc['status'] = '销号'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+                elif "banned" in error_msg:
+                    acc['status'] = '封禁'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                else:
+                    acc['status'] = '检测失败'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 检测失败 - {str(e)[:50]}")
             finally:
                 if client:
                     try:
@@ -1215,7 +1226,6 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="检测所有代理", command=self.check_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="分配代理IP", command=self.assign_proxies_to_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="保存配置", command=self.save_config).pack(side="left", padx=2)
         
         frame = ttk.LabelFrame(main_frame, text="代理列表")
         frame.pack(fill="both", expand=True, pady=5)
