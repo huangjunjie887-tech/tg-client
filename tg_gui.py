@@ -2710,8 +2710,6 @@ class TelegramFullGUI:
         self.total_success = 0
         self.total_fail = 0
         self.total_processed = 0
-        
-        # 记录已处理的用户名，避免重复计数
         self.processed_usernames = set()
         
         for acc in selected_accounts:
@@ -2735,7 +2733,6 @@ class TelegramFullGUI:
         threading.Thread(target=run_invite_task, daemon=True).start()
     
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
-        # 轮流分配用户给每个账号（每个用户只分配给一个账号）
         account_users = [[] for _ in range(len(accounts))]
         user_index = 0
         while user_index < len(users):
@@ -2760,9 +2757,8 @@ class TelegramFullGUI:
     async def invite_user(self, client, phone, entity, username):
         clean_username = username.lstrip('@')
         
-        # 检查是否已经处理过（防止重复计数）
         if clean_username in self.processed_usernames:
-            return False, f"[{phone[-6:]}] 跳过 {clean_username[:15]} | 已处理"
+            return False, f"[{phone[-6:]}] 跳过 | {clean_username[:15]} | 已处理"
         
         try:
             user_entity = await client.get_entity(clean_username)
@@ -2788,7 +2784,6 @@ class TelegramFullGUI:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             await asyncio.sleep(1)
             
-            # 验证是否真的加入成功
             try:
                 await client(GetParticipantsRequest(
                     channel=entity,
@@ -2797,13 +2792,11 @@ class TelegramFullGUI:
                     limit=1,
                     hash=0
                 ))
-                # 验证成功，确认已加入
                 self.total_success += 1
                 self.total_processed += 1
                 self.processed_usernames.add(clean_username)
                 return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
             except:
-                # API返回成功但验证失败，仍算作成功（可能是同步延迟）
                 self.total_success += 1
                 self.total_processed += 1
                 self.processed_usernames.add(clean_username)
@@ -2958,7 +2951,6 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
                 return
             
-            # 处理分配给这个账号的用户列表（每个用户只处理一次）
             for username in users:
                 if self.invite_stop_flag:
                     break
@@ -2977,14 +2969,13 @@ class TelegramFullGUI:
                     
                     self.log("批量拉人", log_msg)
                     
-                    # 无论成功还是失败，都从文件中删除该用户
                     self.remove_user_from_file(username)
                     
                     if success:
                         account_invited_count += 1
                     
                     await asyncio.sleep(invite_wait)
-                    break  # 每个用户只对一个目标群组操作
+                    break
                 
         except Exception as e:
             self.log("批量拉人", f"[{phone[-6:]}] 异常: {str(e)[:50]}")
