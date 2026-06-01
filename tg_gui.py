@@ -193,6 +193,7 @@ class TelegramFullGUI:
         self.refresh_account_list()
     
     def remove_user_from_file(self, username):
+        """从用户列表文件中删除已处理的用户名"""
         if not self.user_list_file_path or not os.path.exists(self.user_list_file_path):
             return False
         
@@ -2732,14 +2733,26 @@ class TelegramFullGUI:
         threading.Thread(target=run_invite_task, daemon=True).start()
     
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
+        # 轮流分配用户给每个账号
+        account_users = [[] for _ in range(len(accounts))]
+        user_index = 0
+        while user_index < len(users):
+            for i in range(len(accounts)):
+                if user_index >= len(users):
+                    break
+                account_users[i].append(users[user_index])
+                user_index += 1
+        
         tasks = []
-        for acc in accounts:
-            task = self.run_single_account_invite(
-                acc, targets, users, per_batch, per_account_max, 
-                per_account_limit, invite_wait
-            )
-            tasks.append(task)
-            await asyncio.sleep(1)
+        for i, acc in enumerate(accounts):
+            user_slice = account_users[i]
+            if user_slice:
+                task = self.run_single_account_invite(
+                    acc, targets, user_slice, per_batch, per_account_max, 
+                    per_account_limit, invite_wait
+                )
+                tasks.append(task)
+                await asyncio.sleep(1)
         await asyncio.gather(*tasks)
     
     async def invite_user(self, client, phone, entity, username):
@@ -2904,13 +2917,12 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
                 return
             
-            user_index = 0
-            while user_index < len(users) and not self.invite_stop_flag:
+            # 处理分配给这个账号的用户列表
+            for username in users:
+                if self.invite_stop_flag:
+                    break
                 if per_account_max > 0 and account_invited_count >= per_account_max:
                     break
-                
-                username = users[user_index]
-                user_index += 1
                 
                 for target, entity in target_entities:
                     if self.invite_stop_flag:
@@ -2924,13 +2936,14 @@ class TelegramFullGUI:
                     
                     self.log("批量拉人", log_msg)
                     
+                    # 无论成功还是失败，都从文件中删除该用户
                     self.remove_user_from_file(username)
                     
                     if success:
                         account_invited_count += 1
                     
                     await asyncio.sleep(invite_wait)
-                    break
+                    break  # 每个用户只对一个目标群组操作
                 
         except Exception as e:
             self.log("批量拉人", f"[{phone[-6:]}] 异常: {str(e)[:50]}")
