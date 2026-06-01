@@ -3264,29 +3264,30 @@ class TelegramFullGUI:
         if hasattr(self, 'private_image_path'):
             ttk.Label(ad_btn_frame, textvariable=self.private_image_path).pack(side="left", padx=5)
         
-        # 参数设置区域
+        # 参数设置区域（一排四个显示）
         param_frame = ttk.LabelFrame(private_inner, text="发送参数")
         param_frame.pack(fill="x", padx=10, pady=5)
         
-        param_row1 = ttk.Frame(param_frame)
-        param_row1.pack(fill="x", padx=5, pady=5)
-        ttk.Label(param_row1, text="时间间隔(秒):").pack(side="left", padx=5)
-        self.private_interval = ttk.Entry(param_row1, width=10)
+        param_row = ttk.Frame(param_frame)
+        param_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(param_row, text="时间间隔(秒):").pack(side="left", padx=5)
+        self.private_interval = ttk.Entry(param_row, width=10)
         self.private_interval.insert(0, "30")
         self.private_interval.pack(side="left", padx=5)
-        ttk.Label(param_row1, text="单号私发数量:").pack(side="left", padx=20)
-        self.private_per_account_limit = ttk.Entry(param_row1, width=10)
+        
+        ttk.Label(param_row, text="单号私发数量:").pack(side="left", padx=20)
+        self.private_per_account_limit = ttk.Entry(param_row, width=10)
         self.private_per_account_limit.insert(0, "50")
         self.private_per_account_limit.pack(side="left", padx=5)
         
-        param_row2 = ttk.Frame(param_frame)
-        param_row2.pack(fill="x", padx=5, pady=5)
-        ttk.Label(param_row2, text="线程数:").pack(side="left", padx=5)
-        self.private_thread_count = ttk.Entry(param_row2, width=10)
+        ttk.Label(param_row, text="线程数:").pack(side="left", padx=20)
+        self.private_thread_count = ttk.Entry(param_row, width=10)
         self.private_thread_count.insert(0, "3")
         self.private_thread_count.pack(side="left", padx=5)
+        
         self.private_auto_skip = tk.BooleanVar(value=True)
-        ttk.Checkbutton(param_row2, text="账号异常自动跳过", variable=self.private_auto_skip).pack(side="left", padx=20)
+        ttk.Checkbutton(param_row, text="账号异常自动跳过", variable=self.private_auto_skip).pack(side="left", padx=20)
         
         # 按钮区域
         btn_frame = ttk.Frame(private_inner)
@@ -3393,33 +3394,38 @@ class TelegramFullGUI:
         ttk.Button(group_ad_btn_frame, text="导入文本广告", command=self.import_group_ad_text).pack(side="left", padx=5)
         ttk.Button(group_ad_btn_frame, text="导入图片广告", command=self.import_group_image).pack(side="left", padx=5)
         
-        # 参数设置区域
+        # 参数设置区域（一排四个显示）
         group_param_frame = ttk.LabelFrame(group_inner, text="发送参数")
         group_param_frame.pack(fill="x", padx=10, pady=5)
         
-        group_param_row1 = ttk.Frame(group_param_frame)
-        group_param_row1.pack(fill="x", padx=5, pady=5)
-        ttk.Label(group_param_row1, text="单号同时群发几个群:").pack(side="left", padx=5)
-        self.group_concurrent = ttk.Entry(group_param_row1, width=10)
+        group_param_row = ttk.Frame(group_param_frame)
+        group_param_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(group_param_row, text="单号同时群发几个群:").pack(side="left", padx=5)
+        self.group_concurrent = ttk.Entry(group_param_row, width=10)
         self.group_concurrent.insert(0, "3")
         self.group_concurrent.pack(side="left", padx=5)
-        ttk.Label(group_param_row1, text="单号群发数量:").pack(side="left", padx=20)
-        self.group_per_account_limit = ttk.Entry(group_param_row1, width=10)
+        
+        ttk.Label(group_param_row, text="单号群发数量:").pack(side="left", padx=20)
+        self.group_per_account_limit = ttk.Entry(group_param_row, width=10)
         self.group_per_account_limit.insert(0, "50")
         self.group_per_account_limit.pack(side="left", padx=5)
         
-        group_param_row2 = ttk.Frame(group_param_frame)
-        group_param_row2.pack(fill="x", padx=5, pady=5)
-        ttk.Label(group_param_row2, text="时间间隔(秒):").pack(side="left", padx=5)
-        self.group_interval = ttk.Entry(group_param_row2, width=10)
+        ttk.Label(group_param_row, text="时间间隔(秒):").pack(side="left", padx=20)
+        self.group_interval = ttk.Entry(group_param_row, width=10)
         self.group_interval.insert(0, "30")
         self.group_interval.pack(side="left", padx=5)
-        ttk.Label(group_param_row2, text="线程数:").pack(side="left", padx=20)
-        self.group_thread_count = ttk.Entry(group_param_row2, width=10)
+        
+        ttk.Label(group_param_row, text="线程数:").pack(side="left", padx=20)
+        self.group_thread_count = ttk.Entry(group_param_row, width=10)
         self.group_thread_count.insert(0, "3")
         self.group_thread_count.pack(side="left", padx=5)
+        
+        group_param_row2 = ttk.Frame(group_param_frame)
+        group_param_row2.pack(fill="x", padx=5, pady=5)
+        
         self.group_auto_skip = tk.BooleanVar(value=True)
-        ttk.Checkbutton(group_param_row2, text="账号异常自动跳过", variable=self.group_auto_skip).pack(side="left", padx=20)
+        ttk.Checkbutton(group_param_row2, text="账号异常自动跳过", variable=self.group_auto_skip).pack(side="left", padx=5)
         
         # 按钮区域
         group_btn_frame = ttk.Frame(group_inner)
@@ -3481,13 +3487,26 @@ class TelegramFullGUI:
             self.private_user_list_file.set(file_path)
             users = []
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        username = line.strip()
-                        if username:
-                            if username.startswith('@'):
-                                username = username[1:]
-                            users.append(username)
+                # 尝试多种编码
+                encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16']
+                content = None
+                for enc in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=enc) as f:
+                            content = f.read()
+                        break
+                    except:
+                        continue
+                if content is None:
+                    self.private_log_insert(f"导入失败: 无法识别文件编码")
+                    return
+                
+                for line in content.split('\n'):
+                    username = line.strip()
+                    if username:
+                        if username.startswith('@'):
+                            username = username[1:]
+                        users.append(username)
                 self.private_users = users
                 self.private_user_count_label.config(text=f"已加载: {len(users)} 个用户")
                 self.private_log_insert(f"导入用户列表: {file_path}, 共 {len(users)} 个用户")
@@ -3525,11 +3544,24 @@ class TelegramFullGUI:
     def import_private_ad_text(self):
         file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
         if file_path:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            self.private_ad_text.delete("1.0", tk.END)
-            self.private_ad_text.insert("1.0", content)
-            self.private_log_insert(f"导入文本广告: {file_path}")
+            try:
+                encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16']
+                content = None
+                for enc in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=enc) as f:
+                            content = f.read()
+                        break
+                    except:
+                        continue
+                if content is None:
+                    self.private_log_insert(f"导入失败: 无法识别文件编码")
+                    return
+                self.private_ad_text.delete("1.0", tk.END)
+                self.private_ad_text.insert("1.0", content)
+                self.private_log_insert(f"导入文本广告: {file_path}")
+            except Exception as e:
+                self.private_log_insert(f"导入失败: {str(e)}")
     
     def import_private_image(self):
         file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
@@ -3540,11 +3572,24 @@ class TelegramFullGUI:
     def import_group_ad_text(self):
         file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
         if file_path:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            self.group_ad_text.delete("1.0", tk.END)
-            self.group_ad_text.insert("1.0", content)
-            self.group_log_insert(f"导入文本广告: {file_path}")
+            try:
+                encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16']
+                content = None
+                for enc in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=enc) as f:
+                            content = f.read()
+                        break
+                    except:
+                        continue
+                if content is None:
+                    self.group_log_insert(f"导入失败: 无法识别文件编码")
+                    return
+                self.group_ad_text.delete("1.0", tk.END)
+                self.group_ad_text.insert("1.0", content)
+                self.group_log_insert(f"导入文本广告: {file_path}")
+            except Exception as e:
+                self.group_log_insert(f"导入失败: {str(e)}")
     
     def import_group_image(self):
         file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
@@ -3558,11 +3603,23 @@ class TelegramFullGUI:
             self.group_target_file.set(file_path)
             targets = []
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        target = line.strip()
-                        if target:
-                            targets.append(target)
+                encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16']
+                content = None
+                for enc in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=enc) as f:
+                            content = f.read()
+                        break
+                    except:
+                        continue
+                if content is None:
+                    self.group_log_insert(f"导入失败: 无法识别文件编码")
+                    return
+                
+                for line in content.split('\n'):
+                    target = line.strip()
+                    if target:
+                        targets.append(target)
                 self.group_targets = targets
                 self.group_target_count_label.config(text=f"已加载: {len(targets)} 个群组")
                 self.group_log_insert(f"导入群组链接: {file_path}, 共 {len(targets)} 个群组")
@@ -3876,7 +3933,11 @@ class TelegramFullGUI:
                             self.group_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
                             await asyncio.sleep(e.seconds)
                         except Exception as e:
-                            self.group_log_insert(f"[{phone}] 群发失败: {str(e)[:50]}")
+                            error_msg = str(e).lower()
+                            if "banned" in error_msg:
+                                self.group_log_insert(f"[{phone}] 群发失败: 账号被禁言")
+                            else:
+                                self.group_log_insert(f"[{phone}] 群发失败: {str(e)[:50]}")
                             if auto_skip:
                                 continue
                             await asyncio.sleep(interval)
