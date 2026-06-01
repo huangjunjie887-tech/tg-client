@@ -192,16 +192,19 @@ class TelegramFullGUI:
                 break
         self.refresh_account_list_filter()
     
-    def remove_user_from_file(self, username):
-        if not self.user_list_file_path or not os.path.exists(self.user_list_file_path):
+    def remove_user_from_file(self, username, file_path=None):
+        """从用户列表文件中删除已发送的用户"""
+        target_file = file_path or self.private_user_list_file.get()
+        if not target_file or not os.path.exists(target_file):
             return False
         
         with self.user_list_lock:
             try:
-                with open(self.user_list_file_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
+                with open(target_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
                 
                 clean_username = username.lstrip('@')
+                lines = content.split('\n')
                 new_lines = []
                 removed = False
                 for line in lines:
@@ -212,8 +215,8 @@ class TelegramFullGUI:
                         removed = True
                 
                 if removed:
-                    with open(self.user_list_file_path, 'w', encoding='utf-8') as f:
-                        f.writelines(new_lines)
+                    with open(target_file, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(new_lines))
                     return True
                 return False
             except Exception as e:
@@ -3742,6 +3745,7 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "请先导入用户列表")
             return
         
+        # 获取广告内容（支持PostBot机器人命令格式）
         ad_text = self.private_ad_text.get("1.0", tk.END).strip()
         image_path = self.private_image_path.get().strip()
         if not ad_text and not image_path:
@@ -3762,6 +3766,9 @@ class TelegramFullGUI:
         self.private_send_paused = False
         self.private_stop_flag = False
         
+        # 保存用户列表文件的路径，用于删除已发送的用户
+        self.private_user_file_path = self.private_user_list_file.get()
+        
         self.private_log_insert(f"========== 开始私发 ==========")
         self.private_log_insert(f"目标用户: {len(self.private_users)} | 账号: {len(selected_accounts)} | 每号限: {per_account_limit}人")
         
@@ -3776,59 +3783,100 @@ class TelegramFullGUI:
         threading.Thread(target=run_private_send, daemon=True).start()
     
     async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
-        async def send_for_account(acc):
+        import random
+        
+        # 创建账号和用户的一对一配对列表
+        # 每个账号分配一个唯一的用户，按顺序分配
+        paired_list = []
+        for i, acc in enumerate(accounts):
+            if i < len(users):
+                paired_list.append((acc, users[i]))
+            else:
+                break
+        
+        if not paired_list:
+            self.private_log_insert("账号数量多于用户数量，请增加用户数量")
+            return
+        
+        self.private_log_insert(f"一对一配对完成: {len(paired_list)} 对")
+        
+        async def send_for_pair(acc, username):
             phone = acc.get('phone', '')
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
             
             client = None
-            sent_count = 0
             try:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.private_log_insert(f"[{phone}] 未登录")
-                    return
+                    return False
                 
-                for username in users:
-                    if self.private_stop_flag:
-                        break
-                    while self.private_send_paused:
-                        await asyncio.sleep(1)
-                    if sent_count >= per_account_limit and per_account_limit > 0:
-                        break
+                try:
+                    clean_username = username.lstrip('@')
+                    user_entity = await client.get_entity(clean_username)
                     
-                    try:
-                        clean_username = username.lstrip('@')
-                        user_entity = await client.get_entity(clean_username)
-                        
-                        if image_path and os.path.exists(image_path):
-                            file = await client.upload_file(image_path)
+                    # 判断是否是PostBot命令格式（以@开头后跟空格）
+                    # PostBot机器人命令格式: @PostBot 参数
+                    if ad_text.strip().startswith('@') and ' ' in ad_text:
+                        # 使用 send_message 发送文本即可，Telegram会自动识别为机器人命令
+                        await client.send_message(user_entity.id, ad_text)
+                        self.private_log_insert(f"[{phone}] 发送PostBot命令成功 | {clean_username}")
+                    elif image_path and os.path.exists(image_path):
+                        file = await client.upload_file(image_path)
+                        if ad_text:
                             await client.send_file(user_entity.id, file, caption=ad_text)
                         else:
-                            await client.send_message(user_entity.id, ad_text)
-                        
-                        sent_count += 1
-                        self.private_log_insert(f"[{phone}] 发送成功 | {clean_username}")
-                        await asyncio.sleep(interval)
-                    except FloodWaitError as e:
-                        self.private_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
-                        await asyncio.sleep(e.seconds)
-                    except Exception as e:
-                        self.private_log_insert(f"[{phone}] 发送失败 {username}: {str(e)[:50]}")
-                        if auto_skip:
-                            continue
-                        await asyncio.sleep(interval)
+                            await client.send_file(user_entity.id, file)
+                        self.private_log_insert(f"[{phone}] 发送图片成功 | {clean_username}")
+                    else:
+                        await client.send_message(user_entity.id, ad_text)
+                        self.private_log_insert(f"[{phone}] 发送文本成功 | {clean_username}")
+                    
+                    # 发送成功后从文件中删除该用户
+                    if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                        self.remove_user_from_file(username, self.private_user_file_path)
+                        self.private_log_insert(f"[{phone}] 已从文件删除用户: {clean_username}")
+                    
+                    await asyncio.sleep(interval)
+                    return True
+                    
+                except FloodWaitError as e:
+                    self.private_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
+                    await asyncio.sleep(e.seconds)
+                    return False
+                except Exception as e:
+                    self.private_log_insert(f"[{phone}] 发送失败 {username}: {str(e)[:50]}")
+                    return False
+                    
             except Exception as e:
                 self.private_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
+                return False
             finally:
                 if client:
                     await client.disconnect()
         
+        # 并发执行配对任务
         tasks = []
-        for acc in accounts[:thread_cnt]:
-            tasks.append(send_for_account(acc))
-        await asyncio.gather(*tasks)
+        for acc, username in paired_list:
+            tasks.append(send_for_pair(acc, username))
+        
+        results = await asyncio.gather(*tasks)
+        success_count = sum(1 for r in results if r)
+        self.private_log_insert(f"发送完成: 成功 {success_count} 个，失败 {len(paired_list) - success_count} 个")
+        
+        # 更新用户列表显示（重新加载文件）
+        if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+            try:
+                with open(self.private_user_file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                new_users = [line.strip() for line in content.split('\n') if line.strip()]
+                self.private_users = new_users
+                self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
+                self.private_log_insert(f"用户列表已更新，剩余 {len(self.private_users)} 个用户")
+            except:
+                pass
     
     def stop_private_send(self):
         self.private_stop_flag = True
@@ -3860,6 +3908,7 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "请先导入群组链接文件")
             return
         
+        # 获取广告内容（支持PostBot机器人命令格式）
         ad_text = self.group_ad_text.get("1.0", tk.END).strip()
         image_path = self.group_image_path.get().strip()
         if not ad_text and not image_path:
@@ -3985,9 +4034,15 @@ class TelegramFullGUI:
                         if self.group_stop_flag:
                             break
                         try:
-                            if image_path and os.path.exists(image_path):
+                            # 判断是否是PostBot命令格式
+                            if ad_text.strip().startswith('@') and ' ' in ad_text:
+                                await client.send_message(entity, ad_text)
+                            elif image_path and os.path.exists(image_path):
                                 file = await client.upload_file(image_path)
-                                await client.send_file(entity, file, caption=ad_text)
+                                if ad_text:
+                                    await client.send_file(entity, file, caption=ad_text)
+                                else:
+                                    await client.send_file(entity, file)
                             else:
                                 await client.send_message(entity, ad_text)
                             
