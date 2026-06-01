@@ -1265,17 +1265,25 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "请先选择要删除的账号")
             return
         
-        # 获取选中行的手机号
+        # 获取选中行的手机号（第2列，索引1）
         selected_phones = []
         for item in selected:
-            phone = self.account_tree.item(item)['values'][1]
-            selected_phones.append(phone)
+            values = self.account_tree.item(item)['values']
+            if len(values) >= 2:
+                phone = values[1]  # 手机号在第2列
+                selected_phones.append(phone)
+                self.log("多账号管理", f"准备删除账号: {phone}")
+        
+        if not selected_phones:
+            self.log("多账号管理", "未获取到要删除的账号信息")
+            return
         
         def do_delete():
             for phone in selected_phones:
                 for i, acc in enumerate(self.accounts):
                     if acc.get('phone') == phone:
                         self.accounts.pop(i)
+                        self.log("多账号管理", f"已删除账号: {phone}")
                         break
             self.refresh_account_list_filter()
             self.refresh_scrape_accounts()
@@ -1288,6 +1296,7 @@ class TelegramFullGUI:
                 statuses.add(status)
             self.account_list_status_filter['values'] = list(statuses)
             self.log("多账号管理", f"删除 {len(selected_phones)} 个选中账号")
+        
         self.show_centered_yesno("确认", f"确定删除 {len(selected_phones)} 个选中的账号？", do_delete)
     
     def delete_dead_accounts_filtered(self):
@@ -1314,6 +1323,7 @@ class TelegramFullGUI:
                     for i, acc in enumerate(self.accounts):
                         if acc.get('phone') == phone:
                             self.accounts.pop(i)
+                            self.log("多账号管理", f"已删除死号: {phone}")
                             break
                 self.refresh_account_list_filter()
                 self.refresh_scrape_accounts()
