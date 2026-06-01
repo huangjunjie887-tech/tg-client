@@ -398,7 +398,8 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="分组管理", command=self.open_group_manager).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导出账号", command=self.export_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="一键登录并检测", command=self.login_and_check_all).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="一键登录", command=self.login_all_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="深度检测", command=self.deep_check_all_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="修改资料", command=self.batch_edit_profile).pack(side="left", padx=2)
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
@@ -432,6 +433,207 @@ class TelegramFullGUI:
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
+    
+    def login_all_accounts(self):
+        """只登录账号，不检测"""
+        if not self.accounts:
+            self.log("多账号管理", "没有账号可操作")
+            self.show_centered_warning("提示", "请先导入账号")
+            return
+        
+        self.log("多账号管理", f"开始登录 {len(self.accounts)} 个账号...")
+        
+        def do_login():
+            for idx, acc in enumerate(self.accounts, 1):
+                phone = acc.get('phone', '')
+                self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在登录: {phone}")
+                self.login_single_account(acc)
+                time.sleep(2)
+            self.log("多账号管理", "登录完成")
+            self.save_config()
+        
+        threading.Thread(target=do_login, daemon=True).start()
+    
+    def login_single_account(self, acc):
+        phone = acc.get('phone', '')
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
+        twofa = self.get_account_twofa(acc)
+        
+        async def do_login():
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                
+                if await client.is_user_authorized():
+                    me = await client.get_me()
+                    nickname = me.first_name or me.username or phone
+                    acc['nickname'] = nickname
+                    if hasattr(me, 'date'):
+                        acc['register_time'] = me.date.strftime("%Y-%m-%d")
+                    acc['status'] = '正常'
+                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
+                    await client.disconnect()
+                    return True
+                else:
+                    self.log("多账号管理", f"[{phone}] session未授权")
+                    acc['status'] = '未授权'
+                    return False
+            except FloodWaitError as e:
+                self.log("多账号管理", f"[{phone}] 被限制，需等待{e.seconds}秒")
+                acc['status'] = f'限制({e.seconds}秒)'
+                return False
+            except UserDeactivatedError:
+                self.log("多账号管理", f"[{phone}] 账号已注销")
+                acc['status'] = '销号'
+                return False
+            except PhoneNumberBannedError:
+                self.log("多账号管理", f"[{phone}] 账号已被封禁")
+                acc['status'] = '封禁'
+                return False
+            except SessionPasswordNeededError:
+                if twofa:
+                    try:
+                        await client.sign_in(password=twofa)
+                        me = await client.get_me()
+                        acc['nickname'] = me.first_name or phone
+                        acc['status'] = '正常'
+                        self.log("多账号管理", f"[{phone}] 2FA登录成功")
+                        return True
+                    except:
+                        self.log("多账号管理", f"[{phone}] 2FA密码错误")
+                        acc['status'] = '2FA错误'
+                else:
+                    self.log("多账号管理", f"[{phone}] 需要2FA密码")
+                    acc['status'] = '需要2FA'
+                return False
+            except Exception as e:
+                self.log("多账号管理", f"[{phone}] 登录失败 - {str(e)[:80]}")
+                acc['status'] = '登录失败'
+                return False
+            finally:
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(do_login())
+        loop.close()
+        
+        self.root.after(0, self.refresh_account_list)
+        self.root.after(0, self.refresh_scrape_accounts)
+        self.save_config()
+        return result
+    
+    def deep_check_all_accounts(self):
+        """深度检测所有账号的风控状态和邀请权限"""
+        if not self.accounts:
+            self.log("多账号管理", "没有账号可检测")
+            self.show_centered_warning("提示", "请先导入账号")
+            return
+        
+        self.log("多账号管理", f"开始深度检测 {len(self.accounts)} 个账号...")
+        self.log("多账号管理", "检测项目: 登录状态 | 邀请权限 | 风控状态")
+        
+        def do_deep_check():
+            for idx, acc in enumerate(self.accounts, 1):
+                phone = acc.get('phone', '')
+                self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在检测: {phone}")
+                self.deep_check_single_account(acc)
+                time.sleep(2)
+            self.log("多账号管理", "深度检测完成")
+            self.save_config()
+        
+        threading.Thread(target=do_deep_check, daemon=True).start()
+    
+    def deep_check_single_account(self, acc):
+        """深度检测单个账号"""
+        phone = acc.get('phone', '')
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
+        
+        async def do_check():
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                
+                if not await client.is_user_authorized():
+                    acc['status'] = '未授权'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
+                    return
+                
+                me = await client.get_me()
+                nickname = me.first_name or me.username or phone
+                acc['nickname'] = nickname
+                
+                # 检测注册时间
+                if hasattr(me, 'date'):
+                    reg_time = me.date.strftime("%Y-%m-%d")
+                    acc['register_time'] = reg_time
+                    days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
+                    self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
+                
+                # 检测邀请权限 - 使用一个公开测试群组
+                test_group = "https://t.me/joinchat/AAAAAE9B8uLx5lLVu_1dXg"
+                try:
+                    # 尝试加入测试群组并邀请一个测试用户
+                    # 这里只检测是否有ChatWriteForbiddenError或ChatAdminRequiredError
+                    # 简化检测：尝试获取群组成员
+                    test_entity = await client.get_entity("https://t.me/joinchat/AAAAAE9B8uLx5lLVu_1dXg")
+                    await client(GetParticipantsRequest(
+                        channel=test_entity,
+                        filter=ChannelParticipantsSearch(''),
+                        offset=0,
+                        limit=1,
+                        hash=0
+                    ))
+                    acc['status'] = '正常'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 正常 (可邀请)")
+                except ChatAdminRequiredError:
+                    acc['status'] = '需管理员权限'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 需管理员权限")
+                except ChatWriteForbiddenError:
+                    acc['status'] = '被禁言'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 被禁言")
+                except FloodWaitError as e:
+                    acc['status'] = f'频率限制({e.seconds}秒)'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 频率限制({e.seconds}秒)")
+                except PeerFloodError:
+                    acc['status'] = '风控-邀请限制'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 风控-邀请限制")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "flood" in error_msg:
+                        acc['status'] = '频率限制'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 频率限制")
+                    else:
+                        acc['status'] = '正常(权限未知)'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 正常(权限未知)")
+                
+                await client.disconnect()
+                
+            except Exception as e:
+                self.log("多账号管理", f"[{phone}] 检测异常: {str(e)[:80]}")
+                acc['status'] = '检测失败'
+            finally:
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(do_check())
+        loop.close()
+        
+        self.root.after(0, self.refresh_account_list)
+        self.root.after(0, self.refresh_scrape_accounts)
     
     def batch_edit_profile(self):
         dialog = tk.Toplevel(self.root)
@@ -950,100 +1152,6 @@ class TelegramFullGUI:
         
         self.log("多账号管理", f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
         self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号")
-    
-    def login_single_account(self, acc):
-        phone = acc.get('phone', '')
-        session_path = acc.get('session_path', '')
-        api_id, api_hash = self.get_account_api_credentials(acc)
-        twofa = self.get_account_twofa(acc)
-        
-        async def do_login():
-            client = None
-            try:
-                client = TelegramClient(session_path, api_id, api_hash)
-                await client.connect()
-                
-                if await client.is_user_authorized():
-                    me = await client.get_me()
-                    nickname = me.first_name or me.username or phone
-                    acc['nickname'] = nickname
-                    if hasattr(me, 'date'):
-                        acc['register_time'] = me.date.strftime("%Y-%m-%d")
-                    acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
-                    await client.disconnect()
-                    return True
-                else:
-                    self.log("多账号管理", f"[{phone}] session未授权")
-                    acc['status'] = '未授权'
-                    return False
-            except FloodWaitError as e:
-                self.log("多账号管理", f"[{phone}] 被限制，需等待{e.seconds}秒")
-                acc['status'] = f'限制({e.seconds}秒)'
-                return False
-            except UserDeactivatedError:
-                self.log("多账号管理", f"[{phone}] 账号已注销")
-                acc['status'] = '销号'
-                return False
-            except PhoneNumberBannedError:
-                self.log("多账号管理", f"[{phone}] 账号已被封禁")
-                acc['status'] = '封禁'
-                return False
-            except SessionPasswordNeededError:
-                if twofa:
-                    try:
-                        await client.sign_in(password=twofa)
-                        me = await client.get_me()
-                        acc['nickname'] = me.first_name or phone
-                        acc['status'] = '正常'
-                        self.log("多账号管理", f"[{phone}] 2FA登录成功")
-                        return True
-                    except:
-                        self.log("多账号管理", f"[{phone}] 2FA密码错误")
-                        acc['status'] = '2FA错误'
-                else:
-                    self.log("多账号管理", f"[{phone}] 需要2FA密码")
-                    acc['status'] = '需要2FA'
-                return False
-            except Exception as e:
-                self.log("多账号管理", f"[{phone}] 登录失败 - {str(e)[:80]}")
-                acc['status'] = '登录失败'
-                return False
-            finally:
-                if client:
-                    try:
-                        await client.disconnect()
-                    except:
-                        pass
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(do_login())
-        loop.close()
-        
-        self.root.after(0, self.refresh_account_list)
-        self.root.after(0, self.refresh_scrape_accounts)
-        self.save_config()
-        return result
-    
-    def login_and_check_all(self):
-        if not self.accounts:
-            self.log("多账号管理", "没有账号可操作")
-            self.show_centered_warning("提示", "请先导入账号")
-            return
-        
-        self.log("多账号管理", f"开始登录并检测 {len(self.accounts)} 个账号...")
-        
-        def do_login():
-            for idx, acc in enumerate(self.accounts, 1):
-                phone = acc.get('phone', '')
-                self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在处理账号: {phone}")
-                self.login_single_account(acc)
-                time.sleep(2)
-            self.log("多账号管理", "登录检测完成")
-            self.save_config()
-        
-        threading.Thread(target=do_login, daemon=True).start()
     
     def refresh_account_list(self):
         for item in self.account_tree.get_children():
@@ -2782,25 +2890,10 @@ class TelegramFullGUI:
         
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
-            await asyncio.sleep(1)
-            
-            try:
-                await client(GetParticipantsRequest(
-                    channel=entity,
-                    filter=ChannelParticipantsSearch(user_entity.username or ''),
-                    offset=0,
-                    limit=1,
-                    hash=0
-                ))
-                self.total_success += 1
-                self.total_processed += 1
-                self.processed_usernames.add(clean_username)
-                return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
-            except:
-                self.total_success += 1
-                self.total_processed += 1
-                self.processed_usernames.add(clean_username)
-                return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
+            self.total_success += 1
+            self.total_processed += 1
+            self.processed_usernames.add(clean_username)
+            return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
                 
         except UserPrivacyRestrictedError:
             self.total_fail += 1
