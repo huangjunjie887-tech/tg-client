@@ -304,6 +304,11 @@ class TelegramFullGUI:
         
         self.refresh_invite_group_filter()
         
+        # 启动后自动刷新账号列表和代理列表
+        self.refresh_account_list()
+        self.refresh_proxy_list()
+        self.refresh_scrape_accounts()
+        
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
     
@@ -317,6 +322,18 @@ class TelegramFullGUI:
         if hasattr(self, 'proxy_group_filter'):
             self.proxy_group_filter['values'] = ["全部"] + self.proxy_groups
             self.proxy_group_filter.set("全部")
+        # 刷新账号列表页面的筛选下拉框
+        if hasattr(self, 'account_list_group_filter'):
+            self.account_list_group_filter['values'] = ["全部"] + self.groups
+            self.account_list_group_filter.set("全部")
+        if hasattr(self, 'account_list_status_filter'):
+            # 获取所有不重复的状态
+            statuses = set(["全部"])
+            for acc in self.accounts:
+                status = acc.get('status', '待检测')
+                statuses.add(status)
+            self.account_list_status_filter['values'] = list(statuses)
+            self.account_list_status_filter.set("全部")
     
     def create_menu(self):
         menubar = tk.Menu(self.root)
@@ -384,6 +401,31 @@ class TelegramFullGUI:
         else:
             listbox.selection_clear(0, tk.END)
     
+    def refresh_account_list_filter(self, event=None):
+        """根据分组和状态筛选刷新账号列表"""
+        filter_group = self.account_list_group_filter.get()
+        filter_status = self.account_list_status_filter.get()
+        
+        for item in self.account_tree.get_children():
+            self.account_tree.delete(item)
+        
+        i = 1
+        for acc in self.accounts:
+            # 分组筛选
+            if filter_group != "全部" and acc.get('group', '默认分组') != filter_group:
+                continue
+            # 状态筛选
+            if filter_status != "全部" and acc.get('status', '待检测') != filter_status:
+                continue
+            
+            self.account_tree.insert("", "end", values=(
+                i, acc.get('phone', ''), acc.get('group', '默认分组'),
+                acc.get('nickname', ''), acc.get('current_task', ''),
+                acc.get('last_action', ''), acc.get('status', '待检测'),
+                acc.get('register_time', '未知'), acc.get('proxy', '未设置')
+            ))
+            i += 1
+    
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
@@ -392,6 +434,7 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
+        # 第一行工具栏：功能按钮
         toolbar = ttk.Frame(main_frame)
         toolbar.pack(fill="x", pady=5)
         
@@ -401,10 +444,34 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="一键登录", command=self.login_all_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="深度检测", command=self.deep_check_all_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="修改资料", command=self.batch_edit_profile).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list_filter).pack(side="left", padx=2)
         
+        # 第二行：筛选栏
+        filter_bar = ttk.Frame(main_frame)
+        filter_bar.pack(fill="x", pady=5)
+        
+        ttk.Label(filter_bar, text="分组筛选:").pack(side="left", padx=5)
+        self.account_list_group_filter = ttk.Combobox(filter_bar, values=["全部"] + self.groups, width=15)
+        self.account_list_group_filter.set("全部")
+        self.account_list_group_filter.pack(side="left", padx=5)
+        self.account_list_group_filter.bind("<<ComboboxSelected>>", self.refresh_account_list_filter)
+        
+        ttk.Label(filter_bar, text="状态筛选:").pack(side="left", padx=20)
+        self.account_list_status_filter = ttk.Combobox(filter_bar, values=["全部"], width=15)
+        self.account_list_status_filter.set("全部")
+        self.account_list_status_filter.pack(side="left", padx=5)
+        self.account_list_status_filter.bind("<<ComboboxSelected>>", self.refresh_account_list_filter)
+        
+        # 更新状态筛选的可选值
+        statuses = set(["全部"])
+        for acc in self.accounts:
+            status = acc.get('status', '待检测')
+            statuses.add(status)
+        self.account_list_status_filter['values'] = list(statuses)
+        
+        # 账号列表框架
         frame = ttk.LabelFrame(main_frame, text="账号列表")
         frame.pack(fill="both", expand=True, pady=5)
         
@@ -523,7 +590,7 @@ class TelegramFullGUI:
         result = loop.run_until_complete(do_login())
         loop.close()
         
-        self.root.after(0, self.refresh_account_list)
+        self.root.after(0, self.refresh_account_list_filter)
         self.root.after(0, self.refresh_scrape_accounts)
         self.save_config()
         return result
@@ -643,8 +710,14 @@ class TelegramFullGUI:
         loop.run_until_complete(do_check())
         loop.close()
         
-        self.root.after(0, self.refresh_account_list)
+        self.root.after(0, self.refresh_account_list_filter)
         self.root.after(0, self.refresh_scrape_accounts)
+        # 更新状态筛选下拉框
+        statuses = set(["全部"])
+        for acc in self.accounts:
+            status = acc.get('status', '待检测')
+            statuses.add(status)
+        self.account_list_status_filter['values'] = list(statuses)
     
     def batch_edit_profile(self):
         dialog = tk.Toplevel(self.root)
@@ -871,7 +944,7 @@ class TelegramFullGUI:
                         self.log("多账号管理", f"[{phone}] 头像修改失败: {str(e)}")
                 
                 await client.disconnect()
-                self.root.after(0, self.refresh_account_list)
+                self.root.after(0, self.refresh_account_list_filter)
             except Exception as e:
                 self.log("多账号管理", f"[{phone}] 修改资料失败: {str(e)}")
             finally:
@@ -955,7 +1028,7 @@ class TelegramFullGUI:
                 return
             idx = int(selected_account.split('.')[0]) - 1
             self.accounts[idx]['group'] = target_group
-            self.refresh_account_list()
+            self.refresh_account_list_filter()
             refresh_account_combo()
             self.refresh_invite_group_filter()
             self.save_config()
@@ -1001,7 +1074,7 @@ class TelegramFullGUI:
                 self.groups[idx] = new_name
                 listbox.delete(selected[0])
                 listbox.insert(selected[0], new_name)
-                self.refresh_account_list()
+                self.refresh_account_list_filter()
                 self.refresh_invite_group_filter()
                 self.save_config()
                 self.log("多账号管理", f"重命名分组: {old_name} -> {new_name}")
@@ -1020,7 +1093,7 @@ class TelegramFullGUI:
                         acc['group'] = '默认分组'
                 self.groups.remove(group_name)
                 listbox.delete(selected[0])
-                self.refresh_account_list()
+                self.refresh_account_list_filter()
                 self.refresh_invite_group_filter()
                 self.save_config()
                 self.log("多账号管理", f"删除分组: {group_name}")
@@ -1124,10 +1197,16 @@ class TelegramFullGUI:
             count += 1
             self.log("多账号管理", f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
         
-        self.refresh_account_list()
+        self.refresh_account_list_filter()
         self.refresh_scrape_accounts()
         self.refresh_invite_group_filter()
         self.save_config()
+        # 更新状态筛选下拉框
+        statuses = set(["全部"])
+        for acc in self.accounts:
+            status = acc.get('status', '待检测')
+            statuses.add(status)
+        self.account_list_status_filter['values'] = list(statuses)
         self.log("多账号管理", f"导入 {count} 个账号到分组「{target_group}」")
         if count > 0:
             self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
@@ -1165,27 +1244,31 @@ class TelegramFullGUI:
         self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号")
     
     def refresh_account_list(self):
-        for item in self.account_tree.get_children():
-            self.account_tree.delete(item)
-        for i, acc in enumerate(self.accounts, 1):
-            self.account_tree.insert("", "end", values=(
-                i, acc.get('phone', ''), acc.get('group', '默认分组'),
-                acc.get('nickname', ''), acc.get('current_task', ''),
-                acc.get('last_action', ''), acc.get('status', '待检测'),
-                acc.get('register_time', '未知'), acc.get('proxy', '未设置')
-            ))
+        # 保留此方法供兼容性调用，实际使用 refresh_account_list_filter
+        self.refresh_account_list_filter()
     
     def delete_selected_accounts(self):
         selected = self.account_tree.selection()
         if selected:
+            # 获取选中行的序号
+            indices = []
+            for item in selected:
+                idx = int(self.account_tree.item(item)['values'][0]) - 1
+                indices.append(idx)
+            
             def do_delete():
-                indices = sorted([int(self.account_tree.item(item)['values'][0]) - 1 for item in selected], reverse=True)
-                for idx in indices:
+                for idx in sorted(indices, reverse=True):
                     self.accounts.pop(idx)
-                self.refresh_account_list()
+                self.refresh_account_list_filter()
                 self.refresh_scrape_accounts()
                 self.refresh_invite_group_filter()
                 self.save_config()
+                # 更新状态筛选下拉框
+                statuses = set(["全部"])
+                for acc in self.accounts:
+                    status = acc.get('status', '待检测')
+                    statuses.add(status)
+                self.account_list_status_filter['values'] = list(statuses)
                 self.log("多账号管理", f"删除 {len(selected)} 个选中账号")
             self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
     
@@ -1196,10 +1279,16 @@ class TelegramFullGUI:
             def do_delete():
                 for idx in sorted(dead_indices, reverse=True):
                     self.accounts.pop(idx)
-                self.refresh_account_list()
+                self.refresh_account_list_filter()
                 self.refresh_scrape_accounts()
                 self.refresh_invite_group_filter()
                 self.save_config()
+                # 更新状态筛选下拉框
+                statuses = set(["全部"])
+                for acc in self.accounts:
+                    status = acc.get('status', '待检测')
+                    statuses.add(status)
+                self.account_list_status_filter['values'] = list(statuses)
                 self.log("多账号管理", f"删除 {len(dead_indices)} 个已失效账号")
             self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已失效账号？", do_delete)
         else:
@@ -1417,7 +1506,7 @@ class TelegramFullGUI:
                             break
                     self.log("代理IP", f"账号 {phone} 分配代理: {proxy_str}")
             
-            self.refresh_account_list()
+            self.refresh_account_list_filter()
             self.refresh_proxy_list()
             self.save_config()
             self.log("代理IP", f"分配完成，共为 {len(selected_accounts)} 个账号分配代理")
@@ -3538,10 +3627,16 @@ class TelegramFullGUI:
         if file_path:
             shutil.copy(file_path, CONFIG_FILE)
             self.load_config()
-            self.refresh_account_list()
+            self.refresh_account_list_filter()
             self.refresh_proxy_list()
             self.refresh_scrape_accounts()
             self.refresh_invite_group_filter()
+            # 更新状态筛选下拉框
+            statuses = set(["全部"])
+            for acc in self.accounts:
+                status = acc.get('status', '待检测')
+                statuses.add(status)
+            self.account_list_status_filter['values'] = list(statuses)
             self.log("多账号管理", "配置已导入")
     
     def about(self):
