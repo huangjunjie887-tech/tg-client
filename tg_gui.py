@@ -62,7 +62,6 @@ class TelegramFullGUI:
         
         self.machine_id = self.get_machine_id()
         
-        # 加载保存的配置
         self.load_config()
         
         self.show_card_login()
@@ -76,7 +75,6 @@ class TelegramFullGUI:
             return hashlib.md5(platform.node().encode()).hexdigest()
     
     def save_config(self):
-        """保存配置到文件"""
         try:
             config = {
                 "accounts": [],
@@ -84,8 +82,6 @@ class TelegramFullGUI:
                 "groups": self.groups,
                 "proxy_groups": self.proxy_groups
             }
-            
-            # 只保存账号的基本信息，不保存session路径（太大）
             for acc in self.accounts:
                 config["accounts"].append({
                     "phone": acc.get("phone", ""),
@@ -97,24 +93,20 @@ class TelegramFullGUI:
                     "json_path": acc.get("json_path", ""),
                     "proxy": acc.get("proxy", "")
                 })
-            
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"保存配置失败: {e}")
     
     def load_config(self):
-        """加载配置文件"""
         try:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     config = json.load(f)
-                
                 self.accounts = config.get("accounts", [])
                 self.proxies = config.get("proxies", [])
                 self.groups = config.get("groups", ["默认分组"])
                 self.proxy_groups = config.get("proxy_groups", ["默认分组"])
-                
                 if not self.groups:
                     self.groups = ["默认分组"]
                 if not self.proxy_groups:
@@ -310,14 +302,12 @@ class TelegramFullGUI:
         self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 联系@Tian2547", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
         
-        # 刷新分组筛选下拉框
         self.refresh_invite_group_filter()
         
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
     
     def refresh_invite_group_filter(self):
-        """刷新拉人页面的分组筛选下拉框"""
         if hasattr(self, 'invite_group_filter'):
             self.invite_group_filter['values'] = ["全部"] + self.groups
             self.invite_group_filter.set("全部")
@@ -343,7 +333,6 @@ class TelegramFullGUI:
         help_menu.add_command(label="关于", command=self.about)
     
     def on_exit(self):
-        """退出时保存配置"""
         self.save_config()
         self.root.quit()
     
@@ -2843,14 +2832,8 @@ class TelegramFullGUI:
         
         client = None
         account_invited_count = 0
-        
-        stats = {
-            "success": 0, "already_in": 0, "not_exist": 0, "deleted": 0,
-            "is_bot": 0, "privacy": 0, "not_mutual": 0, "kicked": 0,
-            "banned": 0, "channels_full": 0, "flood": 0, "peer_flood": 0,
-            "need_admin": 0, "no_permission": 0, "account_banned": 0,
-            "account_deleted": 0, "other_error": 0
-        }
+        total_success = 0
+        total_fail = 0
         
         try:
             client = TelegramClient(session_path, api_id, api_hash)
@@ -2917,11 +2900,12 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
                 return
             
+            stats = {"success":0, "fail":0}
+            
             for i in range(0, len(users), per_batch):
                 if self.invite_stop_flag:
                     break
                 if per_account_max > 0 and account_invited_count >= per_account_max:
-                    self.log("批量拉人", f"[{phone[-6:]}] 已达上限 {per_account_max}")
                     break
                 
                 batch_users = users[i:i+per_batch]
@@ -2945,11 +2929,13 @@ class TelegramFullGUI:
                         
                         if success:
                             account_invited_count += 1
+                            total_success += 1
+                        else:
+                            total_fail += 1
                         
                         await asyncio.sleep(invite_wait)
             
-            total_processed = len(users)
-            self.log("批量拉人", f"[{phone[-6:]}] 完成 | 成功:{stats['success']} | 失败:{total_processed - stats['success']} | 处理:{total_processed}")
+            self.log("批量拉人", f"[{phone[-6:]}] 完成 | 成功:{stats['success']} | 失败:{stats['fail']}")
             
         except Exception as e:
             self.log("批量拉人", f"[{phone[-6:]}] 异常: {str(e)[:50]}")
