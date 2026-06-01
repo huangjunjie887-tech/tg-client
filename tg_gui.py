@@ -3163,753 +3163,753 @@ class TelegramFullGUI:
             self.log("批量拉人", "无进行中的任务")
     
     # ==================== 群发广告页面 ====================
-def create_send_page(self):
-    page = ttk.Frame(self.notebook)
-    self.notebook.add(page, text="群发广告")
-    
-    main_frame = ttk.Frame(page)
-    main_frame.pack(fill="both", expand=True, padx=10, pady=5)
-    
-    # 创建私发和群发两个标签页
-    send_notebook = ttk.Notebook(main_frame)
-    send_notebook.pack(fill="both", expand=True)
-    
-    # ==================== 私发标签页 ====================
-    private_frame = ttk.Frame(send_notebook)
-    send_notebook.add(private_frame, text="私发(私聊)")
-    
-    # 私发滚动区域
-    private_canvas = tk.Canvas(private_frame, highlightthickness=0)
-    private_scrollbar = ttk.Scrollbar(private_frame, orient="vertical", command=private_canvas.yview)
-    private_inner = ttk.Frame(private_canvas)
-    
-    private_canvas.configure(yscrollcommand=private_scrollbar.set)
-    private_canvas.pack(side="left", fill="both", expand=True)
-    private_scrollbar.pack(side="right", fill="y")
-    
-    private_window = private_canvas.create_window((0, 0), window=private_inner, anchor="nw")
-    
-    def on_private_configure(event):
-        private_canvas.configure(scrollregion=private_canvas.bbox("all"))
-    private_inner.bind("<Configure>", on_private_configure)
-    
-    def on_private_canvas_configure(event):
-        private_canvas.itemconfig(private_window, width=event.width)
-    private_canvas.bind("<Configure>", on_private_canvas_configure)
-    
-    def on_private_mousewheel(event):
-        private_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-    private_canvas.bind("<MouseWheel>", on_private_mousewheel)
-    
-    # 账号选择区域
-    account_frame = ttk.LabelFrame(private_inner, text="选择任务账号")
-    account_frame.pack(fill="x", padx=10, pady=5)
-    
-    filter_row = ttk.Frame(account_frame)
-    filter_row.pack(fill="x", padx=5, pady=5)
-    
-    ttk.Label(filter_row, text="分组筛选:").pack(side="left", padx=5)
-    self.private_group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=15)
-    self.private_group_filter.set("全部")
-    self.private_group_filter.pack(side="left", padx=5)
-    self.private_group_filter.bind("<<ComboboxSelected>>", self.refresh_private_account_list)
-    
-    ttk.Label(filter_row, text="账号筛选:").pack(side="left", padx=20)
-    self.private_status_filter = ttk.Combobox(filter_row, values=["全部", "正常"], width=10)
-    self.private_status_filter.set("正常")
-    self.private_status_filter.pack(side="left", padx=5)
-    self.private_status_filter.bind("<<ComboboxSelected>>", self.refresh_private_account_list)
-    
-    self.private_select_all_var = tk.BooleanVar()
-    ttk.Checkbutton(filter_row, text="全选", variable=self.private_select_all_var,
-                   command=lambda: self.toggle_listbox_select(self.private_account_listbox, self.private_select_all_var)).pack(side="left", padx=20)
-    
-    listbox_frame = ttk.Frame(account_frame)
-    listbox_frame.pack(fill="x", padx=5, pady=5)
-    
-    self.private_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
-    account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.private_account_listbox.yview)
-    self.private_account_listbox.configure(yscrollcommand=account_scrollbar.set)
-    self.private_account_listbox.pack(side="left", fill="x", expand=True)
-    account_scrollbar.pack(side="right", fill="y")
-    
-    # 用户列表导入区域（新增）
-    user_list_frame = ttk.LabelFrame(private_inner, text="用户列表导入")
-    user_list_frame.pack(fill="x", padx=10, pady=5)
-    
-    user_list_row = ttk.Frame(user_list_frame)
-    user_list_row.pack(fill="x", padx=5, pady=5)
-    
-    self.private_user_list_file = tk.StringVar()
-    ttk.Entry(user_list_row, textvariable=self.private_user_list_file, width=60).pack(side="left", padx=5)
-    ttk.Button(user_list_row, text="导入TXT文件", command=self.import_private_user_txt, width=12).pack(side="left", padx=2)
-    ttk.Button(user_list_row, text="导入JSON文件", command=self.import_private_user_json, width=12).pack(side="left", padx=2)
-    ttk.Label(user_list_row, text="（每行一个用户名，支持@开头）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
-    
-    self.private_user_count_label = ttk.Label(user_list_frame, text="已加载: 0 个用户", foreground="blue")
-    self.private_user_count_label.pack(anchor="w", padx=5, pady=2)
-    self.private_users = []
-    
-    # 广告内容区域
-    ad_frame = ttk.LabelFrame(private_inner, text="广告内容")
-    ad_frame.pack(fill="x", padx=10, pady=5)
-    
-    self.private_ad_text = scrolledtext.ScrolledText(ad_frame, width=80, height=6)
-    self.private_ad_text.pack(fill="x", padx=5, pady=5)
-    
-    ad_btn_frame = ttk.Frame(ad_frame)
-    ad_btn_frame.pack(fill="x", padx=5, pady=5)
-    ttk.Button(ad_btn_frame, text="导入文本广告", command=self.import_private_ad_text).pack(side="left", padx=5)
-    ttk.Button(ad_btn_frame, text="导入图片广告", command=self.import_private_image).pack(side="left", padx=5)
-    if hasattr(self, 'private_image_path'):
-        ttk.Label(ad_btn_frame, textvariable=self.private_image_path).pack(side="left", padx=5)
-    
-    # 参数设置区域
-    param_frame = ttk.LabelFrame(private_inner, text="发送参数")
-    param_frame.pack(fill="x", padx=10, pady=5)
-    
-    param_row1 = ttk.Frame(param_frame)
-    param_row1.pack(fill="x", padx=5, pady=5)
-    ttk.Label(param_row1, text="时间间隔(秒):").pack(side="left", padx=5)
-    self.private_interval = ttk.Entry(param_row1, width=10)
-    self.private_interval.insert(0, "30")
-    self.private_interval.pack(side="left", padx=5)
-    ttk.Label(param_row1, text="单号私发数量:").pack(side="left", padx=20)
-    self.private_per_account_limit = ttk.Entry(param_row1, width=10)
-    self.private_per_account_limit.insert(0, "50")
-    self.private_per_account_limit.pack(side="left", padx=5)
-    
-    param_row2 = ttk.Frame(param_frame)
-    param_row2.pack(fill="x", padx=5, pady=5)
-    ttk.Label(param_row2, text="线程数:").pack(side="left", padx=5)
-    self.private_thread_count = ttk.Entry(param_row2, width=10)
-    self.private_thread_count.insert(0, "3")
-    self.private_thread_count.pack(side="left", padx=5)
-    self.private_auto_skip = tk.BooleanVar(value=True)
-    ttk.Checkbutton(param_row2, text="账号异常自动跳过", variable=self.private_auto_skip).pack(side="left", padx=20)
-    
-    # 按钮区域
-    btn_frame = ttk.Frame(private_inner)
-    btn_frame.pack(pady=15)
-    self.private_start_btn = ttk.Button(btn_frame, text="开始", command=self.start_private_send, width=10)
-    self.private_start_btn.pack(side="left", padx=5)
-    self.private_stop_btn = ttk.Button(btn_frame, text="停止", command=self.stop_private_send, width=10)
-    self.private_stop_btn.pack(side="left", padx=5)
-    self.private_pause_btn = ttk.Button(btn_frame, text="暂停", command=self.pause_private_send, width=10)
-    self.private_pause_btn.pack(side="left", padx=5)
-    self.private_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_private_send, width=10)
-    self.private_resume_btn.pack(side="left", padx=5)
-    
-    # 日志区域
-    private_log_frame = ttk.LabelFrame(private_inner, text="运行日志")
-    private_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
-    self.private_log = scrolledtext.ScrolledText(private_log_frame, width=100, height=8)
-    self.private_log.pack(fill="both", expand=True, padx=5, pady=5)
-    
-    # ==================== 群发标签页 ====================
-    group_frame_tab = ttk.Frame(send_notebook)
-    send_notebook.add(group_frame_tab, text="群发(群聊)")
-    
-    # 群发滚动区域
-    group_canvas = tk.Canvas(group_frame_tab, highlightthickness=0)
-    group_scrollbar = ttk.Scrollbar(group_frame_tab, orient="vertical", command=group_canvas.yview)
-    group_inner = ttk.Frame(group_canvas)
-    
-    group_canvas.configure(yscrollcommand=group_scrollbar.set)
-    group_canvas.pack(side="left", fill="both", expand=True)
-    group_scrollbar.pack(side="right", fill="y")
-    
-    group_window = group_canvas.create_window((0, 0), window=group_inner, anchor="nw")
-    
-    def on_group_configure(event):
-        group_canvas.configure(scrollregion=group_canvas.bbox("all"))
-    group_inner.bind("<Configure>", on_group_configure)
-    
-    def on_group_canvas_configure(event):
-        group_canvas.itemconfig(group_window, width=event.width)
-    group_canvas.bind("<Configure>", on_group_canvas_configure)
-    
-    def on_group_mousewheel(event):
-        group_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-    group_canvas.bind("<MouseWheel>", on_group_mousewheel)
-    
-    # 目标群组区域（只保留导入文件按钮）
-    target_frame = ttk.LabelFrame(group_inner, text="目标群组")
-    target_frame.pack(fill="x", padx=10, pady=5)
-    
-    target_row = ttk.Frame(target_frame)
-    target_row.pack(fill="x", padx=5, pady=10)
-    
-    self.group_target_file = tk.StringVar()
-    ttk.Entry(target_row, textvariable=self.group_target_file, width=60).pack(side="left", padx=5)
-    ttk.Button(target_row, text="导入群链接文件", command=self.import_group_targets, width=15).pack(side="left", padx=5)
-    ttk.Label(target_row, text="（每行一个群链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
-    
-    self.group_target_count_label = ttk.Label(target_frame, text="已加载: 0 个群组", foreground="blue")
-    self.group_target_count_label.pack(anchor="w", padx=5, pady=2)
-    self.group_targets = []
-    
-    # 账号选择区域
-    group_account_frame = ttk.LabelFrame(group_inner, text="选择任务账号")
-    group_account_frame.pack(fill="x", padx=10, pady=5)
-    
-    group_filter_row = ttk.Frame(group_account_frame)
-    group_filter_row.pack(fill="x", padx=5, pady=5)
-    
-    ttk.Label(group_filter_row, text="分组筛选:").pack(side="left", padx=5)
-    self.group_account_group_filter = ttk.Combobox(group_filter_row, values=["全部"] + self.groups, width=15)
-    self.group_account_group_filter.set("全部")
-    self.group_account_group_filter.pack(side="left", padx=5)
-    self.group_account_group_filter.bind("<<ComboboxSelected>>", self.refresh_group_account_list)
-    
-    ttk.Label(group_filter_row, text="账号筛选:").pack(side="left", padx=20)
-    self.group_account_status_filter = ttk.Combobox(group_filter_row, values=["全部", "正常"], width=10)
-    self.group_account_status_filter.set("正常")
-    self.group_account_status_filter.pack(side="left", padx=5)
-    self.group_account_status_filter.bind("<<ComboboxSelected>>", self.refresh_group_account_list)
-    
-    self.group_select_all_var = tk.BooleanVar()
-    ttk.Checkbutton(group_filter_row, text="全选", variable=self.group_select_all_var,
-                   command=lambda: self.toggle_listbox_select(self.group_account_listbox, self.group_select_all_var)).pack(side="left", padx=20)
-    
-    group_listbox_frame = ttk.Frame(group_account_frame)
-    group_listbox_frame.pack(fill="x", padx=5, pady=5)
-    
-    self.group_account_listbox = tk.Listbox(group_listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
-    group_account_scrollbar = ttk.Scrollbar(group_listbox_frame, orient="vertical", command=self.group_account_listbox.yview)
-    self.group_account_listbox.configure(yscrollcommand=group_account_scrollbar.set)
-    self.group_account_listbox.pack(side="left", fill="x", expand=True)
-    group_account_scrollbar.pack(side="right", fill="y")
-    
-    # 广告内容区域
-    group_ad_frame = ttk.LabelFrame(group_inner, text="广告内容")
-    group_ad_frame.pack(fill="x", padx=10, pady=5)
-    
-    self.group_ad_text = scrolledtext.ScrolledText(group_ad_frame, width=80, height=6)
-    self.group_ad_text.pack(fill="x", padx=5, pady=5)
-    
-    group_ad_btn_frame = ttk.Frame(group_ad_frame)
-    group_ad_btn_frame.pack(fill="x", padx=5, pady=5)
-    ttk.Button(group_ad_btn_frame, text="导入文本广告", command=self.import_group_ad_text).pack(side="left", padx=5)
-    ttk.Button(group_ad_btn_frame, text="导入图片广告", command=self.import_group_image).pack(side="left", padx=5)
-    
-    # 参数设置区域
-    group_param_frame = ttk.LabelFrame(group_inner, text="发送参数")
-    group_param_frame.pack(fill="x", padx=10, pady=5)
-    
-    group_param_row1 = ttk.Frame(group_param_frame)
-    group_param_row1.pack(fill="x", padx=5, pady=5)
-    ttk.Label(group_param_row1, text="单号同时群发几个群:").pack(side="left", padx=5)
-    self.group_concurrent = ttk.Entry(group_param_row1, width=10)
-    self.group_concurrent.insert(0, "3")
-    self.group_concurrent.pack(side="left", padx=5)
-    ttk.Label(group_param_row1, text="单号群发数量:").pack(side="left", padx=20)
-    self.group_per_account_limit = ttk.Entry(group_param_row1, width=10)
-    self.group_per_account_limit.insert(0, "50")
-    self.group_per_account_limit.pack(side="left", padx=5)
-    
-    group_param_row2 = ttk.Frame(group_param_frame)
-    group_param_row2.pack(fill="x", padx=5, pady=5)
-    ttk.Label(group_param_row2, text="时间间隔(秒):").pack(side="left", padx=5)
-    self.group_interval = ttk.Entry(group_param_row2, width=10)
-    self.group_interval.insert(0, "30")
-    self.group_interval.pack(side="left", padx=5)
-    ttk.Label(group_param_row2, text="线程数:").pack(side="left", padx=20)
-    self.group_thread_count = ttk.Entry(group_param_row2, width=10)
-    self.group_thread_count.insert(0, "3")
-    self.group_thread_count.pack(side="left", padx=5)
-    self.group_auto_skip = tk.BooleanVar(value=True)
-    ttk.Checkbutton(group_param_row2, text="账号异常自动跳过", variable=self.group_auto_skip).pack(side="left", padx=20)
-    
-    # 按钮区域
-    group_btn_frame = ttk.Frame(group_inner)
-    group_btn_frame.pack(pady=15)
-    self.group_start_btn = ttk.Button(group_btn_frame, text="开始", command=self.start_group_send, width=10)
-    self.group_start_btn.pack(side="left", padx=5)
-    self.group_stop_btn = ttk.Button(group_btn_frame, text="停止", command=self.stop_group_send, width=10)
-    self.group_stop_btn.pack(side="left", padx=5)
-    self.group_pause_btn = ttk.Button(group_btn_frame, text="暂停", command=self.pause_group_send, width=10)
-    self.group_pause_btn.pack(side="left", padx=5)
-    self.group_resume_btn = ttk.Button(group_btn_frame, text="继续", command=self.resume_group_send, width=10)
-    self.group_resume_btn.pack(side="left", padx=5)
-    
-    # 日志区域
-    group_log_frame = ttk.LabelFrame(group_inner, text="运行日志")
-    group_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
-    self.group_log = scrolledtext.ScrolledText(group_log_frame, width=100, height=8)
-    self.group_log.pack(fill="both", expand=True, padx=5, pady=5)
-    
-    # 初始化变量
-    self.private_image_path = tk.StringVar()
-    self.group_image_path = tk.StringVar()
-    self.private_send_running = False
-    self.private_send_paused = False
-    self.private_stop_flag = False
-    self.group_send_running = False
-    self.group_send_paused = False
-    self.group_stop_flag = False
-    
-    # 刷新列表
-    self.refresh_private_account_list()
-    self.refresh_group_account_list()
-
-def refresh_private_account_list(self, event=None):
-    self.private_account_listbox.delete(0, tk.END)
-    filter_group = self.private_group_filter.get()
-    filter_status = self.private_status_filter.get()
-    for acc in self.accounts:
-        if filter_status == "全部" or acc.get('status') == filter_status:
-            if filter_group == "全部" or acc.get('group') == filter_group:
-                display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
-                self.private_account_listbox.insert(tk.END, display_text)
-    self.private_select_all_var.set(False)
-
-def refresh_group_account_list(self, event=None):
-    self.group_account_listbox.delete(0, tk.END)
-    filter_group = self.group_account_group_filter.get()
-    filter_status = self.group_account_status_filter.get()
-    for acc in self.accounts:
-        if filter_status == "全部" or acc.get('status') == filter_status:
-            if filter_group == "全部" or acc.get('group') == filter_group:
-                display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
-                self.group_account_listbox.insert(tk.END, display_text)
-    self.group_select_all_var.set(False)
-
-def import_private_user_txt(self):
-    file_path = filedialog.askopenfilename(title="选择用户列表文件", filetypes=[("文本文件", "*.txt")])
-    if file_path:
-        self.private_user_list_file.set(file_path)
-        users = []
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    username = line.strip()
-                    if username:
-                        if username.startswith('@'):
-                            username = username[1:]
-                        users.append(username)
-            self.private_users = users
-            self.private_user_count_label.config(text=f"已加载: {len(users)} 个用户")
-            self.private_log_insert(f"导入用户列表: {file_path}, 共 {len(users)} 个用户")
-        except Exception as e:
-            self.private_log_insert(f"导入失败: {str(e)}")
-
-def import_private_user_json(self):
-    file_path = filedialog.askopenfilename(title="选择用户列表文件", filetypes=[("JSON文件", "*.json")])
-    if file_path:
-        self.private_user_list_file.set(file_path)
-        users = []
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    for item in data:
-                        username = item.strip() if isinstance(item, str) else str(item)
-                        if username:
-                            if username.startswith('@'):
-                                username = username[1:]
-                            users.append(username)
-                elif isinstance(data, dict) and 'users' in data:
-                    for item in data['users']:
-                        username = item.strip() if isinstance(item, str) else str(item)
-                        if username:
-                            if username.startswith('@'):
-                                username = username[1:]
-                            users.append(username)
-            self.private_users = users
-            self.private_user_count_label.config(text=f"已加载: {len(users)} 个用户")
-            self.private_log_insert(f"导入用户列表: {file_path}, 共 {len(users)} 个用户")
-        except Exception as e:
-            self.private_log_insert(f"导入失败: {str(e)}")
-
-def import_private_ad_text(self):
-    file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
-    if file_path:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        self.private_ad_text.delete("1.0", tk.END)
-        self.private_ad_text.insert("1.0", content)
-        self.private_log_insert(f"导入文本广告: {file_path}")
-
-def import_private_image(self):
-    file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
-    if file_path:
-        self.private_image_path.set(file_path)
-        self.private_log_insert(f"选择图片广告: {file_path}")
-
-def import_group_ad_text(self):
-    file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
-    if file_path:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        self.group_ad_text.delete("1.0", tk.END)
-        self.group_ad_text.insert("1.0", content)
-        self.group_log_insert(f"导入文本广告: {file_path}")
-
-def import_group_image(self):
-    file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
-    if file_path:
-        self.group_image_path.set(file_path)
-        self.group_log_insert(f"选择图片广告: {file_path}")
-
-def import_group_targets(self):
-    file_path = filedialog.askopenfilename(title="选择群组链接文件", filetypes=[("文本文件", "*.txt")])
-    if file_path:
-        self.group_target_file.set(file_path)
-        targets = []
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    target = line.strip()
-                    if target:
-                        targets.append(target)
-            self.group_targets = targets
-            self.group_target_count_label.config(text=f"已加载: {len(targets)} 个群组")
-            self.group_log_insert(f"导入群组链接: {file_path}, 共 {len(targets)} 个群组")
-        except Exception as e:
-            self.group_log_insert(f"导入失败: {str(e)}")
-
-def private_log_insert(self, msg):
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    self.private_log.insert(tk.END, f"[{timestamp}] {msg}\n")
-    self.private_log.see(tk.END)
-
-def group_log_insert(self, msg):
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    self.group_log.insert(tk.END, f"[{timestamp}] {msg}\n")
-    self.group_log.see(tk.END)
-
-def get_selected_private_accounts(self):
-    selected_indices = self.private_account_listbox.curselection()
-    selected_accounts = []
-    for idx in selected_indices:
-        text = self.private_account_listbox.get(idx)
-        phone = text.split(" - ")[0]
-        for acc in self.accounts:
-            if acc.get('phone') == phone:
-                selected_accounts.append(acc)
-                break
-    return selected_accounts
-
-def get_selected_group_accounts(self):
-    selected_indices = self.group_account_listbox.curselection()
-    selected_accounts = []
-    for idx in selected_indices:
-        text = self.group_account_listbox.get(idx)
-        phone = text.split(" - ")[0]
-        for acc in self.accounts:
-            if acc.get('phone') == phone:
-                selected_accounts.append(acc)
-                break
-    return selected_accounts
-
-def start_private_send(self):
-    if self.private_send_running:
-        self.private_log_insert("任务进行中")
-        return
-    
-    selected_accounts = self.get_selected_private_accounts()
-    if not selected_accounts:
-        self.private_log_insert("请至少选择一个账号")
-        self.show_centered_warning("提示", "请至少选择一个账号")
-        return
-    
-    if not self.private_users:
-        self.private_log_insert("请先导入用户列表")
-        self.show_centered_warning("提示", "请先导入用户列表")
-        return
-    
-    ad_text = self.private_ad_text.get("1.0", tk.END).strip()
-    image_path = self.private_image_path.get().strip()
-    if not ad_text and not image_path:
-        self.private_log_insert("请输入广告内容或选择图片")
-        self.show_centered_warning("提示", "请输入广告内容或选择图片")
-        return
-    
-    try:
-        interval = int(self.private_interval.get())
-        per_account_limit = int(self.private_per_account_limit.get())
-        thread_cnt = int(self.private_thread_count.get())
-        auto_skip = self.private_auto_skip.get()
-    except ValueError:
-        self.private_log_insert("参数错误")
-        return
-    
-    self.private_send_running = True
-    self.private_send_paused = False
-    self.private_stop_flag = False
-    
-    self.private_log_insert(f"========== 开始私发 ==========")
-    self.private_log_insert(f"目标用户: {len(self.private_users)} | 账号: {len(selected_accounts)} | 每号限: {per_account_limit}人")
-    
-    def run_private_send():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.do_private_send(selected_accounts, self.private_users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip))
-        loop.close()
+    def create_send_page(self):
+        page = ttk.Frame(self.notebook)
+        self.notebook.add(page, text="群发广告")
+        
+        main_frame = ttk.Frame(page)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # 创建私发和群发两个标签页
+        send_notebook = ttk.Notebook(main_frame)
+        send_notebook.pack(fill="both", expand=True)
+        
+        # ==================== 私发标签页 ====================
+        private_frame = ttk.Frame(send_notebook)
+        send_notebook.add(private_frame, text="私发(私聊)")
+        
+        # 私发滚动区域
+        private_canvas = tk.Canvas(private_frame, highlightthickness=0)
+        private_scrollbar = ttk.Scrollbar(private_frame, orient="vertical", command=private_canvas.yview)
+        private_inner = ttk.Frame(private_canvas)
+        
+        private_canvas.configure(yscrollcommand=private_scrollbar.set)
+        private_canvas.pack(side="left", fill="both", expand=True)
+        private_scrollbar.pack(side="right", fill="y")
+        
+        private_window = private_canvas.create_window((0, 0), window=private_inner, anchor="nw")
+        
+        def on_private_configure(event):
+            private_canvas.configure(scrollregion=private_canvas.bbox("all"))
+        private_inner.bind("<Configure>", on_private_configure)
+        
+        def on_private_canvas_configure(event):
+            private_canvas.itemconfig(private_window, width=event.width)
+        private_canvas.bind("<Configure>", on_private_canvas_configure)
+        
+        def on_private_mousewheel(event):
+            private_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        private_canvas.bind("<MouseWheel>", on_private_mousewheel)
+        
+        # 账号选择区域
+        account_frame = ttk.LabelFrame(private_inner, text="选择任务账号")
+        account_frame.pack(fill="x", padx=10, pady=5)
+        
+        filter_row = ttk.Frame(account_frame)
+        filter_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(filter_row, text="分组筛选:").pack(side="left", padx=5)
+        self.private_group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=15)
+        self.private_group_filter.set("全部")
+        self.private_group_filter.pack(side="left", padx=5)
+        self.private_group_filter.bind("<<ComboboxSelected>>", self.refresh_private_account_list)
+        
+        ttk.Label(filter_row, text="账号筛选:").pack(side="left", padx=20)
+        self.private_status_filter = ttk.Combobox(filter_row, values=["全部", "正常"], width=10)
+        self.private_status_filter.set("正常")
+        self.private_status_filter.pack(side="left", padx=5)
+        self.private_status_filter.bind("<<ComboboxSelected>>", self.refresh_private_account_list)
+        
+        self.private_select_all_var = tk.BooleanVar()
+        ttk.Checkbutton(filter_row, text="全选", variable=self.private_select_all_var,
+                       command=lambda: self.toggle_listbox_select(self.private_account_listbox, self.private_select_all_var)).pack(side="left", padx=20)
+        
+        listbox_frame = ttk.Frame(account_frame)
+        listbox_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.private_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
+        account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.private_account_listbox.yview)
+        self.private_account_listbox.configure(yscrollcommand=account_scrollbar.set)
+        self.private_account_listbox.pack(side="left", fill="x", expand=True)
+        account_scrollbar.pack(side="right", fill="y")
+        
+        # 用户列表导入区域
+        user_list_frame = ttk.LabelFrame(private_inner, text="用户列表导入")
+        user_list_frame.pack(fill="x", padx=10, pady=5)
+        
+        user_list_row = ttk.Frame(user_list_frame)
+        user_list_row.pack(fill="x", padx=5, pady=5)
+        
+        self.private_user_list_file = tk.StringVar()
+        ttk.Entry(user_list_row, textvariable=self.private_user_list_file, width=60).pack(side="left", padx=5)
+        ttk.Button(user_list_row, text="导入TXT文件", command=self.import_private_user_txt, width=12).pack(side="left", padx=2)
+        ttk.Button(user_list_row, text="导入JSON文件", command=self.import_private_user_json, width=12).pack(side="left", padx=2)
+        ttk.Label(user_list_row, text="（每行一个用户名，支持@开头）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
+        
+        self.private_user_count_label = ttk.Label(user_list_frame, text="已加载: 0 个用户", foreground="blue")
+        self.private_user_count_label.pack(anchor="w", padx=5, pady=2)
+        self.private_users = []
+        
+        # 广告内容区域
+        ad_frame = ttk.LabelFrame(private_inner, text="广告内容")
+        ad_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.private_ad_text = scrolledtext.ScrolledText(ad_frame, width=80, height=6)
+        self.private_ad_text.pack(fill="x", padx=5, pady=5)
+        
+        ad_btn_frame = ttk.Frame(ad_frame)
+        ad_btn_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Button(ad_btn_frame, text="导入文本广告", command=self.import_private_ad_text).pack(side="left", padx=5)
+        ttk.Button(ad_btn_frame, text="导入图片广告", command=self.import_private_image).pack(side="left", padx=5)
+        if hasattr(self, 'private_image_path'):
+            ttk.Label(ad_btn_frame, textvariable=self.private_image_path).pack(side="left", padx=5)
+        
+        # 参数设置区域
+        param_frame = ttk.LabelFrame(private_inner, text="发送参数")
+        param_frame.pack(fill="x", padx=10, pady=5)
+        
+        param_row1 = ttk.Frame(param_frame)
+        param_row1.pack(fill="x", padx=5, pady=5)
+        ttk.Label(param_row1, text="时间间隔(秒):").pack(side="left", padx=5)
+        self.private_interval = ttk.Entry(param_row1, width=10)
+        self.private_interval.insert(0, "30")
+        self.private_interval.pack(side="left", padx=5)
+        ttk.Label(param_row1, text="单号私发数量:").pack(side="left", padx=20)
+        self.private_per_account_limit = ttk.Entry(param_row1, width=10)
+        self.private_per_account_limit.insert(0, "50")
+        self.private_per_account_limit.pack(side="left", padx=5)
+        
+        param_row2 = ttk.Frame(param_frame)
+        param_row2.pack(fill="x", padx=5, pady=5)
+        ttk.Label(param_row2, text="线程数:").pack(side="left", padx=5)
+        self.private_thread_count = ttk.Entry(param_row2, width=10)
+        self.private_thread_count.insert(0, "3")
+        self.private_thread_count.pack(side="left", padx=5)
+        self.private_auto_skip = tk.BooleanVar(value=True)
+        ttk.Checkbutton(param_row2, text="账号异常自动跳过", variable=self.private_auto_skip).pack(side="left", padx=20)
+        
+        # 按钮区域
+        btn_frame = ttk.Frame(private_inner)
+        btn_frame.pack(pady=15)
+        self.private_start_btn = ttk.Button(btn_frame, text="开始", command=self.start_private_send, width=10)
+        self.private_start_btn.pack(side="left", padx=5)
+        self.private_stop_btn = ttk.Button(btn_frame, text="停止", command=self.stop_private_send, width=10)
+        self.private_stop_btn.pack(side="left", padx=5)
+        self.private_pause_btn = ttk.Button(btn_frame, text="暂停", command=self.pause_private_send, width=10)
+        self.private_pause_btn.pack(side="left", padx=5)
+        self.private_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_private_send, width=10)
+        self.private_resume_btn.pack(side="left", padx=5)
+        
+        # 日志区域
+        private_log_frame = ttk.LabelFrame(private_inner, text="运行日志")
+        private_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.private_log = scrolledtext.ScrolledText(private_log_frame, width=100, height=8)
+        self.private_log.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # ==================== 群发标签页 ====================
+        group_frame_tab = ttk.Frame(send_notebook)
+        send_notebook.add(group_frame_tab, text="群发(群聊)")
+        
+        # 群发滚动区域
+        group_canvas = tk.Canvas(group_frame_tab, highlightthickness=0)
+        group_scrollbar = ttk.Scrollbar(group_frame_tab, orient="vertical", command=group_canvas.yview)
+        group_inner = ttk.Frame(group_canvas)
+        
+        group_canvas.configure(yscrollcommand=group_scrollbar.set)
+        group_canvas.pack(side="left", fill="both", expand=True)
+        group_scrollbar.pack(side="right", fill="y")
+        
+        group_window = group_canvas.create_window((0, 0), window=group_inner, anchor="nw")
+        
+        def on_group_configure(event):
+            group_canvas.configure(scrollregion=group_canvas.bbox("all"))
+        group_inner.bind("<Configure>", on_group_configure)
+        
+        def on_group_canvas_configure(event):
+            group_canvas.itemconfig(group_window, width=event.width)
+        group_canvas.bind("<Configure>", on_group_canvas_configure)
+        
+        def on_group_mousewheel(event):
+            group_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        group_canvas.bind("<MouseWheel>", on_group_mousewheel)
+        
+        # 目标群组区域（只保留导入文件按钮）
+        target_frame = ttk.LabelFrame(group_inner, text="目标群组")
+        target_frame.pack(fill="x", padx=10, pady=5)
+        
+        target_row = ttk.Frame(target_frame)
+        target_row.pack(fill="x", padx=5, pady=10)
+        
+        self.group_target_file = tk.StringVar()
+        ttk.Entry(target_row, textvariable=self.group_target_file, width=60).pack(side="left", padx=5)
+        ttk.Button(target_row, text="导入群链接文件", command=self.import_group_targets, width=15).pack(side="left", padx=5)
+        ttk.Label(target_row, text="（每行一个群链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
+        
+        self.group_target_count_label = ttk.Label(target_frame, text="已加载: 0 个群组", foreground="blue")
+        self.group_target_count_label.pack(anchor="w", padx=5, pady=2)
+        self.group_targets = []
+        
+        # 账号选择区域
+        group_account_frame = ttk.LabelFrame(group_inner, text="选择任务账号")
+        group_account_frame.pack(fill="x", padx=10, pady=5)
+        
+        group_filter_row = ttk.Frame(group_account_frame)
+        group_filter_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(group_filter_row, text="分组筛选:").pack(side="left", padx=5)
+        self.group_account_group_filter = ttk.Combobox(group_filter_row, values=["全部"] + self.groups, width=15)
+        self.group_account_group_filter.set("全部")
+        self.group_account_group_filter.pack(side="left", padx=5)
+        self.group_account_group_filter.bind("<<ComboboxSelected>>", self.refresh_group_account_list)
+        
+        ttk.Label(group_filter_row, text="账号筛选:").pack(side="left", padx=20)
+        self.group_account_status_filter = ttk.Combobox(group_filter_row, values=["全部", "正常"], width=10)
+        self.group_account_status_filter.set("正常")
+        self.group_account_status_filter.pack(side="left", padx=5)
+        self.group_account_status_filter.bind("<<ComboboxSelected>>", self.refresh_group_account_list)
+        
+        self.group_select_all_var = tk.BooleanVar()
+        ttk.Checkbutton(group_filter_row, text="全选", variable=self.group_select_all_var,
+                       command=lambda: self.toggle_listbox_select(self.group_account_listbox, self.group_select_all_var)).pack(side="left", padx=20)
+        
+        group_listbox_frame = ttk.Frame(group_account_frame)
+        group_listbox_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.group_account_listbox = tk.Listbox(group_listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
+        group_account_scrollbar = ttk.Scrollbar(group_listbox_frame, orient="vertical", command=self.group_account_listbox.yview)
+        self.group_account_listbox.configure(yscrollcommand=group_account_scrollbar.set)
+        self.group_account_listbox.pack(side="left", fill="x", expand=True)
+        group_account_scrollbar.pack(side="right", fill="y")
+        
+        # 广告内容区域
+        group_ad_frame = ttk.LabelFrame(group_inner, text="广告内容")
+        group_ad_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.group_ad_text = scrolledtext.ScrolledText(group_ad_frame, width=80, height=6)
+        self.group_ad_text.pack(fill="x", padx=5, pady=5)
+        
+        group_ad_btn_frame = ttk.Frame(group_ad_frame)
+        group_ad_btn_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Button(group_ad_btn_frame, text="导入文本广告", command=self.import_group_ad_text).pack(side="left", padx=5)
+        ttk.Button(group_ad_btn_frame, text="导入图片广告", command=self.import_group_image).pack(side="left", padx=5)
+        
+        # 参数设置区域
+        group_param_frame = ttk.LabelFrame(group_inner, text="发送参数")
+        group_param_frame.pack(fill="x", padx=10, pady=5)
+        
+        group_param_row1 = ttk.Frame(group_param_frame)
+        group_param_row1.pack(fill="x", padx=5, pady=5)
+        ttk.Label(group_param_row1, text="单号同时群发几个群:").pack(side="left", padx=5)
+        self.group_concurrent = ttk.Entry(group_param_row1, width=10)
+        self.group_concurrent.insert(0, "3")
+        self.group_concurrent.pack(side="left", padx=5)
+        ttk.Label(group_param_row1, text="单号群发数量:").pack(side="left", padx=20)
+        self.group_per_account_limit = ttk.Entry(group_param_row1, width=10)
+        self.group_per_account_limit.insert(0, "50")
+        self.group_per_account_limit.pack(side="left", padx=5)
+        
+        group_param_row2 = ttk.Frame(group_param_frame)
+        group_param_row2.pack(fill="x", padx=5, pady=5)
+        ttk.Label(group_param_row2, text="时间间隔(秒):").pack(side="left", padx=5)
+        self.group_interval = ttk.Entry(group_param_row2, width=10)
+        self.group_interval.insert(0, "30")
+        self.group_interval.pack(side="left", padx=5)
+        ttk.Label(group_param_row2, text="线程数:").pack(side="left", padx=20)
+        self.group_thread_count = ttk.Entry(group_param_row2, width=10)
+        self.group_thread_count.insert(0, "3")
+        self.group_thread_count.pack(side="left", padx=5)
+        self.group_auto_skip = tk.BooleanVar(value=True)
+        ttk.Checkbutton(group_param_row2, text="账号异常自动跳过", variable=self.group_auto_skip).pack(side="left", padx=20)
+        
+        # 按钮区域
+        group_btn_frame = ttk.Frame(group_inner)
+        group_btn_frame.pack(pady=15)
+        self.group_start_btn = ttk.Button(group_btn_frame, text="开始", command=self.start_group_send, width=10)
+        self.group_start_btn.pack(side="left", padx=5)
+        self.group_stop_btn = ttk.Button(group_btn_frame, text="停止", command=self.stop_group_send, width=10)
+        self.group_stop_btn.pack(side="left", padx=5)
+        self.group_pause_btn = ttk.Button(group_btn_frame, text="暂停", command=self.pause_group_send, width=10)
+        self.group_pause_btn.pack(side="left", padx=5)
+        self.group_resume_btn = ttk.Button(group_btn_frame, text="继续", command=self.resume_group_send, width=10)
+        self.group_resume_btn.pack(side="left", padx=5)
+        
+        # 日志区域
+        group_log_frame = ttk.LabelFrame(group_inner, text="运行日志")
+        group_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.group_log = scrolledtext.ScrolledText(group_log_frame, width=100, height=8)
+        self.group_log.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # 初始化变量
+        self.private_image_path = tk.StringVar()
+        self.group_image_path = tk.StringVar()
         self.private_send_running = False
-        self.private_log_insert("========== 私发完成 ==========")
-    
-    threading.Thread(target=run_private_send, daemon=True).start()
-
-async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
-    async def send_for_account(acc):
-        phone = acc.get('phone', '')
-        session_path = acc.get('session_path', '')
-        api_id, api_hash = self.get_account_api_credentials(acc)
-        
-        client = None
-        sent_count = 0
-        try:
-            client = TelegramClient(session_path, api_id, api_hash)
-            await client.connect()
-            if not await client.is_user_authorized():
-                self.private_log_insert(f"[{phone}] 未登录")
-                return
-            
-            for username in users:
-                if self.private_stop_flag:
-                    break
-                while self.private_send_paused:
-                    await asyncio.sleep(1)
-                if sent_count >= per_account_limit and per_account_limit > 0:
-                    break
-                
-                try:
-                    clean_username = username.lstrip('@')
-                    user_entity = await client.get_entity(clean_username)
-                    
-                    if image_path and os.path.exists(image_path):
-                        file = await client.upload_file(image_path)
-                        await client.send_file(user_entity.id, file, caption=ad_text)
-                    else:
-                        await client.send_message(user_entity.id, ad_text)
-                    
-                    sent_count += 1
-                    self.private_log_insert(f"[{phone}] 发送成功 | {clean_username}")
-                    await asyncio.sleep(interval)
-                except FloodWaitError as e:
-                    self.private_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
-                    await asyncio.sleep(e.seconds)
-                except Exception as e:
-                    self.private_log_insert(f"[{phone}] 发送失败 {username}: {str(e)[:50]}")
-                    if auto_skip:
-                        continue
-                    await asyncio.sleep(interval)
-        except Exception as e:
-            self.private_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
-        finally:
-            if client:
-                await client.disconnect()
-    
-    tasks = []
-    for acc in accounts[:thread_cnt]:
-        tasks.append(send_for_account(acc))
-    await asyncio.gather(*tasks)
-
-def stop_private_send(self):
-    self.private_stop_flag = True
-    self.private_log_insert("停止私发")
-
-def pause_private_send(self):
-    if self.private_send_running and not self.private_send_paused:
-        self.private_send_paused = True
-        self.private_log_insert("暂停私发")
-
-def resume_private_send(self):
-    if self.private_send_running and self.private_send_paused:
         self.private_send_paused = False
-        self.private_log_insert("继续私发")
-
-def start_group_send(self):
-    if self.group_send_running:
-        self.group_log_insert("任务进行中")
-        return
-    
-    selected_accounts = self.get_selected_group_accounts()
-    if not selected_accounts:
-        self.group_log_insert("请至少选择一个账号")
-        self.show_centered_warning("提示", "请至少选择一个账号")
-        return
-    
-    if not self.group_targets:
-        self.group_log_insert("请先导入群组链接文件")
-        self.show_centered_warning("提示", "请先导入群组链接文件")
-        return
-    
-    ad_text = self.group_ad_text.get("1.0", tk.END).strip()
-    image_path = self.group_image_path.get().strip()
-    if not ad_text and not image_path:
-        self.group_log_insert("请输入广告内容或选择图片")
-        self.show_centered_warning("提示", "请输入广告内容或选择图片")
-        return
-    
-    try:
-        concurrent = int(self.group_concurrent.get())
-        per_account_limit = int(self.group_per_account_limit.get())
-        interval = int(self.group_interval.get())
-        thread_cnt = int(self.group_thread_count.get())
-        auto_skip = self.group_auto_skip.get()
-    except ValueError:
-        self.group_log_insert("参数错误")
-        return
-    
-    self.group_send_running = True
-    self.group_send_paused = False
-    self.group_stop_flag = False
-    
-    self.group_log_insert(f"========== 开始群发 ==========")
-    self.group_log_insert(f"目标群组: {len(self.group_targets)}个 | 账号: {len(selected_accounts)}个 | 每号限: {per_account_limit}条")
-    
-    def run_group_send():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.do_group_send(selected_accounts, self.group_targets, ad_text, image_path, concurrent, per_account_limit, interval, thread_cnt, auto_skip))
-        loop.close()
+        self.private_stop_flag = False
         self.group_send_running = False
-        self.group_log_insert("========== 群发完成 ==========")
-    
-    threading.Thread(target=run_group_send, daemon=True).start()
-
-async def do_group_send(self, accounts, targets, ad_text, image_path, concurrent, per_account_limit, interval, thread_cnt, auto_skip):
-    from telethon.tl.functions.channels import JoinChannelRequest
-    from telethon.tl.functions.messages import ImportChatInviteRequest
-    from telethon.errors import UserAlreadyParticipantError
-    
-    async def send_for_account(acc):
-        phone = acc.get('phone', '')
-        session_path = acc.get('session_path', '')
-        api_id, api_hash = self.get_account_api_credentials(acc)
+        self.group_send_paused = False
+        self.group_stop_flag = False
         
-        client = None
-        sent_count = 0
-        joined_groups = []
+        # 刷新列表
+        self.refresh_private_account_list()
+        self.refresh_group_account_list()
+    
+    def refresh_private_account_list(self, event=None):
+        self.private_account_listbox.delete(0, tk.END)
+        filter_group = self.private_group_filter.get()
+        filter_status = self.private_status_filter.get()
+        for acc in self.accounts:
+            if filter_status == "全部" or acc.get('status') == filter_status:
+                if filter_group == "全部" or acc.get('group') == filter_group:
+                    display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
+                    self.private_account_listbox.insert(tk.END, display_text)
+        self.private_select_all_var.set(False)
+    
+    def refresh_group_account_list(self, event=None):
+        self.group_account_listbox.delete(0, tk.END)
+        filter_group = self.group_account_group_filter.get()
+        filter_status = self.group_account_status_filter.get()
+        for acc in self.accounts:
+            if filter_status == "全部" or acc.get('status') == filter_status:
+                if filter_group == "全部" or acc.get('group') == filter_group:
+                    display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
+                    self.group_account_listbox.insert(tk.END, display_text)
+        self.group_select_all_var.set(False)
+    
+    def import_private_user_txt(self):
+        file_path = filedialog.askopenfilename(title="选择用户列表文件", filetypes=[("文本文件", "*.txt")])
+        if file_path:
+            self.private_user_list_file.set(file_path)
+            users = []
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        username = line.strip()
+                        if username:
+                            if username.startswith('@'):
+                                username = username[1:]
+                            users.append(username)
+                self.private_users = users
+                self.private_user_count_label.config(text=f"已加载: {len(users)} 个用户")
+                self.private_log_insert(f"导入用户列表: {file_path}, 共 {len(users)} 个用户")
+            except Exception as e:
+                self.private_log_insert(f"导入失败: {str(e)}")
+    
+    def import_private_user_json(self):
+        file_path = filedialog.askopenfilename(title="选择用户列表文件", filetypes=[("JSON文件", "*.json")])
+        if file_path:
+            self.private_user_list_file.set(file_path)
+            users = []
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        for item in data:
+                            username = item.strip() if isinstance(item, str) else str(item)
+                            if username:
+                                if username.startswith('@'):
+                                    username = username[1:]
+                                users.append(username)
+                    elif isinstance(data, dict) and 'users' in data:
+                        for item in data['users']:
+                            username = item.strip() if isinstance(item, str) else str(item)
+                            if username:
+                                if username.startswith('@'):
+                                    username = username[1:]
+                                users.append(username)
+                self.private_users = users
+                self.private_user_count_label.config(text=f"已加载: {len(users)} 个用户")
+                self.private_log_insert(f"导入用户列表: {file_path}, 共 {len(users)} 个用户")
+            except Exception as e:
+                self.private_log_insert(f"导入失败: {str(e)}")
+    
+    def import_private_ad_text(self):
+        file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
+        if file_path:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.private_ad_text.delete("1.0", tk.END)
+            self.private_ad_text.insert("1.0", content)
+            self.private_log_insert(f"导入文本广告: {file_path}")
+    
+    def import_private_image(self):
+        file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
+        if file_path:
+            self.private_image_path.set(file_path)
+            self.private_log_insert(f"选择图片广告: {file_path}")
+    
+    def import_group_ad_text(self):
+        file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
+        if file_path:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.group_ad_text.delete("1.0", tk.END)
+            self.group_ad_text.insert("1.0", content)
+            self.group_log_insert(f"导入文本广告: {file_path}")
+    
+    def import_group_image(self):
+        file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
+        if file_path:
+            self.group_image_path.set(file_path)
+            self.group_log_insert(f"选择图片广告: {file_path}")
+    
+    def import_group_targets(self):
+        file_path = filedialog.askopenfilename(title="选择群组链接文件", filetypes=[("文本文件", "*.txt")])
+        if file_path:
+            self.group_target_file.set(file_path)
+            targets = []
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        target = line.strip()
+                        if target:
+                            targets.append(target)
+                self.group_targets = targets
+                self.group_target_count_label.config(text=f"已加载: {len(targets)} 个群组")
+                self.group_log_insert(f"导入群组链接: {file_path}, 共 {len(targets)} 个群组")
+            except Exception as e:
+                self.group_log_insert(f"导入失败: {str(e)}")
+    
+    def private_log_insert(self, msg):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.private_log.insert(tk.END, f"[{timestamp}] {msg}\n")
+        self.private_log.see(tk.END)
+    
+    def group_log_insert(self, msg):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.group_log.insert(tk.END, f"[{timestamp}] {msg}\n")
+        self.group_log.see(tk.END)
+    
+    def get_selected_private_accounts(self):
+        selected_indices = self.private_account_listbox.curselection()
+        selected_accounts = []
+        for idx in selected_indices:
+            text = self.private_account_listbox.get(idx)
+            phone = text.split(" - ")[0]
+            for acc in self.accounts:
+                if acc.get('phone') == phone:
+                    selected_accounts.append(acc)
+                    break
+        return selected_accounts
+    
+    def get_selected_group_accounts(self):
+        selected_indices = self.group_account_listbox.curselection()
+        selected_accounts = []
+        for idx in selected_indices:
+            text = self.group_account_listbox.get(idx)
+            phone = text.split(" - ")[0]
+            for acc in self.accounts:
+                if acc.get('phone') == phone:
+                    selected_accounts.append(acc)
+                    break
+        return selected_accounts
+    
+    def start_private_send(self):
+        if self.private_send_running:
+            self.private_log_insert("任务进行中")
+            return
+        
+        selected_accounts = self.get_selected_private_accounts()
+        if not selected_accounts:
+            self.private_log_insert("请至少选择一个账号")
+            self.show_centered_warning("提示", "请至少选择一个账号")
+            return
+        
+        if not self.private_users:
+            self.private_log_insert("请先导入用户列表")
+            self.show_centered_warning("提示", "请先导入用户列表")
+            return
+        
+        ad_text = self.private_ad_text.get("1.0", tk.END).strip()
+        image_path = self.private_image_path.get().strip()
+        if not ad_text and not image_path:
+            self.private_log_insert("请输入广告内容或选择图片")
+            self.show_centered_warning("提示", "请输入广告内容或选择图片")
+            return
         
         try:
-            client = TelegramClient(session_path, api_id, api_hash)
-            await client.connect()
-            if not await client.is_user_authorized():
-                self.group_log_insert(f"[{phone}] 未登录")
-                return
+            interval = int(self.private_interval.get())
+            per_account_limit = int(self.private_per_account_limit.get())
+            thread_cnt = int(self.private_thread_count.get())
+            auto_skip = self.private_auto_skip.get()
+        except ValueError:
+            self.private_log_insert("参数错误")
+            return
+        
+        self.private_send_running = True
+        self.private_send_paused = False
+        self.private_stop_flag = False
+        
+        self.private_log_insert(f"========== 开始私发 ==========")
+        self.private_log_insert(f"目标用户: {len(self.private_users)} | 账号: {len(selected_accounts)} | 每号限: {per_account_limit}人")
+        
+        def run_private_send():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.do_private_send(selected_accounts, self.private_users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip))
+            loop.close()
+            self.private_send_running = False
+            self.private_log_insert("========== 私发完成 ==========")
+        
+        threading.Thread(target=run_private_send, daemon=True).start()
+    
+    async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
+        async def send_for_account(acc):
+            phone = acc.get('phone', '')
+            session_path = acc.get('session_path', '')
+            api_id, api_hash = self.get_account_api_credentials(acc)
             
-            # 加入所有目标群组
-            for target in targets:
-                try:
-                    entity = None
-                    if 't.me/+' in target or 't.me/joinchat' in target:
-                        if '/+' in target:
-                            invite_hash = target.split('/+')[-1].split('?')[0]
-                        else:
-                            invite_hash = target.split('/joinchat/')[-1].split('?')[0]
-                        try:
-                            result = await client(ImportChatInviteRequest(invite_hash))
-                            if result.chats:
-                                entity = result.chats[0]
-                                self.group_log_insert(f"[{phone}] 加入群组成功")
-                        except UserAlreadyParticipantError:
-                            self.group_log_insert(f"[{phone}] 已是群成员")
-                            try:
-                                entity = await client.get_entity(target)
-                            except:
-                                pass
-                        except Exception as e:
-                            self.group_log_insert(f"[{phone}] 加入失败: {str(e)[:30]}")
-                        if not entity:
-                            try:
-                                entity = await client.get_entity(target)
-                            except:
-                                pass
-                    else:
-                        if 't.me/' in target:
-                            username = target.split('t.me/')[-1]
-                        elif target.isdigit():
-                            username = int(target)
-                        else:
-                            username = target
-                        entity = await client.get_entity(username)
-                        try:
-                            await client(JoinChannelRequest(entity))
-                            self.group_log_insert(f"[{phone}] 加入群组成功")
-                        except UserAlreadyParticipantError:
-                            self.group_log_insert(f"[{phone}] 已是群成员")
-                    
-                    if entity:
-                        joined_groups.append(entity)
-                except Exception as e:
-                    self.group_log_insert(f"[{phone}] 解析群组失败: {str(e)[:30]}")
-            
-            if not joined_groups:
-                self.group_log_insert(f"[{phone}] 无有效目标群组")
-                return
-            
-            # 群发广告
-            group_index = 0
-            while sent_count < per_account_limit or per_account_limit == 0:
-                if self.group_stop_flag:
-                    break
-                while self.group_send_paused:
-                    await asyncio.sleep(1)
+            client = None
+            sent_count = 0
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.private_log_insert(f"[{phone}] 未登录")
+                    return
                 
-                # 轮流选择群组
-                target_groups = []
-                for i in range(concurrent):
-                    if group_index >= len(joined_groups):
-                        group_index = 0
-                    target_groups.append(joined_groups[group_index])
-                    group_index += 1
-                
-                for entity in target_groups:
-                    if self.group_stop_flag:
+                for username in users:
+                    if self.private_stop_flag:
                         break
+                    while self.private_send_paused:
+                        await asyncio.sleep(1)
+                    if sent_count >= per_account_limit and per_account_limit > 0:
+                        break
+                    
                     try:
+                        clean_username = username.lstrip('@')
+                        user_entity = await client.get_entity(clean_username)
+                        
                         if image_path and os.path.exists(image_path):
                             file = await client.upload_file(image_path)
-                            await client.send_file(entity, file, caption=ad_text)
+                            await client.send_file(user_entity.id, file, caption=ad_text)
                         else:
-                            await client.send_message(entity, ad_text)
+                            await client.send_message(user_entity.id, ad_text)
                         
                         sent_count += 1
-                        group_title = getattr(entity, 'title', str(entity))[:20]
-                        self.group_log_insert(f"[{phone}] 群发成功 | {group_title} ({sent_count}/{per_account_limit if per_account_limit>0 else '不限'})")
+                        self.private_log_insert(f"[{phone}] 发送成功 | {clean_username}")
                         await asyncio.sleep(interval)
                     except FloodWaitError as e:
-                        self.group_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
+                        self.private_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
                         await asyncio.sleep(e.seconds)
                     except Exception as e:
-                        self.group_log_insert(f"[{phone}] 群发失败: {str(e)[:50]}")
+                        self.private_log_insert(f"[{phone}] 发送失败 {username}: {str(e)[:50]}")
                         if auto_skip:
                             continue
                         await asyncio.sleep(interval)
-                
-                if per_account_limit > 0 and sent_count >= per_account_limit:
-                    break
-                
-                await asyncio.sleep(1)
-            
-        except Exception as e:
-            self.group_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
-        finally:
-            if client:
-                await client.disconnect()
+            except Exception as e:
+                self.private_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
+            finally:
+                if client:
+                    await client.disconnect()
+        
+        tasks = []
+        for acc in accounts[:thread_cnt]:
+            tasks.append(send_for_account(acc))
+        await asyncio.gather(*tasks)
     
-    tasks = []
-    for acc in accounts[:thread_cnt]:
-        tasks.append(send_for_account(acc))
-    await asyncio.gather(*tasks)
-
-def stop_group_send(self):
-    self.group_stop_flag = True
-    self.group_log_insert("停止群发")
-
-def pause_group_send(self):
-    if self.group_send_running and not self.group_send_paused:
-        self.group_send_paused = True
-        self.group_log_insert("暂停群发")
-
-def resume_group_send(self):
-    if self.group_send_running and self.group_send_paused:
+    def stop_private_send(self):
+        self.private_stop_flag = True
+        self.private_log_insert("停止私发")
+    
+    def pause_private_send(self):
+        if self.private_send_running and not self.private_send_paused:
+            self.private_send_paused = True
+            self.private_log_insert("暂停私发")
+    
+    def resume_private_send(self):
+        if self.private_send_running and self.private_send_paused:
+            self.private_send_paused = False
+            self.private_log_insert("继续私发")
+    
+    def start_group_send(self):
+        if self.group_send_running:
+            self.group_log_insert("任务进行中")
+            return
+        
+        selected_accounts = self.get_selected_group_accounts()
+        if not selected_accounts:
+            self.group_log_insert("请至少选择一个账号")
+            self.show_centered_warning("提示", "请至少选择一个账号")
+            return
+        
+        if not self.group_targets:
+            self.group_log_insert("请先导入群组链接文件")
+            self.show_centered_warning("提示", "请先导入群组链接文件")
+            return
+        
+        ad_text = self.group_ad_text.get("1.0", tk.END).strip()
+        image_path = self.group_image_path.get().strip()
+        if not ad_text and not image_path:
+            self.group_log_insert("请输入广告内容或选择图片")
+            self.show_centered_warning("提示", "请输入广告内容或选择图片")
+            return
+        
+        try:
+            concurrent = int(self.group_concurrent.get())
+            per_account_limit = int(self.group_per_account_limit.get())
+            interval = int(self.group_interval.get())
+            thread_cnt = int(self.group_thread_count.get())
+            auto_skip = self.group_auto_skip.get()
+        except ValueError:
+            self.group_log_insert("参数错误")
+            return
+        
+        self.group_send_running = True
         self.group_send_paused = False
-        self.group_log_insert("继续群发")
+        self.group_stop_flag = False
+        
+        self.group_log_insert(f"========== 开始群发 ==========")
+        self.group_log_insert(f"目标群组: {len(self.group_targets)}个 | 账号: {len(selected_accounts)}个 | 每号限: {per_account_limit}条")
+        
+        def run_group_send():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.do_group_send(selected_accounts, self.group_targets, ad_text, image_path, concurrent, per_account_limit, interval, thread_cnt, auto_skip))
+            loop.close()
+            self.group_send_running = False
+            self.group_log_insert("========== 群发完成 ==========")
+        
+        threading.Thread(target=run_group_send, daemon=True).start()
+    
+    async def do_group_send(self, accounts, targets, ad_text, image_path, concurrent, per_account_limit, interval, thread_cnt, auto_skip):
+        from telethon.tl.functions.channels import JoinChannelRequest
+        from telethon.tl.functions.messages import ImportChatInviteRequest
+        from telethon.errors import UserAlreadyParticipantError
+        
+        async def send_for_account(acc):
+            phone = acc.get('phone', '')
+            session_path = acc.get('session_path', '')
+            api_id, api_hash = self.get_account_api_credentials(acc)
+            
+            client = None
+            sent_count = 0
+            joined_groups = []
+            
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.group_log_insert(f"[{phone}] 未登录")
+                    return
+                
+                # 加入所有目标群组
+                for target in targets:
+                    try:
+                        entity = None
+                        if 't.me/+' in target or 't.me/joinchat' in target:
+                            if '/+' in target:
+                                invite_hash = target.split('/+')[-1].split('?')[0]
+                            else:
+                                invite_hash = target.split('/joinchat/')[-1].split('?')[0]
+                            try:
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                if result.chats:
+                                    entity = result.chats[0]
+                                    self.group_log_insert(f"[{phone}] 加入群组成功")
+                            except UserAlreadyParticipantError:
+                                self.group_log_insert(f"[{phone}] 已是群成员")
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
+                            except Exception as e:
+                                self.group_log_insert(f"[{phone}] 加入失败: {str(e)[:30]}")
+                            if not entity:
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
+                        else:
+                            if 't.me/' in target:
+                                username = target.split('t.me/')[-1]
+                            elif target.isdigit():
+                                username = int(target)
+                            else:
+                                username = target
+                            entity = await client.get_entity(username)
+                            try:
+                                await client(JoinChannelRequest(entity))
+                                self.group_log_insert(f"[{phone}] 加入群组成功")
+                            except UserAlreadyParticipantError:
+                                self.group_log_insert(f"[{phone}] 已是群成员")
+                        
+                        if entity:
+                            joined_groups.append(entity)
+                    except Exception as e:
+                        self.group_log_insert(f"[{phone}] 解析群组失败: {str(e)[:30]}")
+                
+                if not joined_groups:
+                    self.group_log_insert(f"[{phone}] 无有效目标群组")
+                    return
+                
+                # 群发广告
+                group_index = 0
+                while sent_count < per_account_limit or per_account_limit == 0:
+                    if self.group_stop_flag:
+                        break
+                    while self.group_send_paused:
+                        await asyncio.sleep(1)
+                    
+                    # 轮流选择群组
+                    target_groups = []
+                    for i in range(concurrent):
+                        if group_index >= len(joined_groups):
+                            group_index = 0
+                        target_groups.append(joined_groups[group_index])
+                        group_index += 1
+                    
+                    for entity in target_groups:
+                        if self.group_stop_flag:
+                            break
+                        try:
+                            if image_path and os.path.exists(image_path):
+                                file = await client.upload_file(image_path)
+                                await client.send_file(entity, file, caption=ad_text)
+                            else:
+                                await client.send_message(entity, ad_text)
+                            
+                            sent_count += 1
+                            group_title = getattr(entity, 'title', str(entity))[:20]
+                            self.group_log_insert(f"[{phone}] 群发成功 | {group_title} ({sent_count}/{per_account_limit if per_account_limit>0 else '不限'})")
+                            await asyncio.sleep(interval)
+                        except FloodWaitError as e:
+                            self.group_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
+                            await asyncio.sleep(e.seconds)
+                        except Exception as e:
+                            self.group_log_insert(f"[{phone}] 群发失败: {str(e)[:50]}")
+                            if auto_skip:
+                                continue
+                            await asyncio.sleep(interval)
+                    
+                    if per_account_limit > 0 and sent_count >= per_account_limit:
+                        break
+                    
+                    await asyncio.sleep(1)
+                
+            except Exception as e:
+                self.group_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
+            finally:
+                if client:
+                    await client.disconnect()
+        
+        tasks = []
+        for acc in accounts[:thread_cnt]:
+            tasks.append(send_for_account(acc))
+        await asyncio.gather(*tasks)
+    
+    def stop_group_send(self):
+        self.group_stop_flag = True
+        self.group_log_insert("停止群发")
+    
+    def pause_group_send(self):
+        if self.group_send_running and not self.group_send_paused:
+            self.group_send_paused = True
+            self.group_log_insert("暂停群发")
+    
+    def resume_group_send(self):
+        if self.group_send_running and self.group_send_paused:
+            self.group_send_paused = False
+            self.group_log_insert("继续群发")
     
     # ==================== 自动群聊页面 ====================
     def create_group_chat_page(self):
