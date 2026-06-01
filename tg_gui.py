@@ -190,7 +190,7 @@ class TelegramFullGUI:
                 else:
                     acc['last_action'] = task_name
                 break
-        self.refresh_account_list()
+        self.refresh_account_list_filter()
     
     def remove_user_from_file(self, username):
         if not self.user_list_file_path or not os.path.exists(self.user_list_file_path):
@@ -304,7 +304,7 @@ class TelegramFullGUI:
         
         self.refresh_invite_group_filter()
         
-        self.refresh_account_list()
+        self.refresh_account_list_filter()
         self.refresh_proxy_list()
         self.refresh_scrape_accounts()
         
@@ -398,7 +398,22 @@ class TelegramFullGUI:
         else:
             listbox.selection_clear(0, tk.END)
     
+    def get_filtered_accounts(self):
+        """获取当前筛选后的账号列表"""
+        filter_group = self.account_list_group_filter.get()
+        filter_status = self.account_list_status_filter.get()
+        
+        filtered = []
+        for acc in self.accounts:
+            if filter_group != "全部" and acc.get('group', '默认分组') != filter_group:
+                continue
+            if filter_status != "全部" and acc.get('status', '待检测') != filter_status:
+                continue
+            filtered.append(acc)
+        return filtered
+    
     def refresh_account_list_filter(self, event=None):
+        """根据分组和状态筛选刷新账号列表"""
         filter_group = self.account_list_group_filter.get()
         filter_status = self.account_list_status_filter.get()
         
@@ -428,19 +443,21 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
+        # 第一行工具栏：功能按钮
         toolbar = ttk.Frame(main_frame)
         toolbar.pack(fill="x", pady=5)
         
         ttk.Button(toolbar, text="分组管理", command=self.open_group_manager).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导入账号(文件夹)", command=self.import_accounts_folder).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导出账号", command=self.export_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="一键登录", command=self.login_all_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="深度检测", command=self.deep_check_all_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="一键登录", command=self.login_filtered_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="深度检测", command=self.deep_check_filtered_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="修改资料", command=self.batch_edit_profile).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts_filtered).pack(side="left", padx=2)
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list_filter).pack(side="left", padx=2)
         
+        # 第二行：筛选栏
         filter_bar = ttk.Frame(main_frame)
         filter_bar.pack(fill="x", pady=5)
         
@@ -456,12 +473,14 @@ class TelegramFullGUI:
         self.account_list_status_filter.pack(side="left", padx=5)
         self.account_list_status_filter.bind("<<ComboboxSelected>>", self.refresh_account_list_filter)
         
+        # 更新状态筛选的可选值
         statuses = set(["全部"])
         for acc in self.accounts:
             status = acc.get('status', '待检测')
             statuses.add(status)
         self.account_list_status_filter['values'] = list(statuses)
         
+        # 账号列表框架
         frame = ttk.LabelFrame(main_frame, text="账号列表")
         frame.pack(fill="both", expand=True, pady=5)
         
@@ -490,18 +509,20 @@ class TelegramFullGUI:
         self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
     
-    def login_all_accounts(self):
-        if not self.accounts:
-            self.log("多账号管理", "没有账号可操作")
-            self.show_centered_warning("提示", "请先导入账号")
+    def login_filtered_accounts(self):
+        """只登录筛选后的账号"""
+        filtered_accounts = self.get_filtered_accounts()
+        if not filtered_accounts:
+            self.log("多账号管理", "当前筛选条件下没有账号可操作")
+            self.show_centered_warning("提示", "当前筛选条件下没有账号可操作")
             return
         
-        self.log("多账号管理", f"开始登录 {len(self.accounts)} 个账号...")
+        self.log("多账号管理", f"开始登录 {len(filtered_accounts)} 个账号（当前筛选结果）...")
         
         def do_login():
-            for idx, acc in enumerate(self.accounts, 1):
+            for idx, acc in enumerate(filtered_accounts, 1):
                 phone = acc.get('phone', '')
-                self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在登录: {phone}")
+                self.log("多账号管理", f"[{idx}/{len(filtered_accounts)}] 正在登录: {phone}")
                 self.login_single_account(acc)
                 time.sleep(2)
             self.log("多账号管理", "登录完成")
@@ -584,19 +605,21 @@ class TelegramFullGUI:
         self.save_config()
         return result
     
-    def deep_check_all_accounts(self):
-        if not self.accounts:
-            self.log("多账号管理", "没有账号可检测")
-            self.show_centered_warning("提示", "请先导入账号")
+    def deep_check_filtered_accounts(self):
+        """只深度检测筛选后的账号"""
+        filtered_accounts = self.get_filtered_accounts()
+        if not filtered_accounts:
+            self.log("多账号管理", "当前筛选条件下没有账号可操作")
+            self.show_centered_warning("提示", "当前筛选条件下没有账号可操作")
             return
         
-        self.log("多账号管理", f"开始深度检测 {len(self.accounts)} 个账号...")
+        self.log("多账号管理", f"开始深度检测 {len(filtered_accounts)} 个账号（当前筛选结果）...")
         self.log("多账号管理", "检测项目: 登录状态 | 封禁/注销/限制/双向")
         
         def do_deep_check():
-            for idx, acc in enumerate(self.accounts, 1):
+            for idx, acc in enumerate(filtered_accounts, 1):
                 phone = acc.get('phone', '')
-                self.log("多账号管理", f"[{idx}/{len(self.accounts)}] 正在检测: {phone}")
+                self.log("多账号管理", f"[{idx}/{len(filtered_accounts)}] 正在检测: {phone}")
                 self.deep_check_single_account(acc)
                 time.sleep(2)
             self.log("多账号管理", "深度检测完成")
@@ -605,6 +628,7 @@ class TelegramFullGUI:
         threading.Thread(target=do_deep_check, daemon=True).start()
     
     def deep_check_single_account(self, acc):
+        """深度检测单个账号的状态（封禁、注销、限制、双向等）"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -631,6 +655,7 @@ class TelegramFullGUI:
                     days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
                     self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
                 
+                # 检测账号是否被限制 - 尝试发送消息给自己
                 try:
                     await client.send_message('me', '状态检测')
                     acc['status'] = '正常'
@@ -698,6 +723,7 @@ class TelegramFullGUI:
         
         self.root.after(0, self.refresh_account_list_filter)
         self.root.after(0, self.refresh_scrape_accounts)
+        # 更新状态筛选下拉框
         statuses = set(["全部"])
         for acc in self.accounts:
             status = acc.get('status', '待检测')
@@ -1186,6 +1212,7 @@ class TelegramFullGUI:
         self.refresh_scrape_accounts()
         self.refresh_invite_group_filter()
         self.save_config()
+        # 更新状态筛选下拉框
         statuses = set(["全部"])
         for acc in self.accounts:
             status = acc.get('status', '待检测')
@@ -1245,6 +1272,7 @@ class TelegramFullGUI:
                 self.refresh_scrape_accounts()
                 self.refresh_invite_group_filter()
                 self.save_config()
+                # 更新状态筛选下拉框
                 statuses = set(["全部"])
                 for acc in self.accounts:
                     status = acc.get('status', '待检测')
@@ -1253,27 +1281,43 @@ class TelegramFullGUI:
                 self.log("多账号管理", f"删除 {len(selected)} 个选中账号")
             self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
     
-    def delete_dead_accounts(self):
+    def delete_dead_accounts_filtered(self):
+        """只删除当前筛选结果中的死号"""
+        filtered_accounts = self.get_filtered_accounts()
+        if not filtered_accounts:
+            self.log("多账号管理", "当前筛选条件下没有账号可操作")
+            self.show_centered_warning("提示", "当前筛选条件下没有账号可操作")
+            return
+        
         dead_states = ['销号', '封禁']
-        dead_indices = [i for i, acc in enumerate(self.accounts) if acc.get('status') in dead_states]
-        if dead_indices:
+        dead_accounts = []
+        for acc in filtered_accounts:
+            if acc.get('status') in dead_states:
+                dead_accounts.append(acc)
+        
+        if dead_accounts:
             def do_delete():
-                for idx in sorted(dead_indices, reverse=True):
-                    self.accounts.pop(idx)
+                for acc in dead_accounts:
+                    # 从原列表中删除
+                    for i, a in enumerate(self.accounts):
+                        if a.get('phone') == acc.get('phone'):
+                            self.accounts.pop(i)
+                            break
                 self.refresh_account_list_filter()
                 self.refresh_scrape_accounts()
                 self.refresh_invite_group_filter()
                 self.save_config()
+                # 更新状态筛选下拉框
                 statuses = set(["全部"])
                 for acc in self.accounts:
                     status = acc.get('status', '待检测')
                     statuses.add(status)
                 self.account_list_status_filter['values'] = list(statuses)
-                self.log("多账号管理", f"删除 {len(dead_indices)} 个已失效账号")
-            self.show_centered_yesno("确认", f"确定删除 {len(dead_indices)} 个已失效账号？", do_delete)
+                self.log("多账号管理", f"删除 {len(dead_accounts)} 个已失效账号（当前筛选结果）")
+            self.show_centered_yesno("确认", f"确定删除当前筛选结果中的 {len(dead_accounts)} 个已失效账号？", do_delete)
         else:
-            self.log("多账号管理", "没有发现已失效的账号")
-            self.show_centered_info("提示", "没有发现已失效的账号")
+            self.log("多账号管理", "当前筛选结果中没有发现已失效的账号")
+            self.show_centered_info("提示", "当前筛选结果中没有发现已失效的账号")
     
     # ==================== 代理IP页面 ====================
     def create_proxy_page(self):
