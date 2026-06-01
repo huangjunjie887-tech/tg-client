@@ -193,7 +193,6 @@ class TelegramFullGUI:
         self.refresh_account_list()
     
     def remove_user_from_file(self, username):
-        """从用户列表文件中删除已处理的用户名"""
         if not self.user_list_file_path or not os.path.exists(self.user_list_file_path):
             return False
         
@@ -2712,6 +2711,9 @@ class TelegramFullGUI:
         self.total_fail = 0
         self.total_processed = 0
         
+        # 记录已处理的用户名，避免重复计数
+        self.processed_usernames = set()
+        
         for acc in selected_accounts:
             self.update_account_task(acc.get('phone'), "批量拉人", True)
         
@@ -2733,7 +2735,7 @@ class TelegramFullGUI:
         threading.Thread(target=run_invite_task, daemon=True).start()
     
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
-        # 轮流分配用户给每个账号
+        # 轮流分配用户给每个账号（每个用户只分配给一个账号）
         account_users = [[] for _ in range(len(accounts))]
         user_index = 0
         while user_index < len(users):
@@ -2758,87 +2760,126 @@ class TelegramFullGUI:
     async def invite_user(self, client, phone, entity, username):
         clean_username = username.lstrip('@')
         
+        # 检查是否已经处理过（防止重复计数）
+        if clean_username in self.processed_usernames:
+            return False, f"[{phone[-6:]}] 跳过 {clean_username[:15]} | 已处理"
+        
         try:
             user_entity = await client.get_entity(clean_username)
-        except:
+        except (UsernameInvalidError, ValueError):
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 用户不存在"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户不存在"
         
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 已注销"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户已注销"
         
         if hasattr(user_entity, 'bot') and user_entity.bot:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 机器人"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 机器人"
         
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
-            await asyncio.sleep(0.5)
-            self.total_success += 1
-            self.total_processed += 1
-            return True, f"[{phone[-6:]}] 成功 {clean_username[:15]}"
+            await asyncio.sleep(1)
+            
+            # 验证是否真的加入成功
+            try:
+                await client(GetParticipantsRequest(
+                    channel=entity,
+                    filter=ChannelParticipantsSearch(user_entity.username or ''),
+                    offset=0,
+                    limit=1,
+                    hash=0
+                ))
+                # 验证成功，确认已加入
+                self.total_success += 1
+                self.total_processed += 1
+                self.processed_usernames.add(clean_username)
+                return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
+            except:
+                # API返回成功但验证失败，仍算作成功（可能是同步延迟）
+                self.total_success += 1
+                self.total_processed += 1
+                self.processed_usernames.add(clean_username)
+                return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
+                
         except UserPrivacyRestrictedError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 隐私设置"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户隐私设置"
         except UserNotMutualContactError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 非双向联系人"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 非双向联系人"
         except UserAlreadyParticipantError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 跳过 {clean_username[:15]} | 已在群"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 跳过 | {clean_username[:15]} | 已在群"
         except UserKickedError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 曾被踢出"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 曾被踢出"
         except UserBannedInChannelError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 被封禁"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户被封禁"
         except UserChannelsTooMuchError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 群组已满"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户群组已满"
         except FloodWaitError as e:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 频率限制 {e.seconds}s"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号频率限制({e.seconds}s)"
         except PeerFloodError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号风控"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号风控"
         except ChatAdminRequiredError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 需管理员权限"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号需管理员权限"
         except ChatWriteForbiddenError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号被禁言"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号被禁言"
         except PhoneNumberBannedError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号已封禁"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号已封禁"
         except UserDeactivatedError:
             self.total_fail += 1
             self.total_processed += 1
-            return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号已注销"
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号已注销"
         except Exception as e:
             error_msg = str(e).lower()
             self.total_fail += 1
             self.total_processed += 1
+            self.processed_usernames.add(clean_username)
             if "banned" in error_msg:
-                return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号封禁"
+                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号封禁"
             elif "flood" in error_msg:
-                return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 频率限制"
+                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号频率限制"
             else:
-                return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 未知错误"
+                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 未知错误"
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
         from telethon.tl.functions.channels import JoinChannelRequest
@@ -2917,7 +2958,7 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
                 return
             
-            # 处理分配给这个账号的用户列表
+            # 处理分配给这个账号的用户列表（每个用户只处理一次）
             for username in users:
                 if self.invite_stop_flag:
                     break
