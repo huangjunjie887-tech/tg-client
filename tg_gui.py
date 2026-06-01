@@ -2565,7 +2565,7 @@ class TelegramFullGUI:
         for acc in self.accounts:
             if acc.get('status') == '正常':
                 if filter_group == "全部" or acc.get('group') == filter_group:
-                    display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
+                    display_text = f"{acc.get('phone')[-6:]} - {acc.get('nickname')[:10]}"
                     self.invite_account_listbox.insert(tk.END, display_text)
         self.account_select_all_var.set(False)
     
@@ -2576,7 +2576,7 @@ class TelegramFullGUI:
             text = self.invite_account_listbox.get(idx)
             phone = text.split(" - ")[0]
             for acc in self.accounts:
-                if acc.get('phone') == phone and acc.get('status') == '正常':
+                if acc.get('phone')[-6:] == phone and acc.get('status') == '正常':
                     selected_accounts.append(acc)
                     break
         return selected_accounts
@@ -2702,22 +2702,14 @@ class TelegramFullGUI:
         if total_limit > 0 and total_limit < len(users):
             users = users[:total_limit]
         
-        user_index = 0
-        account_users = [[] for _ in range(len(selected_accounts))]
-        while user_index < len(users):
-            for i in range(len(selected_accounts)):
-                if user_index >= len(users):
-                    break
-                account_users[i].append(users[user_index])
-                user_index += 1
-        
         self.log("批量拉人", f"========== 开始拉人 ==========")
         self.log("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
-        for i, acc in enumerate(selected_accounts):
-            self.log("批量拉人", f"  [{acc.get('phone')[-6:]}] {acc.get('nickname')[:10]} -> {len(account_users[i])}人")
         
         self.is_inviting = True
         self.invite_stop_flag = False
+        self.total_success = 0
+        self.total_fail = 0
+        self.total_processed = 0
         
         for acc in selected_accounts:
             self.update_account_task(acc.get('phone'), "批量拉人", True)
@@ -2726,7 +2718,7 @@ class TelegramFullGUI:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self.run_invite_advanced_multi_accounts(
-                selected_accounts, account_users, targets, per_batch, per_account_max, 
+                selected_accounts, users, targets, per_batch, per_account_max, 
                 per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch
             ))
             loop.close()
@@ -2734,91 +2726,105 @@ class TelegramFullGUI:
             for acc in selected_accounts:
                 self.update_account_task(acc.get('phone'), "", False)
                 self.update_account_task(acc.get('phone'), "批量拉人", False)
-            self.log("批量拉人", f"========== 拉人结束 ==========")
+            self.log("批量拉人", f"========== 拉人完成 ==========")
+            self.log("批量拉人", f"总统计 | 成功:{self.total_success} | 失败:{self.total_fail} | 总处理:{self.total_processed}")
         
         threading.Thread(target=run_invite_task, daemon=True).start()
     
-    async def run_invite_advanced_multi_accounts(self, accounts, account_users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
+    async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
         tasks = []
-        for i, acc in enumerate(accounts):
-            user_slice = account_users[i]
-            if user_slice:
-                task = self.run_single_account_invite(
-                    acc, targets, user_slice, per_batch, per_account_max, 
-                    per_account_limit, invite_wait
-                )
-                tasks.append(task)
-                await asyncio.sleep(1)
+        for acc in accounts:
+            task = self.run_single_account_invite(
+                acc, targets, users, per_batch, per_account_max, 
+                per_account_limit, invite_wait
+            )
+            tasks.append(task)
+            await asyncio.sleep(1)
         await asyncio.gather(*tasks)
     
-    async def invite_user(self, client, phone, entity, username, stats):
+    async def invite_user(self, client, phone, entity, username):
         clean_username = username.lstrip('@')
         
         try:
             user_entity = await client.get_entity(clean_username)
         except:
-            stats["not_exist"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 用户不存在"
         
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
-            stats["deleted"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 已注销"
         
         if hasattr(user_entity, 'bot') and user_entity.bot:
-            stats["is_bot"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 机器人"
         
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             await asyncio.sleep(0.5)
-            stats["success"] += 1
+            self.total_success += 1
+            self.total_processed += 1
             return True, f"[{phone[-6:]}] 成功 {clean_username[:15]}"
         except UserPrivacyRestrictedError:
-            stats["privacy"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 隐私设置"
         except UserNotMutualContactError:
-            stats["not_mutual"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 非双向联系人"
         except UserAlreadyParticipantError:
-            stats["already_in"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 跳过 {clean_username[:15]} | 已在群"
         except UserKickedError:
-            stats["kicked"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 曾被踢出"
         except UserBannedInChannelError:
-            stats["banned"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 被封禁"
         except UserChannelsTooMuchError:
-            stats["channels_full"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 群组已满"
         except FloodWaitError as e:
-            stats["flood"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 频率限制 {e.seconds}s"
         except PeerFloodError:
-            stats["peer_flood"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号风控"
         except ChatAdminRequiredError:
-            stats["need_admin"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 需管理员权限"
         except ChatWriteForbiddenError:
-            stats["no_permission"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号被禁言"
         except PhoneNumberBannedError:
-            stats["account_banned"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号已封禁"
         except UserDeactivatedError:
-            stats["account_deleted"] += 1
+            self.total_fail += 1
+            self.total_processed += 1
             return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号已注销"
         except Exception as e:
             error_msg = str(e).lower()
+            self.total_fail += 1
+            self.total_processed += 1
             if "banned" in error_msg:
-                stats["account_banned"] += 1
                 return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 账号封禁"
             elif "flood" in error_msg:
-                stats["flood"] += 1
                 return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 频率限制"
             else:
-                stats["other_error"] += 1
                 return False, f"[{phone[-6:]}] 失败 {clean_username[:15]} | 未知错误"
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
@@ -2832,8 +2838,6 @@ class TelegramFullGUI:
         
         client = None
         account_invited_count = 0
-        total_success = 0
-        total_fail = 0
         
         try:
             client = TelegramClient(session_path, api_id, api_hash)
@@ -2900,43 +2904,34 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
                 return
             
-            stats = {"success":0, "fail":0}
-            
-            for i in range(0, len(users), per_batch):
-                if self.invite_stop_flag:
-                    break
+            user_index = 0
+            while user_index < len(users) and not self.invite_stop_flag:
                 if per_account_max > 0 and account_invited_count >= per_account_max:
                     break
                 
-                batch_users = users[i:i+per_batch]
+                username = users[user_index]
+                user_index += 1
+                
                 for target, entity in target_entities:
                     if self.invite_stop_flag:
                         break
                     if per_account_limit > 0 and account_invited_count >= per_account_limit:
-                        continue
+                        break
                     
-                    for username in batch_users:
-                        if self.invite_stop_flag:
-                            break
-                        
-                        success, log_msg = await self.invite_user(
-                            client, phone, entity, username, stats
-                        )
-                        
-                        self.log("批量拉人", log_msg)
-                        
-                        self.remove_user_from_file(username)
-                        
-                        if success:
-                            account_invited_count += 1
-                            total_success += 1
-                        else:
-                            total_fail += 1
-                        
-                        await asyncio.sleep(invite_wait)
-            
-            self.log("批量拉人", f"[{phone[-6:]}] 完成 | 成功:{stats['success']} | 失败:{stats['fail']}")
-            
+                    success, log_msg = await self.invite_user(
+                        client, phone, entity, username
+                    )
+                    
+                    self.log("批量拉人", log_msg)
+                    
+                    self.remove_user_from_file(username)
+                    
+                    if success:
+                        account_invited_count += 1
+                    
+                    await asyncio.sleep(invite_wait)
+                    break
+                
         except Exception as e:
             self.log("批量拉人", f"[{phone[-6:]}] 异常: {str(e)[:50]}")
         finally:
@@ -2946,7 +2941,7 @@ class TelegramFullGUI:
     def stop_invite(self):
         if self.is_inviting:
             self.invite_stop_flag = True
-            self.log("批量拉人", "正在停止...")
+            self.log("批量拉人", "停止拉人")
         else:
             self.log("批量拉人", "无进行中的任务")
     
