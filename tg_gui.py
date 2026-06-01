@@ -2826,7 +2826,7 @@ class TelegramFullGUI:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户被封禁"
+            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户在群黑名单"
         except UserChannelsTooMuchError:
             self.total_fail += 1
             self.total_processed += 1
@@ -2872,7 +2872,7 @@ class TelegramFullGUI:
             elif "flood" in error_msg:
                 return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号频率限制"
             else:
-                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 未知错误"
+                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | {error_msg[:20]}"
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
         from telethon.tl.functions.channels import JoinChannelRequest
