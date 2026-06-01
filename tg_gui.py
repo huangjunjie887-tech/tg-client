@@ -1233,23 +1233,32 @@ class TelegramFullGUI:
         if not export_folder:
             return
         
+        # 获取当前筛选后的账号列表
+        filtered_accounts = self.get_filtered_accounts()
+        
         export_count = 0
+        exported_phones = set()
         for item in selected:
             idx = int(self.account_tree.item(item)['values'][0]) - 1
-            acc = self.accounts[idx]
-            phone = acc.get('phone', '')
-            session_path = acc.get('session_path', '')
-            json_path = acc.get('json_path', '')
-            
-            if session_path and os.path.exists(session_path):
-                dest_session = os.path.join(export_folder, f"{phone}.session")
-                shutil.copy2(session_path, dest_session)
-                export_count += 1
-                self.log("多账号管理", f"导出账号: {phone}")
-            
-            if json_path and os.path.exists(json_path):
-                dest_json = os.path.join(export_folder, f"{phone}.json")
-                shutil.copy2(json_path, dest_json)
+            if idx < len(filtered_accounts):
+                acc = filtered_accounts[idx]
+                phone = acc.get('phone', '')
+                if phone in exported_phones:
+                    continue
+                exported_phones.add(phone)
+                
+                session_path = acc.get('session_path', '')
+                json_path = acc.get('json_path', '')
+                
+                if session_path and os.path.exists(session_path):
+                    dest_session = os.path.join(export_folder, f"{phone}.session")
+                    shutil.copy2(session_path, dest_session)
+                    export_count += 1
+                    self.log("多账号管理", f"导出账号: {phone}")
+                
+                if json_path and os.path.exists(json_path):
+                    dest_json = os.path.join(export_folder, f"{phone}.json")
+                    shutil.copy2(json_path, dest_json)
         
         self.log("多账号管理", f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
         self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号")
@@ -1258,49 +1267,44 @@ class TelegramFullGUI:
         self.refresh_account_list_filter()
     
     def delete_selected_accounts(self):
-        """删除树形控件中选中的账号（已经是筛选后的结果）"""
         selected = self.account_tree.selection()
-        if not selected:
-            self.log("多账号管理", "请先选择要删除的账号")
-            self.show_centered_warning("提示", "请先选择要删除的账号")
-            return
-        
-        # 获取选中行的手机号（第2列，索引1）
-        selected_phones = []
-        for item in selected:
-            values = self.account_tree.item(item)['values']
-            if len(values) >= 2:
-                phone = values[1]  # 手机号在第2列
-                selected_phones.append(phone)
-                self.log("多账号管理", f"准备删除账号: {phone}")
-        
-        if not selected_phones:
-            self.log("多账号管理", "未获取到要删除的账号信息")
-            return
-        
-        def do_delete():
-            for phone in selected_phones:
-                for i, acc in enumerate(self.accounts):
-                    if acc.get('phone') == phone:
-                        self.accounts.pop(i)
-                        self.log("多账号管理", f"已删除账号: {phone}")
-                        break
-            self.refresh_account_list_filter()
-            self.refresh_scrape_accounts()
-            self.refresh_invite_group_filter()
-            self.save_config()
-            # 更新状态筛选下拉框
-            statuses = set(["全部"])
-            for acc in self.accounts:
-                status = acc.get('status', '待检测')
-                statuses.add(status)
-            self.account_list_status_filter['values'] = list(statuses)
-            self.log("多账号管理", f"删除 {len(selected_phones)} 个选中账号")
-        
-        self.show_centered_yesno("确认", f"确定删除 {len(selected_phones)} 个选中的账号？", do_delete)
+        if selected:
+            # 获取当前筛选后的账号列表
+            filtered_accounts = self.get_filtered_accounts()
+            
+            # 收集要删除的账号的手机号
+            phones_to_delete = []
+            for item in selected:
+                idx = int(self.account_tree.item(item)['values'][0]) - 1
+                if idx < len(filtered_accounts):
+                    phones_to_delete.append(filtered_accounts[idx].get('phone'))
+            
+            if not phones_to_delete:
+                return
+            
+            def do_delete():
+                # 根据手机号删除账号
+                for phone in phones_to_delete:
+                    for i, acc in enumerate(self.accounts):
+                        if acc.get('phone') == phone:
+                            self.accounts.pop(i)
+                            break
+                self.refresh_account_list_filter()
+                self.refresh_scrape_accounts()
+                self.refresh_invite_group_filter()
+                self.save_config()
+                # 更新状态筛选下拉框
+                statuses = set(["全部"])
+                for acc in self.accounts:
+                    status = acc.get('status', '待检测')
+                    statuses.add(status)
+                self.account_list_status_filter['values'] = list(statuses)
+                self.log("多账号管理", f"删除 {len(selected)} 个选中账号")
+            
+            self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
     
     def delete_dead_accounts_filtered(self):
-        """只删除当前筛选结果中的死号（仅删除筛选后显示且状态为销号/封禁的账号）"""
+        """只删除当前筛选结果中的死号"""
         filtered_accounts = self.get_filtered_accounts()
         if not filtered_accounts:
             self.log("多账号管理", "当前筛选条件下没有账号可操作")
@@ -1314,16 +1318,12 @@ class TelegramFullGUI:
                 dead_accounts.append(acc)
         
         if dead_accounts:
-            # 记录要删除的账号手机号
-            dead_phones = [acc.get('phone') for acc in dead_accounts]
-            
             def do_delete():
-                # 只删除这些手机号对应的账号
-                for phone in dead_phones:
-                    for i, acc in enumerate(self.accounts):
-                        if acc.get('phone') == phone:
+                for acc in dead_accounts:
+                    # 从原列表中删除
+                    for i, a in enumerate(self.accounts):
+                        if a.get('phone') == acc.get('phone'):
                             self.accounts.pop(i)
-                            self.log("多账号管理", f"已删除死号: {phone}")
                             break
                 self.refresh_account_list_filter()
                 self.refresh_scrape_accounts()
