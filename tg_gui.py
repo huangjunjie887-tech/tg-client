@@ -183,6 +183,7 @@ class TelegramFullGUI:
         if page_name in self.log_widgets:
             self.log_widgets[page_name].insert(tk.END, log_entry)
             self.log_widgets[page_name].see(tk.END)
+            self.root.update_idletasks()
     
     def update_account_task(self, phone, task_name, is_current=True):
         for acc in self.accounts:
@@ -4519,7 +4520,7 @@ class TelegramFullGUI:
             if self.chat_mode.get() == "group":
                 target_groups = group_bindings.get(acc_group, [])
                 if not target_groups:
-                    self.log("自动群聊", f"[{acc.get('phone')}] 分组「{acc_group}」未绑定任何群组，跳过")
+                    self.log("自动群聊", f"[{acc.get('phone')}] 分组「{acc_group}」未绑定群组，跳过")
                     continue
                 account_groups[acc.get('phone')] = target_groups
             else:
@@ -4528,6 +4529,9 @@ class TelegramFullGUI:
         if not account_groups:
             self.log("自动群聊", "没有账号分配到有效群组")
             return
+        
+        # 添加信号量控制并发数，避免日志阻塞
+        semaphore = asyncio.Semaphore(3)
         
         async def run_account_chat(acc):
             phone = acc.get('phone', '')
@@ -4550,150 +4554,158 @@ class TelegramFullGUI:
                 self.log("自动群聊", f"[{phone}] 无法获取账号索引")
                 return
             
-            script_index = self.chat_current_script_index.get(phone, 0)
+            my_script_items = [item for item in script_items if item['sender_idx'] == account_index]
+            if not my_script_items:
+                self.log("自动群聊", f"[{phone}] 没有找到对应序号 {account_index} 的话术")
+                return
             
-            try:
-                client = TelegramClient(session_path, api_id, api_hash)
-                await client.connect()
-                if not await client.is_user_authorized():
-                    self.log("自动群聊", f"[{phone}] 未登录")
-                    return
-                
-                group_entities = []
-                for group_link in target_groups:
-                    try:
-                        entity = None
-                        # 处理不同类型的群组链接
-                        if 't.me/+' in group_link or 't.me/joinchat' in group_link:
-                            # 私有群邀请链接
-                            if '/+' in group_link:
-                                invite_hash = group_link.split('/+')[-1].split('?')[0]
-                            else:
-                                invite_hash = group_link.split('/joinchat/')[-1].split('?')[0]
-                            try:
-                                # 使用 ImportChatInviteRequest 加入私有群
-                                result = await client(ImportChatInviteRequest(invite_hash))
-                                if result.chats:
-                                    entity = result.chats[0]
-                                    self.log("自动群聊", f"[{phone}] 加入私有群成功: {getattr(entity, 'title', group_link)[:30]}")
-                            except UserAlreadyParticipantError:
-                                # 已经是群成员，直接获取实体
-                                self.log("自动群聊", f"[{phone}] 已是群成员")
+            script_index = 0
+            total_my_scripts = len(my_script_items)
+            
+            async with semaphore:
+                try:
+                    self.log("自动群聊", f"[{phone}] 正在连接...")
+                    client = TelegramClient(session_path, api_id, api_hash)
+                    await client.connect()
+                    if not await client.is_user_authorized():
+                        self.log("自动群聊", f"[{phone}] 未登录")
+                        return
+                    
+                    self.log("自动群聊", f"[{phone}] 登录成功")
+                    
+                    group_entities = []
+                    for idx, group_link in enumerate(target_groups, 1):
+                        self.log("自动群聊", f"[{phone}] 正在处理群组 [{idx}/{len(target_groups)}]: {group_link[:50]}")
+                        try:
+                            entity = None
+                            if 't.me/+' in group_link or 't.me/joinchat' in group_link:
+                                if '/+' in group_link:
+                                    invite_hash = group_link.split('/+')[-1].split('?')[0]
+                                else:
+                                    invite_hash = group_link.split('/joinchat/')[-1].split('?')[0]
                                 try:
-                                    if 't.me/' in group_link:
-                                        username = group_link.split('t.me/')[-1].split('?')[0]
-                                        entity = await client.get_entity(username)
-                                    else:
-                                        entity = await client.get_entity(group_link)
-                                except Exception as e2:
-                                    self.log("自动群聊", f"[{phone}] 获取群组信息失败: {str(e2)[:30]}")
-                            except Exception as e:
-                                self.log("自动群聊", f"[{phone}] 加入私有群失败: {str(e)[:50]}")
-                        else:
-                            # 公开群组，通过用户名加入
-                            if 't.me/' in group_link:
-                                username = group_link.split('t.me/')[-1].split('?')[0]
+                                    result = await client(ImportChatInviteRequest(invite_hash))
+                                    if result.chats:
+                                        entity = result.chats[0]
+                                        self.log("自动群聊", f"[{phone}] 加入私有群成功: {getattr(entity, 'title', group_link)[:30]}")
+                                except UserAlreadyParticipantError:
+                                    self.log("自动群聊", f"[{phone}] 已是群成员")
+                                    try:
+                                        if 't.me/' in group_link:
+                                            username = group_link.split('t.me/')[-1].split('?')[0]
+                                            entity = await client.get_entity(username)
+                                        else:
+                                            entity = await client.get_entity(group_link)
+                                    except:
+                                        pass
+                                except Exception as e:
+                                    self.log("自动群聊", f"[{phone}] 加入私有群失败: {str(e)[:50]}")
                             else:
-                                username = group_link
+                                if 't.me/' in group_link:
+                                    username = group_link.split('t.me/')[-1].split('?')[0]
+                                else:
+                                    username = group_link
+                                try:
+                                    entity = await client.get_entity(username)
+                                    try:
+                                        await client(JoinChannelRequest(entity))
+                                        self.log("自动群聊", f"[{phone}] 加入公开群成功: {getattr(entity, 'title', username)[:30]}")
+                                    except UserAlreadyParticipantError:
+                                        self.log("自动群聊", f"[{phone}] 已是群成员: {getattr(entity, 'title', username)[:30]}")
+                                    except Exception:
+                                        self.log("自动群聊", f"[{phone}] 已是成员: {getattr(entity, 'title', username)[:30]}")
+                                except Exception as e:
+                                    self.log("自动群聊", f"[{phone}] 获取群组失败 {group_link}: {str(e)[:30]}")
+                            
+                            if entity:
+                                group_entities.append(entity)
+                                self.log("自动群聊", f"[{phone}] 群组已添加")
+                        except Exception as e:
+                            self.log("自动群聊", f"[{phone}] 处理群组失败: {str(e)[:50]}")
+                        
+                        await asyncio.sleep(1)
+                    
+                    if not group_entities:
+                        self.log("自动群聊", f"[{phone}] 无可用群组")
+                        return
+                    
+                    self.log("自动群聊", f"[{phone}] 准备就绪! 可用群组: {len(group_entities)}个, 话术: {total_my_scripts}条")
+                    
+                    round_count = 0
+                    while self.chat_running and not self.chat_stop_flag:
+                        if self.chat_paused:
+                            await asyncio.sleep(1)
+                            continue
+                        
+                        if script_index >= total_my_scripts:
+                            if loop_enabled:
+                                script_index = 0
+                                round_count += 1
+                                self.log("自动群聊", f"[{phone}] 第{round_count}轮循环开始")
+                            else:
+                                break
+                        
+                        script_item = my_script_items[script_index]
+                        script_index += 1
+                        
+                        for group_idx, entity in enumerate(group_entities, 1):
+                            if self.chat_stop_flag:
+                                break
                             
                             try:
-                                entity = await client.get_entity(username)
-                                # 尝试加入群组
-                                try:
-                                    await client(JoinChannelRequest(entity))
-                                    self.log("自动群聊", f"[{phone}] 加入公开群成功: {getattr(entity, 'title', username)[:30]}")
-                                except UserAlreadyParticipantError:
-                                    self.log("自动群聊", f"[{phone}] 已是群成员: {getattr(entity, 'title', username)[:30]}")
-                                except Exception as e:
-                                    # 可能不需要加入就能发送消息（已经是成员或频道）
-                                    self.log("自动群聊", f"[{phone}] 已是成员或无需加入: {getattr(entity, 'title', username)[:30]}")
-                            except Exception as e:
-                                self.log("自动群聊", f"[{phone}] 获取公开群失败 {group_link}: {str(e)[:30]}")
-                        
-                        if entity:
-                            group_entities.append(entity)
-                    except Exception as e:
-                        self.log("自动群聊", f"[{phone}] 处理群组失败 {group_link}: {str(e)[:50]}")
-                
-                if not group_entities:
-                    self.log("自动群聊", f"[{phone}] 无可用群组")
-                    return
-                
-                while self.chat_running and not self.chat_stop_flag:
-                    if self.chat_paused:
-                        await asyncio.sleep(1)
-                        continue
-                    
-                    script_item = None
-                    for i in range(script_index, len(script_items)):
-                        if script_items[i]['sender_idx'] == account_index:
-                            script_item = script_items[i]
-                            script_index = i + 1
-                            break
-                    
-                    if not script_item:
-                        if loop_enabled:
-                            script_index = 0
-                            continue
-                        else:
-                            break
-                    
-                    self.chat_current_script_index[phone] = script_index
-                    
-                    for entity in group_entities:
-                        if self.chat_stop_flag:
-                            break
-                        
-                        try:
-                            if script_item['reply_to_idx'] > 0:
-                                target_account = None
-                                target_phone = None
-                                for i, a in enumerate(accounts):
-                                    if i + 1 == script_item['reply_to_idx']:
-                                        target_account = a
-                                        target_phone = a.get('phone')
-                                        break
+                                group_title = getattr(entity, 'title', str(entity))[:25]
                                 
-                                if target_account:
-                                    try:
-                                        target_user = await client.get_entity(target_account.get('phone'))
-                                        last_msg = await self.get_last_message_from_user(client, entity, target_user.id)
-                                        if last_msg:
-                                            await client.send_message(entity, script_item['message'], reply_to=last_msg.id)
-                                            self.log("自动群聊", f"[{phone}] @{target_phone[-6:]} 回复: {script_item['message'][:50]}")
-                                        else:
+                                if script_item['reply_to_idx'] > 0:
+                                    target_phone = None
+                                    for i, a in enumerate(accounts):
+                                        if i + 1 == script_item['reply_to_idx']:
+                                            target_phone = a.get('phone')
+                                            break
+                                    
+                                    if target_phone:
+                                        try:
+                                            target_user = await client.get_entity(target_phone)
+                                            async for msg in client.iter_messages(entity, from_user=target_user.id, limit=1):
+                                                await client.send_message(entity, script_item['message'], reply_to=msg.id)
+                                                self.log("自动群聊", f"[{phone}] 回复@{target_phone[-6:]}({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                                break
+                                            else:
+                                                await client.send_message(entity, script_item['message'])
+                                                self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]} (未找到@目标)")
+                                        except Exception as e:
+                                            self.log("自动群聊", f"[{phone}] @回复失败: {str(e)[:30]}")
                                             await client.send_message(entity, script_item['message'])
-                                            self.log("自动群聊", f"[{phone}] 发言(未找到@目标): {script_item['message'][:50]}")
-                                    except Exception as e:
-                                        self.log("自动群聊", f"[{phone}] @回复失败: {str(e)[:30]}")
+                                            self.log("自动群聊", f"[{phone}] 发言降级({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                    else:
                                         await client.send_message(entity, script_item['message'])
-                                        self.log("自动群聊", f"[{phone}] 发言(降级): {script_item['message'][:50]}")
+                                        self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
                                 else:
                                     await client.send_message(entity, script_item['message'])
-                                    self.log("自动群聊", f"[{phone}] 发言: {script_item['message'][:50]}")
-                            else:
-                                await client.send_message(entity, script_item['message'])
-                                self.log("自动群聊", f"[{phone}] 发言: {script_item['message'][:50]}")
+                                    self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                
+                            except FloodWaitError as e:
+                                self.log("自动群聊", f"[{phone}] 频率限制，等待{e.seconds}秒")
+                                await asyncio.sleep(e.seconds)
+                            except Exception as e:
+                                self.log("自动群聊", f"[{phone}] 发送失败: {str(e)[:50]}")
                             
-                        except FloodWaitError as e:
-                            self.log("自动群聊", f"[{phone}] 频率限制，等待{e.seconds}秒")
-                            await asyncio.sleep(e.seconds)
-                        except Exception as e:
-                            self.log("自动群聊", f"[{phone}] 发送失败: {str(e)[:50]}")
+                            await asyncio.sleep(2)
+                        
+                        interval = random.randint(min_interval, max_interval)
+                        self.log("自动群聊", f"[{phone}] 等待 {interval} 秒后执行下一条话术")
+                        await asyncio.sleep(interval)
                     
-                    interval = random.randint(min_interval, max_interval)
-                    await asyncio.sleep(interval)
-                
-            except Exception as e:
-                self.log("自动群聊", f"[{phone}] 异常: {str(e)[:50]}")
-            finally:
-                if client:
-                    await client.disconnect()
+                except Exception as e:
+                    self.log("自动群聊", f"[{phone}] 异常: {str(e)[:50]}")
+                finally:
+                    if client:
+                        await client.disconnect()
         
         tasks = []
         for acc in accounts:
             if acc.get('phone') in account_groups:
                 tasks.append(run_account_chat(acc))
+                await asyncio.sleep(0.5)
         
         await asyncio.gather(*tasks)
     
