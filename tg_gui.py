@@ -4148,7 +4148,7 @@ class TelegramFullGUI:
             self.group_send_paused = False
             self.group_log_insert("继续群发")
     
-    # ==================== 自动群聊页面 ====================
+    # ==================== 自动群聊+回复页面 ====================
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
@@ -4156,161 +4156,635 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        frame = ttk.LabelFrame(main_frame, text="群聊设置")
-        frame.pack(fill="x", pady=5)
+        # 创建滚动区域
+        chat_canvas = tk.Canvas(main_frame, highlightthickness=0)
+        chat_scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=chat_canvas.yview)
+        chat_inner = ttk.Frame(chat_canvas)
         
-        ttk.Label(frame, text="目标群组:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.chat_group = ttk.Entry(frame, width=50)
-        self.chat_group.grid(row=0, column=1, padx=5, pady=5)
+        chat_canvas.configure(yscrollcommand=chat_scrollbar.set)
+        chat_canvas.pack(side="left", fill="both", expand=True)
+        chat_scrollbar.pack(side="right", fill="y")
         
-        ttk.Label(frame, text="选择账号:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.chat_account = ttk.Combobox(frame, values=[a.get('phone', '') for a in self.accounts], width=30)
-        self.chat_account.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        chat_window = chat_canvas.create_window((0, 0), window=chat_inner, anchor="nw")
         
-        ttk.Label(frame, text="发言间隔(秒):").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        self.chat_interval = ttk.Entry(frame, width=10)
-        self.chat_interval.insert(0, "60")
-        self.chat_interval.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        def on_chat_configure(event):
+            chat_canvas.configure(scrollregion=chat_canvas.bbox("all"))
+        chat_inner.bind("<Configure>", on_chat_configure)
         
-        ttk.Label(frame, text="每日上限:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
-        self.chat_daily = ttk.Entry(frame, width=10)
-        self.chat_daily.insert(0, "100")
-        self.chat_daily.grid(row=3, column=1, sticky="w", padx=5, pady=5)
+        def on_chat_canvas_configure(event):
+            chat_canvas.itemconfig(chat_window, width=event.width)
+        chat_canvas.bind("<Configure>", on_chat_canvas_configure)
         
-        btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
-        ttk.Button(btn_frame, text="启动炒群", command=self.start_group_chat).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="停止炒群", command=self.stop_group_chat).pack(side="left", padx=5)
+        def on_chat_mousewheel(event):
+            chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        chat_canvas.bind("<MouseWheel>", on_chat_mousewheel)
         
-        kw_frame = ttk.LabelFrame(main_frame, text="关键词自动回复")
-        kw_frame.pack(fill="x", pady=5)
+        # 群组分配模式
+        mode_frame = ttk.LabelFrame(chat_inner, text="群聊模式")
+        mode_frame.pack(fill="x", padx=10, pady=5)
         
-        self.keyword_text = scrolledtext.ScrolledText(kw_frame, width=80, height=6)
-        self.keyword_text.pack(fill="x", padx=5, pady=5)
+        self.chat_mode = tk.StringVar(value="all")
+        ttk.Radiobutton(mode_frame, text="全账号全群（所有选中账号发往所有目标群）", variable=self.chat_mode, value="all").pack(anchor="w", padx=10, pady=2)
+        ttk.Radiobutton(mode_frame, text="分组对应群（指定分组的账号只发往指定群）", variable=self.chat_mode, value="group").pack(anchor="w", padx=10, pady=2)
         
-        btn_frame2 = ttk.Frame(kw_frame)
-        btn_frame2.pack(pady=5)
-        ttk.Button(btn_frame2, text="保存关键词配置", command=self.save_keywords).pack(side="left", padx=5)
-        ttk.Button(btn_frame2, text="加载关键词配置", command=self.load_keywords).pack(side="left", padx=5)
+        # 目标群组区域
+        group_frame = ttk.LabelFrame(chat_inner, text="目标群组列表")
+        group_frame.pack(fill="x", padx=10, pady=5)
         
-        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
-        log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        group_row = ttk.Frame(group_frame)
+        group_row.pack(fill="x", padx=5, pady=5)
+        
+        self.chat_group_file = tk.StringVar()
+        ttk.Entry(group_row, textvariable=self.chat_group_file, width=60).pack(side="left", padx=5)
+        ttk.Button(group_row, text="导入群链接文件", command=self.import_chat_groups, width=15).pack(side="left", padx=5)
+        ttk.Label(group_row, text="（每行一个群链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
+        
+        self.chat_group_count_label = ttk.Label(group_frame, text="已加载: 0 个群组", foreground="blue")
+        self.chat_group_count_label.pack(anchor="w", padx=5, pady=2)
+        
+        # 分组绑定设置（分组对应群模式下显示）
+        self.group_bind_frame = ttk.LabelFrame(chat_inner, text="分组绑定设置")
+        
+        self.group_bind_list = []  # 存储分组绑定控件
+        
+        def update_group_bind_visibility():
+            if self.chat_mode.get() == "group":
+                self.group_bind_frame.pack(fill="x", padx=10, pady=5)
+                refresh_group_bind()
+            else:
+                self.group_bind_frame.pack_forget()
+        
+        self.chat_mode.trace('w', lambda *args: update_group_bind_visibility())
+        
+        # 账号选择区域
+        account_frame = ttk.LabelFrame(chat_inner, text="选择任务账号")
+        account_frame.pack(fill="x", padx=10, pady=5)
+        
+        filter_row = ttk.Frame(account_frame)
+        filter_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(filter_row, text="分组筛选:").pack(side="left", padx=5)
+        self.chat_group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=15)
+        self.chat_group_filter.set("全部")
+        self.chat_group_filter.pack(side="left", padx=5)
+        self.chat_group_filter.bind("<<ComboboxSelected>>", self.refresh_chat_account_list)
+        
+        ttk.Label(filter_row, text="状态筛选:").pack(side="left", padx=20)
+        self.chat_status_filter = ttk.Combobox(filter_row, values=["全部", "正常"], width=10)
+        self.chat_status_filter.set("正常")
+        self.chat_status_filter.pack(side="left", padx=5)
+        self.chat_status_filter.bind("<<ComboboxSelected>>", self.refresh_chat_account_list)
+        
+        self.chat_select_all_var = tk.BooleanVar()
+        ttk.Checkbutton(filter_row, text="全选", variable=self.chat_select_all_var,
+                       command=lambda: self.toggle_listbox_select(self.chat_account_listbox, self.chat_select_all_var)).pack(side="left", padx=20)
+        
+        listbox_frame = ttk.Frame(account_frame)
+        listbox_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.chat_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
+        chat_account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.chat_account_listbox.yview)
+        self.chat_account_listbox.configure(yscrollcommand=chat_account_scrollbar.set)
+        self.chat_account_listbox.pack(side="left", fill="x", expand=True)
+        chat_account_scrollbar.pack(side="right", fill="y")
+        
+        # 话术设置区域
+        script_frame = ttk.LabelFrame(chat_inner, text="话术设置")
+        script_frame.pack(fill="x", padx=10, pady=5)
+        
+        script_row = ttk.Frame(script_frame)
+        script_row.pack(fill="x", padx=5, pady=5)
+        
+        self.chat_script_file = tk.StringVar()
+        ttk.Entry(script_row, textvariable=self.chat_script_file, width=60).pack(side="left", padx=5)
+        ttk.Button(script_row, text="导入话术文件", command=self.import_chat_scripts, width=15).pack(side="left", padx=5)
+        ttk.Label(script_row, text="（支持TXT/Excel，格式：序号、话术或序号、@序号 回复内容）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
+        
+        self.chat_script_count_label = ttk.Label(script_frame, text="已加载: 0 条话术", foreground="blue")
+        self.chat_script_count_label.pack(anchor="w", padx=5, pady=2)
+        
+        # 话术预览区域
+        preview_frame = ttk.LabelFrame(script_frame, text="话术预览")
+        preview_frame.pack(fill="x", padx=5, pady=5)
+        self.chat_script_preview = scrolledtext.ScrolledText(preview_frame, width=80, height=6, state="disabled")
+        self.chat_script_preview.pack(fill="x", padx=5, pady=5)
+        
+        # 参数设置区域
+        param_frame = ttk.LabelFrame(chat_inner, text="发言参数")
+        param_frame.pack(fill="x", padx=10, pady=5)
+        
+        param_row = ttk.Frame(param_frame)
+        param_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(param_row, text="最小间隔(秒):").pack(side="left", padx=5)
+        self.chat_min_interval = ttk.Entry(param_row, width=10)
+        self.chat_min_interval.insert(0, "30")
+        self.chat_min_interval.pack(side="left", padx=5)
+        
+        ttk.Label(param_row, text="最大间隔(秒):").pack(side="left", padx=20)
+        self.chat_max_interval = ttk.Entry(param_row, width=10)
+        self.chat_max_interval.insert(0, "60")
+        self.chat_max_interval.pack(side="left", padx=5)
+        
+        self.chat_loop_enabled = tk.BooleanVar(value=True)
+        ttk.Checkbutton(param_row, text="无限循环", variable=self.chat_loop_enabled).pack(side="left", padx=20)
+        
+        # 按钮区域
+        btn_frame = ttk.Frame(chat_inner)
+        btn_frame.pack(pady=15)
+        self.chat_start_btn = ttk.Button(btn_frame, text="启动炒群", command=self.start_auto_chat, width=12)
+        self.chat_start_btn.pack(side="left", padx=5)
+        self.chat_stop_btn = ttk.Button(btn_frame, text="停止炒群", command=self.stop_auto_chat, width=12)
+        self.chat_stop_btn.pack(side="left", padx=5)
+        self.chat_pause_btn = ttk.Button(btn_frame, text="暂停", command=self.pause_auto_chat, width=12)
+        self.chat_pause_btn.pack(side="left", padx=5)
+        self.chat_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_auto_chat, width=12)
+        self.chat_resume_btn.pack(side="left", padx=5)
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(chat_inner, text="运行日志")
+        log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # 初始化变量
+        self.chat_groups = []  # 目标群组列表
+        self.chat_scripts = []  # 话术列表（原始文本）
+        self.chat_script_items = []  # 解析后的话术项
+        self.chat_running = False
+        self.chat_paused = False
+        self.chat_stop_flag = False
+        self.chat_tasks = []
+        
+        # 刷新账号列表
+        self.refresh_chat_account_list()
+        
+        # 初始化分组绑定界面
+        self.init_group_bind_ui()
     
-    def start_group_chat(self):
-        group = self.chat_group.get()
-        account_phone = self.chat_account.get()
-        interval = int(self.chat_interval.get())
-        daily_limit = int(self.chat_daily.get())
-        if not group:
-            self.log("自动群聊", "请输入目标群组")
+    def init_group_bind_ui(self):
+        """初始化分组绑定界面"""
+        # 清空原有控件
+        for widget in self.group_bind_frame.winfo_children():
+            widget.destroy()
+        
+        if not hasattr(self, 'group_bindings'):
+            self.group_bindings = {}
+        
+        # 为每个分组创建绑定行
+        for group_name in self.groups:
+            if group_name == "默认分组" or not group_name:
+                continue
+            
+            row_frame = ttk.Frame(self.group_bind_frame)
+            row_frame.pack(fill="x", padx=5, pady=2)
+            
+            ttk.Label(row_frame, text=f"{group_name}:", width=15).pack(side="left", padx=5)
+            
+            # 多选列表框
+            listbox = tk.Listbox(row_frame, selectmode=tk.MULTIPLE, height=3, width=50)
+            scrollbar = ttk.Scrollbar(row_frame, orient="vertical", command=listbox.yview)
+            listbox.configure(yscrollcommand=scrollbar.set)
+            listbox.pack(side="left", fill="x", expand=True, padx=5)
+            scrollbar.pack(side="left", fill="y")
+            
+            # 存储绑定信息
+            self.group_bindings[group_name] = listbox
+            
+            # 刷新群组列表
+            self.refresh_group_bind_listbox(group_name, listbox)
+        
+        # 如果没有分组，显示提示
+        if len(self.groups) <= 1:
+            ttk.Label(self.group_bind_frame, text="暂无分组，请先在\"多账号管理\"中创建分组", foreground="gray").pack(pady=10)
+    
+    def refresh_group_bind_listbox(self, group_name, listbox):
+        """刷新分组绑定的群组列表"""
+        listbox.delete(0, tk.END)
+        for i, g in enumerate(self.chat_groups):
+            display = f"{i+1}. {g[:50]}"
+            listbox.insert(tk.END, display)
+    
+    def refresh_group_bind(self):
+        """刷新所有分组绑定列表"""
+        for group_name, listbox in self.group_bindings.items():
+            self.refresh_group_bind_listbox(group_name, listbox)
+    
+    def get_group_bindings(self):
+        """获取分组绑定的群组索引"""
+        bindings = {}
+        for group_name, listbox in self.group_bindings.items():
+            selected = listbox.curselection()
+            bindings[group_name] = [int(idx) for idx in selected]
+        return bindings
+    
+    def import_chat_groups(self):
+        """导入目标群组文件"""
+        file_path = filedialog.askopenfilename(title="选择群组链接文件", filetypes=[("文本文件", "*.txt")])
+        if file_path:
+            self.chat_group_file.set(file_path)
+            groups = []
+            try:
+                encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16']
+                content = None
+                for enc in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=enc) as f:
+                            content = f.read()
+                        break
+                    except:
+                        continue
+                if content is None:
+                    self.log("自动群聊", "导入失败: 无法识别文件编码")
+                    return
+                
+                for line in content.split('\n'):
+                    group_link = line.strip()
+                    if group_link:
+                        groups.append(group_link)
+                self.chat_groups = groups
+                self.chat_group_count_label.config(text=f"已加载: {len(groups)} 个群组")
+                self.log("自动群聊", f"导入群组链接: {file_path}, 共 {len(groups)} 个群组")
+                
+                # 刷新分组绑定列表
+                self.refresh_group_bind()
+            except Exception as e:
+                self.log("自动群聊", f"导入失败: {str(e)}")
+    
+    def import_chat_scripts(self):
+        """导入话术文件（支持TXT和Excel）"""
+        file_path = filedialog.askopenfilename(title="选择话术文件", filetypes=[("文本文件", "*.txt"), ("Excel文件", "*.xlsx *.xls")])
+        if file_path:
+            self.chat_script_file.set(file_path)
+            scripts = []
+            try:
+                if file_path.endswith('.txt'):
+                    encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16']
+                    content = None
+                    for enc in encodings:
+                        try:
+                            with open(file_path, 'r', encoding=enc) as f:
+                                content = f.read()
+                            break
+                        except:
+                            continue
+                    if content is None:
+                        self.log("自动群聊", "导入失败: 无法识别文件编码")
+                        return
+                    
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if line:
+                            scripts.append(line)
+                elif file_path.endswith(('.xlsx', '.xls')):
+                    try:
+                        import openpyxl
+                        wb = openpyxl.load_workbook(file_path)
+                        sheet = wb.active
+                        for row in sheet.iter_rows(values_only=True):
+                            if row[0]:
+                                scripts.append(str(row[0]))
+                    except ImportError:
+                        self.log("自动群聊", "请先安装openpyxl库: pip install openpyxl")
+                        return
+                
+                self.chat_scripts = scripts
+                self.chat_script_count_label.config(text=f"已加载: {len(scripts)} 条话术")
+                self.log("自动群聊", f"导入话术文件: {file_path}, 共 {len(scripts)} 条")
+                
+                # 解析话术并显示预览
+                self.parse_scripts()
+                
+            except Exception as e:
+                self.log("自动群聊", f"导入失败: {str(e)}")
+    
+    def parse_scripts(self):
+        """解析话术，提取序号、消息、@回复信息"""
+        self.chat_script_items = []
+        preview_text = ""
+        
+        for line in self.chat_scripts:
+            # 匹配格式: "1、消息内容" 或 "1、@2 回复内容"
+            match = re.match(r'^(\d+)[、，]\s*(.*?)\s*$', line)
+            if not match:
+                preview_text += f"❌ 格式错误: {line}\n"
+                continue
+            
+            sender_idx = int(match.group(1))
+            content = match.group(2).strip()
+            
+            # 解析@回复
+            reply_to_idx = 0
+            at_match = re.search(r'@(\d+)', content)
+            if at_match:
+                reply_to_idx = int(at_match.group(1))
+                # 移除@标记部分
+                content = re.sub(r'@\d+\s*', '', content).strip()
+            
+            item = {
+                'sender_idx': sender_idx,
+                'message': content,
+                'reply_to_idx': reply_to_idx,
+                'original': line
+            }
+            self.chat_script_items.append(item)
+            
+            if reply_to_idx > 0:
+                preview_text += f"📝 [{sender_idx}] @{reply_to_idx} {content}\n"
+            else:
+                preview_text += f"💬 [{sender_idx}] {content}\n"
+        
+        # 显示预览
+        self.chat_script_preview.config(state="normal")
+        self.chat_script_preview.delete("1.0", tk.END)
+        self.chat_script_preview.insert("1.0", preview_text)
+        self.chat_script_preview.config(state="disabled")
+        
+        self.log("自动群聊", f"话术解析完成，共 {len(self.chat_script_items)} 条有效话术")
+    
+    def refresh_chat_account_list(self, event=None):
+        self.chat_account_listbox.delete(0, tk.END)
+        filter_group = self.chat_group_filter.get()
+        filter_status = self.chat_status_filter.get()
+        for acc in self.accounts:
+            if filter_status == "全部" or acc.get('status') == filter_status:
+                if filter_group == "全部" or acc.get('group') == filter_group:
+                    display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
+                    self.chat_account_listbox.insert(tk.END, display_text)
+        self.chat_select_all_var.set(False)
+    
+    def get_selected_chat_accounts(self):
+        selected_indices = self.chat_account_listbox.curselection()
+        selected_accounts = []
+        for idx in selected_indices:
+            text = self.chat_account_listbox.get(idx)
+            phone = text.split(" - ")[0]
+            for acc in self.accounts:
+                if acc.get('phone') == phone:
+                    selected_accounts.append(acc)
+                    break
+        return selected_accounts
+    
+    def get_accounts_by_group(self, group_name):
+        """获取指定分组的所有账号"""
+        return [acc for acc in self.accounts if acc.get('group') == group_name and acc.get('status') == '正常']
+    
+    def parse_group_link_entity(self, link):
+        """解析群组链接为实体"""
+        if 't.me/' in link:
+            username = link.split('t.me/')[-1]
+            return username
+        return link
+    
+    async def get_last_message_from_user(self, client, group_entity, user_id):
+        """获取用户在群组中的最后一条消息"""
+        try:
+            async for msg in client.iter_messages(group_entity, from_user=user_id, limit=1):
+                return msg
+        except:
+            pass
+        return None
+    
+    def start_auto_chat(self):
+        if self.chat_running:
+            self.log("自动群聊", "任务进行中")
             return
-        if not account_phone:
-            self.log("自动群聊", "请选择账号")
+        
+        selected_accounts = self.get_selected_chat_accounts()
+        if not selected_accounts:
+            self.log("自动群聊", "请至少选择一个账号")
+            self.show_centered_warning("提示", "请至少选择一个账号")
             return
-        acc = None
-        for a in self.accounts:
-            if a.get('phone') == account_phone:
-                acc = a
-                break
-        if not acc:
-            self.log("自动群聊", "未找到账号")
+        
+        if not self.chat_groups:
+            self.log("自动群聊", "请先导入目标群组")
+            self.show_centered_warning("提示", "请先导入目标群组")
             return
-        if acc.get('status') != '正常':
-            self.log("自动群聊", "请先登录账号")
-            self.show_centered_warning("提示", "请先登录账号")
+        
+        if not self.chat_script_items:
+            self.log("自动群聊", "请先导入话术文件")
+            self.show_centered_warning("提示", "请先导入话术文件")
             return
-        session_path = acc.get('session_path', '')
-        api_id, api_hash = self.get_account_api_credentials(acc)
-        self.log("自动群聊", f"启动炒群: {group} 使用账号: {account_phone}")
-        self.running_tasks['chat'] = True
-        self.update_account_task(account_phone, "自动群聊", True)
-        scripts = []
-        if os.path.exists("scripts.txt"):
-            with open("scripts.txt", "r", encoding="utf-8") as f:
-                scripts = [line.strip() for line in f if line.strip()]
-        if not scripts:
-            scripts = ["Hello!", "Good morning!", "Nice to meet you!"]
-        keywords = {}
-        if os.path.exists("keywords.json"):
-            with open("keywords.json", "r") as f:
-                keywords = json.load(f)
-        async def do_chat():
-            from telethon import events
+        
+        try:
+            min_interval = int(self.chat_min_interval.get())
+            max_interval = int(self.chat_max_interval.get())
+            loop_enabled = self.chat_loop_enabled.get()
+        except ValueError:
+            self.log("自动群聊", "参数错误")
+            return
+        
+        if min_interval <= 0 or max_interval < min_interval:
+            self.log("自动群聊", "间隔参数无效")
+            return
+        
+        self.chat_running = True
+        self.chat_paused = False
+        self.chat_stop_flag = False
+        
+        self.log("自动群聊", f"========== 启动自动群聊 ==========")
+        self.log("自动群聊", f"账号: {len(selected_accounts)}个 | 群组: {len(self.chat_groups)}个 | 话术: {len(self.chat_script_items)}条")
+        self.log("自动群聊", f"间隔: {min_interval}~{max_interval}秒 | 无限循环: {'是' if loop_enabled else '否'}")
+        self.log("自动群聊", f"模式: {'全账号全群' if self.chat_mode.get() == 'all' else '分组对应群'}")
+        
+        # 为每个选中的账号启动任务
+        for acc in selected_accounts:
+            self.update_account_task(acc.get('phone'), "自动群聊", True)
+        
+        def run_auto_chat():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.do_auto_chat(
+                selected_accounts, self.chat_groups, self.chat_script_items,
+                min_interval, max_interval, loop_enabled
+            ))
+            loop.close()
+            self.chat_running = False
+            for acc in selected_accounts:
+                self.update_account_task(acc.get('phone'), "", False)
+                self.update_account_task(acc.get('phone'), "自动群聊", False)
+            self.log("自动群聊", "========== 自动群聊已停止 ==========")
+        
+        threading.Thread(target=run_auto_chat, daemon=True).start()
+    
+    async def do_auto_chat(self, accounts, groups, script_items, min_interval, max_interval, loop_enabled):
+        """执行自动群聊"""
+        
+        # 获取分组绑定关系
+        group_bindings = {}
+        if self.chat_mode.get() == "group":
+            bindings = self.get_group_bindings()
+            for group_name, indices in bindings.items():
+                group_bindings[group_name] = [groups[idx] for idx in indices if idx < len(groups)]
+        
+        # 为每个账号准备群组列表
+        account_groups = {}
+        for acc in accounts:
+            acc_group = acc.get('group', '默认分组')
+            if self.chat_mode.get() == "group":
+                # 分组对应群模式
+                target_groups = group_bindings.get(acc_group, [])
+                if not target_groups:
+                    self.log("自动群聊", f"[{acc.get('phone')}] 分组「{acc_group}」未绑定任何群组，跳过")
+                    continue
+                account_groups[acc.get('phone')] = target_groups
+            else:
+                # 全账号全群模式
+                account_groups[acc.get('phone')] = groups
+        
+        if not account_groups:
+            self.log("自动群聊", "没有账号分配到有效群组")
+            return
+        
+        async def run_account_chat(acc):
+            phone = acc.get('phone', '')
+            session_path = acc.get('session_path', '')
+            api_id, api_hash = self.get_account_api_credentials(acc)
+            target_groups = account_groups.get(phone, [])
+            
+            if not target_groups:
+                return
+            
             client = None
+            script_index = 0
+            account_index = None
+            
+            # 获取账号在选中列表中的索引（1-based）
+            for i, a in enumerate(accounts):
+                if a.get('phone') == phone:
+                    account_index = i + 1
+                    break
+            
+            if account_index is None:
+                self.log("自动群聊", f"[{phone}] 无法获取账号索引")
+                return
+            
             try:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
-                    self.log("自动群聊", "账号未登录")
+                    self.log("自动群聊", f"[{phone}] 未登录")
                     return
-                if 't.me/' in group:
-                    group_username = group.split('t.me/')[-1]
-                    entity = await client.get_entity(group_username)
-                else:
-                    entity = await client.get_entity(int(group))
-                @client.on(events.NewMessage(chats=entity))
-                async def handle_reply(event):
-                    if not self.running_tasks.get('chat', False):
-                        return
-                    text = event.message.text
-                    for kw, reply in keywords.items():
-                        if kw.lower() in text.lower():
-                            await event.reply(reply)
-                            self.log("自动群聊", f"自动回复: {reply[:30]}...")
+                
+                # 获取所有目标群组的实体
+                group_entities = []
+                for group_link in target_groups:
+                    try:
+                        entity_username = self.parse_group_link_entity(group_link)
+                        entity = await client.get_entity(entity_username)
+                        group_entities.append(entity)
+                        self.log("自动群聊", f"[{phone}] 加入群组: {getattr(entity, 'title', group_link)[:30]}")
+                    except Exception as e:
+                        self.log("自动群聊", f"[{phone}] 加入群组失败 {group_link}: {str(e)[:30]}")
+                
+                if not group_entities:
+                    self.log("自动群聊", f"[{phone}] 无可用群组")
+                    return
+                
+                # 收集需要回复的消息映射（记录每个账号的最新消息ID）
+                last_messages = {}  # {reply_to_phone: message_id}
+                
+                while self.chat_running and not self.chat_stop_flag:
+                    if self.chat_paused:
+                        await asyncio.sleep(1)
+                        continue
+                    
+                    # 找到属于当前账号的话术
+                    script_item = None
+                    for i in range(script_index, len(script_items)):
+                        if script_items[i]['sender_idx'] == account_index:
+                            script_item = script_items[i]
+                            script_index = i + 1
                             break
-                async def auto_speak():
-                    import random
-                    count = 0
-                    while self.running_tasks.get('chat', False) and count < daily_limit:
-                        script = random.choice(scripts)
-                        await client.send_message(entity, script)
-                        self.log("自动群聊", f"自动发言: {script[:30]}...")
-                        count += 1
-                        await asyncio.sleep(interval)
-                asyncio.create_task(auto_speak())
-                await client.run_until_disconnected()
+                    
+                    # 如果没有找到，循环或结束
+                    if not script_item:
+                        if loop_enabled:
+                            script_index = 0
+                            continue
+                        else:
+                            break
+                    
+                    # 发送消息到每个群组
+                    for entity in group_entities:
+                        if self.chat_stop_flag:
+                            break
+                        
+                        try:
+                            if script_item['reply_to_idx'] > 0:
+                                # @回复模式：回复指定账号的最新消息
+                                # 找到目标账号
+                                target_account = None
+                                target_phone = None
+                                for i, a in enumerate(accounts):
+                                    if i + 1 == script_item['reply_to_idx']:
+                                        target_account = a
+                                        target_phone = a.get('phone')
+                                        break
+                                
+                                if target_account:
+                                    # 获取目标账号的user_id
+                                    try:
+                                        target_user = await client.get_entity(target_account.get('phone'))
+                                        # 获取该用户在群组中的最后一条消息
+                                        last_msg = await self.get_last_message_from_user(client, entity, target_user.id)
+                                        if last_msg:
+                                            await client.send_message(entity, script_item['message'], reply_to=last_msg.id)
+                                            self.log("自动群聊", f"[{phone}] @{target_phone[-6:]} 回复: {script_item['message'][:50]}")
+                                        else:
+                                            # 没有找到消息，主动发送
+                                            await client.send_message(entity, script_item['message'])
+                                            self.log("自动群聊", f"[{phone}] 发言(未找到@目标): {script_item['message'][:50]}")
+                                    except Exception as e:
+                                        self.log("自动群聊", f"[{phone}] @回复失败: {str(e)[:30]}")
+                                        await client.send_message(entity, script_item['message'])
+                                        self.log("自动群聊", f"[{phone}] 发言(降级): {script_item['message'][:50]}")
+                                else:
+                                    await client.send_message(entity, script_item['message'])
+                                    self.log("自动群聊", f"[{phone}] 发言: {script_item['message'][:50]}")
+                            else:
+                                # 主动发言模式
+                                await client.send_message(entity, script_item['message'])
+                                self.log("自动群聊", f"[{phone}] 发言: {script_item['message'][:50]}")
+                            
+                        except FloodWaitError as e:
+                            self.log("自动群聊", f"[{phone}] 频率限制，等待{e.seconds}秒")
+                            await asyncio.sleep(e.seconds)
+                        except Exception as e:
+                            self.log("自动群聊", f"[{phone}] 发送失败: {str(e)[:50]}")
+                    
+                    # 随机等待间隔
+                    interval = random.randint(min_interval, max_interval)
+                    await asyncio.sleep(interval)
+                
             except Exception as e:
-                self.log("自动群聊", f"炒群出错: {e}")
+                self.log("自动群聊", f"[{phone}] 异常: {str(e)[:50]}")
             finally:
                 if client:
-                    try:
-                        await client.disconnect()
-                    except:
-                        pass
-        def run_chat():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(do_chat())
-            loop.close()
-            self.update_account_task(account_phone, "", False)
-            self.update_account_task(account_phone, "自动群聊", False)
-        threading.Thread(target=run_chat, daemon=True).start()
+                    await client.disconnect()
+        
+        # 并发执行所有账号任务
+        tasks = []
+        for acc in accounts:
+            if acc.get('phone') in account_groups:
+                tasks.append(run_account_chat(acc))
+        
+        await asyncio.gather(*tasks)
     
-    def stop_group_chat(self):
-        self.running_tasks['chat'] = False
+    def stop_auto_chat(self):
+        self.chat_stop_flag = True
+        self.chat_running = False
         self.log("自动群聊", "停止炒群")
     
-    def save_keywords(self):
-        content = self.keyword_text.get("1.0", tk.END).strip()
-        keywords = {}
-        for line in content.split('\n'):
-            if '=' in line:
-                key, value = line.split('=', 1)
-                keywords[key.strip()] = value.strip()
-        with open("keywords.json", "w", encoding="utf-8") as f:
-            json.dump(keywords, f, ensure_ascii=False, indent=2)
-        self.log("自动群聊", "关键词配置已保存")
+    def pause_auto_chat(self):
+        if self.chat_running and not self.chat_paused:
+            self.chat_paused = True
+            self.log("自动群聊", "暂停炒群")
     
-    def load_keywords(self):
-        if os.path.exists("keywords.json"):
-            with open("keywords.json", "r") as f:
-                keywords = json.load(f)
-            content = "\n".join([f"{k}={v}" for k, v in keywords.items()])
-            self.keyword_text.delete("1.0", tk.END)
-            self.keyword_text.insert("1.0", content)
-            self.log("自动群聊", "关键词配置已加载")
+    def resume_auto_chat(self):
+        if self.chat_running and self.chat_paused:
+            self.chat_paused = False
+            self.log("自动群聊", "继续炒群")
     
     # ==================== 自动注册页面 ====================
     def create_auto_register_page(self):
@@ -4461,7 +4935,7 @@ class TelegramFullGUI:
             self.log("多账号管理", "配置已导入")
     
     def about(self):
-        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊\n- 话术配置")
+        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊+回复\n- 话术配置")
 
 if __name__ == "__main__":
     from telethon import events
