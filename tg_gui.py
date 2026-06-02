@@ -4540,42 +4540,15 @@ class TelegramFullGUI:
             self.log("自动群聊", "没有账号分配到有效群组")
             return
         
-        # 收集所有有话术的账号（按序号顺序）
-        valid_accounts = []
-        for acc in accounts:
-            if acc.get('phone') in account_groups:
-                # 获取账号序号
-                account_index = None
-                for i, a in enumerate(accounts):
-                    if a.get('phone') == acc.get('phone'):
-                        account_index = i + 1
-                        break
-                if account_index:
-                    # 检查是否有对应的话术
-                    my_scripts = [item for item in script_items if item['sender_idx'] == account_index]
-                    if my_scripts:
-                        valid_accounts.append({
-                            'acc': acc,
-                            'index': account_index,
-                            'scripts': my_scripts
-                        })
-        
-        if not valid_accounts:
-            self.log("自动群聊", "没有找到任何账号对应的话术")
-            return
-        
-        # 按序号排序
-        valid_accounts.sort(key=lambda x: x['index'])
-        
-        self.log("自动群聊", f"有效账号数量: {len(valid_accounts)} 个（按序号顺序发言）")
-        
-        # 为每个账号准备客户端和群组实体
+        # 为每个需要发言的账号准备客户端和群组实体
         account_clients = {}
         
-        # 先初始化所有账号的客户端并加入群组（静默模式，不输出日志）
-        for item in valid_accounts:
-            acc = item['acc']
+        # 先初始化所有可能有话术的账号的客户端
+        for acc in accounts:
             phone = acc.get('phone', '')
+            if phone not in account_groups:
+                continue
+            
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
             target_groups = account_groups.get(phone, [])
@@ -4587,7 +4560,6 @@ class TelegramFullGUI:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
-                    self.log("自动群聊", f"[{phone[-6:]}] 未登录，跳过")
                     continue
                 
                 # 加入所有目标群组
@@ -4645,8 +4617,7 @@ class TelegramFullGUI:
                 account_clients[phone] = {
                     'client': client,
                     'groups': group_entities,
-                    'scripts': item['scripts'],
-                    'index': item['index']
+                    'phone': phone
                 }
                 
             except Exception as e:
@@ -4656,23 +4627,33 @@ class TelegramFullGUI:
             self.log("自动群聊", "没有账号成功初始化")
             return
         
-        # 将所有账号的话术合并成一个顺序列表
-        all_scripts_in_order = []
-        for phone, info in account_clients.items():
-            for script in info['scripts']:
-                all_scripts_in_order.append({
-                    'phone': phone,
-                    'script': script
+        # 构建话术执行队列 - 按原始顺序，每个话术项关联对应的账号
+        script_queue = []
+        for script_item in script_items:
+            sender_idx = script_item['sender_idx']
+            # 找到对应序号的账号
+            target_acc = None
+            for i, a in enumerate(accounts):
+                if i + 1 == sender_idx:
+                    target_acc = a
+                    break
+            
+            if target_acc and target_acc.get('phone') in account_clients:
+                script_queue.append({
+                    'phone': target_acc.get('phone'),
+                    'script': script_item
                 })
         
-        # 从指定行开始
-        if start_line > 0 and start_line < len(all_scripts_in_order):
-            all_scripts_in_order = all_scripts_in_order[start_line:]
-            self.log("自动群聊", f"从第 {start_line + 1} 行话术开始，剩余 {len(all_scripts_in_order)} 条")
-        
-        if not all_scripts_in_order:
-            self.log("自动群聊", "没有可执行的话术")
+        if not script_queue:
+            self.log("自动群聊", "没有可执行的话术队列")
             return
+        
+        # 从指定行开始
+        if start_line > 0 and start_line < len(script_queue):
+            script_queue = script_queue[start_line:]
+            self.log("自动群聊", f"从第 {start_line + 1} 行话术开始，剩余 {len(script_queue)} 条")
+        
+        self.log("自动群聊", f"话术队列共 {len(script_queue)} 条，将按顺序依次发言")
         
         script_pointer = 0
         
@@ -4681,13 +4662,13 @@ class TelegramFullGUI:
                 await asyncio.sleep(1)
                 continue
             
-            if script_pointer >= len(all_scripts_in_order):
+            if script_pointer >= len(script_queue):
                 if loop_enabled:
                     script_pointer = 0
                 else:
                     break
             
-            item = all_scripts_in_order[script_pointer]
+            item = script_queue[script_pointer]
             script_pointer += 1
             
             phone = item['phone']
@@ -4709,12 +4690,9 @@ class TelegramFullGUI:
                     if script_item['reply_to_idx'] > 0:
                         # 回复模式：查找目标账号在群组中发送的最新消息
                         target_account = None
-                        for acc in accounts:
-                            for i, a in enumerate(accounts):
-                                if i + 1 == script_item['reply_to_idx']:
-                                    target_account = a
-                                    break
-                            if target_account:
+                        for i, a in enumerate(accounts):
+                            if i + 1 == script_item['reply_to_idx']:
+                                target_account = a
                                 break
                         
                         if target_account:
@@ -4727,7 +4705,7 @@ class TelegramFullGUI:
                                 try:
                                     target_user = await client.get_entity(target_phone)
                                     target_user_id = target_user.id
-                                    async for msg in client.iter_messages(entity, from_user=target_user_id, limit=5):
+                                    async for msg in client.iter_messages(entity, from_user=target_user_id, limit=10):
                                         found_msg = msg
                                         break
                                 except:
@@ -4736,9 +4714,14 @@ class TelegramFullGUI:
                                         if msg.sender_id:
                                             try:
                                                 sender = await client.get_entity(msg.sender_id)
+                                                # 检查发送者的手机号是否匹配
                                                 if hasattr(sender, 'phone') and sender.phone == target_phone:
                                                     found_msg = msg
                                                     break
+                                                # 检查发送者的用户名（如果账号有设置用户名）
+                                                if hasattr(sender, 'username') and sender.username:
+                                                    # 可以通过用户名进一步匹配
+                                                    pass
                                             except:
                                                 pass
                             except Exception:
