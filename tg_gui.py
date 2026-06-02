@@ -93,7 +93,8 @@ class TelegramFullGUI:
                     "register_time": acc.get("register_time", ""),
                     "session_path": acc.get("session_path", ""),
                     "json_path": acc.get("json_path", ""),
-                    "proxy": acc.get("proxy", "")
+                    "proxy": acc.get("proxy", ""),
+                    "user_id": acc.get("user_id", 0)
                 })
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
@@ -544,10 +545,11 @@ class TelegramFullGUI:
                     me = await client.get_me()
                     nickname = me.first_name or me.username or phone
                     acc['nickname'] = nickname
+                    acc['user_id'] = me.id
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
+                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname} | UID: {me.id}")
                     await client.disconnect()
                     return True
                 else:
@@ -572,8 +574,9 @@ class TelegramFullGUI:
                         await client.sign_in(password=twofa)
                         me = await client.get_me()
                         acc['nickname'] = me.first_name or phone
+                        acc['user_id'] = me.id
                         acc['status'] = '正常'
-                        self.log("多账号管理", f"[{phone}] 2FA登录成功")
+                        self.log("多账号管理", f"[{phone}] 2FA登录成功 | UID: {me.id}")
                         return True
                     except:
                         self.log("多账号管理", f"[{phone}] 2FA密码错误")
@@ -644,6 +647,7 @@ class TelegramFullGUI:
                 me = await client.get_me()
                 nickname = me.first_name or me.username or phone
                 acc['nickname'] = nickname
+                acc['user_id'] = me.id
                 
                 if hasattr(me, 'date'):
                     reg_time = me.date.strftime("%Y-%m-%d")
@@ -654,7 +658,7 @@ class TelegramFullGUI:
                 try:
                     await client.send_message('me', '状态检测')
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 正常")
+                    self.log("多账号管理", f"[{phone}] 检测结果: 正常 | UID: {me.id}")
                 except UserNotMutualContactError:
                     acc['status'] = '双向限制'
                     self.log("多账号管理", f"[{phone}] 检测结果: 双向限制(只能给双向联系人发消息)")
@@ -1197,7 +1201,8 @@ class TelegramFullGUI:
                 "session_path": session_path,
                 "json_path": json_path,
                 "account_info": account_info,
-                "proxy": proxy
+                "proxy": proxy,
+                "user_id": 0
             })
             count += 1
             self.log("多账号管理", f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
@@ -4542,8 +4547,10 @@ class TelegramFullGUI:
         
         # 为每个需要发言的账号准备客户端和群组实体
         account_clients = {}
+        # 建立账号序号到user_id的映射
+        account_user_ids = {}
         
-        # 先初始化所有可能有话术的账号的客户端
+        # 先初始化所有可能有话术的账号的客户端，并获取user_id
         for acc in accounts:
             phone = acc.get('phone', '')
             if phone not in account_groups:
@@ -4561,6 +4568,11 @@ class TelegramFullGUI:
                 await client.connect()
                 if not await client.is_user_authorized():
                     continue
+                
+                # 获取当前账号的user_id
+                me = await client.get_me()
+                user_id = me.id
+                account_user_ids[phone] = user_id
                 
                 # 加入所有目标群组
                 group_entities = []
@@ -4697,35 +4709,18 @@ class TelegramFullGUI:
                         
                         if target_account:
                             target_phone = target_account.get('phone')
+                            target_user_id = account_user_ids.get(target_phone)
                             found_msg = None
                             
-                            # 在群组聊天记录中搜索目标账号发送的最新消息
-                            try:
-                                # 先尝试获取目标用户的实体，然后按发送者过滤
+                            if target_user_id:
                                 try:
-                                    target_user = await client.get_entity(target_phone)
-                                    target_user_id = target_user.id
-                                    async for msg in client.iter_messages(entity, from_user=target_user_id, limit=10):
+                                    async for msg in client.iter_messages(entity, from_user=target_user_id, limit=5):
                                         found_msg = msg
                                         break
-                                except:
-                                    # 如果无法直接获取，遍历消息并匹配发送者信息
-                                    async for msg in client.iter_messages(entity, limit=100):
-                                        if msg.sender_id:
-                                            try:
-                                                sender = await client.get_entity(msg.sender_id)
-                                                # 检查发送者的手机号是否匹配
-                                                if hasattr(sender, 'phone') and sender.phone == target_phone:
-                                                    found_msg = msg
-                                                    break
-                                                # 检查发送者的用户名（如果账号有设置用户名）
-                                                if hasattr(sender, 'username') and sender.username:
-                                                    # 可以通过用户名进一步匹配
-                                                    pass
-                                            except:
-                                                pass
-                            except Exception:
-                                pass
+                                except Exception as e:
+                                    self.log("自动群聊", f"[{phone[-6:]}] 查找目标消息异常: {str(e)[:30]}")
+                            else:
+                                self.log("自动群聊", f"[{phone[-6:]}] 无法获取目标账号{script_item['reply_to_idx']}的UID")
                             
                             if found_msg:
                                 await client.send_message(entity, script_item['message'], reply_to=found_msg.id)
