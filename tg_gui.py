@@ -441,6 +441,149 @@ class TelegramFullGUI:
             ))
             i += 1
     
+    # ==================== 通用账号选择弹窗 ====================
+    def show_account_selector(self, title, group_filter_default="全部", status_filter_default="正常", multi_select=True):
+        """显示账号选择弹窗，返回选中的账号列表"""
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("500x500")
+        dialog.resizable(True, True)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.center_window(dialog, 550, 500)
+        
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # 筛选栏
+        filter_frame = ttk.Frame(main_frame)
+        filter_frame.pack(fill="x", pady=5)
+        
+        ttk.Label(filter_frame, text="分组筛选:").pack(side="left", padx=5)
+        group_var = tk.StringVar(value=group_filter_default)
+        group_combo = ttk.Combobox(filter_frame, textvariable=group_var, values=["全部"] + self.groups, width=15)
+        group_combo.pack(side="left", padx=5)
+        
+        ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
+        status_var = tk.StringVar(value=status_filter_default)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常"], width=10)
+        status_combo.pack(side="left", padx=5)
+        
+        # 全选按钮
+        select_all_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(filter_frame, text="全选", variable=select_all_var).pack(side="left", padx=20)
+        
+        # 账号列表（带复选框）
+        listbox_frame = ttk.Frame(main_frame)
+        listbox_frame.pack(fill="both", expand=True, pady=5)
+        
+        # 使用Treeview带复选框
+        columns = ("选择", "序号", "手机号", "昵称", "分组")
+        tree = ttk.Treeview(listbox_frame, columns=columns, show="headings", height=15)
+        
+        tree.heading("选择", text="☑")
+        tree.heading("序号", text="序号")
+        tree.heading("手机号", text="手机号")
+        tree.heading("昵称", text="昵称")
+        tree.heading("分组", text="分组")
+        
+        tree.column("选择", anchor="center", width=40)
+        tree.column("序号", anchor="center", width=50)
+        tree.column("手机号", anchor="center", width=120)
+        tree.column("昵称", anchor="center", width=150)
+        tree.column("分组", anchor="center", width=100)
+        
+        scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 存储复选框状态
+        check_vars = {}
+        
+        def refresh_account_list():
+            # 清空tree
+            for item in tree.get_children():
+                tree.delete(item)
+            check_vars.clear()
+            
+            filter_group = group_var.get()
+            filter_status = status_var.get()
+            
+            selected_indices = []
+            for i, acc in enumerate(self.accounts):
+                if filter_group != "全部" and acc.get('group', '默认分组') != filter_group:
+                    continue
+                if filter_status != "全部" and acc.get('status', '待检测') != filter_status:
+                    continue
+                selected_indices.append(i)
+            
+            for idx, i in enumerate(selected_indices, 1):
+                acc = self.accounts[i]
+                phone = acc.get('phone', '')
+                nickname = acc.get('nickname', '')
+                group = acc.get('group', '默认分组')
+                
+                var = tk.BooleanVar(value=False)
+                check_vars[phone] = var
+                
+                tree.insert("", "end", iid=phone, values=("", idx, phone, nickname[:20], group))
+        
+        def on_tree_click(event):
+            region = tree.identify_region(event.x, event.y)
+            if region == "cell":
+                column = tree.identify_column(event.x)
+                if column == "#1":  # 选择列
+                    item = tree.identify_row(event.y)
+                    if item:
+                        current = check_vars.get(item, tk.BooleanVar(value=False))
+                        current.set(not current.get())
+                        tree.set(item, "#1", "☑" if current.get() else "")
+        
+        def on_select_all():
+            select_all = select_all_var.get()
+            for phone, var in check_vars.items():
+                var.set(select_all)
+                tree.set(phone, "#1", "☑" if select_all else "")
+        
+        def on_group_status_change(event=None):
+            refresh_account_list()
+            select_all_var.set(False)
+        
+        group_combo.bind("<<ComboboxSelected>>", on_group_status_change)
+        status_combo.bind("<<ComboboxSelected>>", on_group_status_change)
+        select_all_var.trace('w', lambda *args: on_select_all())
+        tree.bind("<ButtonRelease-1>", on_tree_click)
+        
+        refresh_account_list()
+        
+        # 按钮区域
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill="x", pady=10)
+        
+        selected_accounts = []
+        
+        def on_confirm():
+            nonlocal selected_accounts
+            for acc in self.accounts:
+                phone = acc.get('phone', '')
+                if phone in check_vars and check_vars[phone].get():
+                    selected_accounts.append(acc)
+            dialog.destroy()
+        
+        def on_cancel():
+            nonlocal selected_accounts
+            selected_accounts = []
+            dialog.destroy()
+        
+        ttk.Button(btn_frame, text="确定", command=on_confirm, width=12).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="取消", command=on_cancel, width=12).pack(side="left", padx=10)
+        
+        self.root.wait_window(dialog)
+        
+        return selected_accounts
+    
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
@@ -2712,31 +2855,20 @@ class TelegramFullGUI:
         ttk.Label(file_frame, text="执行后自动删除已处理的用户", font=("微软雅黑", 8), foreground="red").pack(side="left", padx=10)
         current_row += 1
         
-        group_frame = ttk.Frame(self.settings_panel)
-        group_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
-        ttk.Label(group_frame, text="账号分组筛选:").pack(side="left", padx=5)
-        self.invite_group_filter = ttk.Combobox(group_frame, values=["全部"] + self.groups, width=15)
+        # 账号分组筛选 - 改为按钮触发弹窗
+        account_select_frame = ttk.Frame(self.settings_panel)
+        account_select_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
+        ttk.Label(account_select_frame, text="账号分组筛选:").pack(side="left", padx=5)
+        self.invite_group_filter = ttk.Combobox(account_select_frame, values=["全部"] + self.groups, width=15)
         self.invite_group_filter.set("全部")
         self.invite_group_filter.pack(side="left", padx=5)
-        self.invite_group_filter.bind("<<ComboboxSelected>>", self.refresh_invite_account_listbox)
+        ttk.Button(account_select_frame, text="选择账号", command=self.select_invite_accounts, width=12).pack(side="left", padx=20)
+        self.selected_invite_accounts_label = ttk.Label(account_select_frame, text="已选: 0 个账号", foreground="blue")
+        self.selected_invite_accounts_label.pack(side="left", padx=10)
         current_row += 1
         
-        select_frame = ttk.Frame(self.settings_panel)
-        select_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
-        ttk.Label(select_frame, text="选择账号（可多选）:").pack(side="left", padx=5)
-        self.account_select_all_var = tk.BooleanVar()
-        ttk.Checkbutton(select_frame, text="全选", variable=self.account_select_all_var,
-                       command=lambda: self.toggle_listbox_select(self.invite_account_listbox, self.account_select_all_var)).pack(side="left", padx=5)
-        current_row += 1
-        
-        listbox_frame = ttk.Frame(self.settings_panel)
-        listbox_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
-        self.invite_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=4, exportselection=False)
-        account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.invite_account_listbox.yview)
-        self.invite_account_listbox.configure(yscrollcommand=account_scrollbar.set)
-        self.invite_account_listbox.pack(side="left", fill="x", expand=True)
-        account_scrollbar.pack(side="right", fill="y")
-        current_row += 1
+        # 存储选中的账号
+        self.selected_invite_accounts = []
         
         param_frame = ttk.LabelFrame(self.settings_panel, text="拉人参数")
         param_frame.grid(row=current_row, column=0, sticky="ew", pady=10)
@@ -2798,29 +2930,45 @@ class TelegramFullGUI:
         
         self.is_inviting = False
         self.invite_stop_flag = False
-        self.refresh_invite_account_listbox()
+    
+    def select_invite_accounts(self):
+        """选择拉人账号的弹窗"""
+        filter_group = self.invite_group_filter.get()
+        selected = self.show_account_selector("选择拉人账号", group_filter_default=filter_group, status_filter_default="正常")
+        self.selected_invite_accounts = selected
+        self.selected_invite_accounts_label.config(text=f"已选: {len(selected)} 个账号")
+        self.log("批量拉人", f"已选择 {len(selected)} 个账号")
+    
+    def select_private_accounts(self):
+        """选择私发账号的弹窗"""
+        filter_group = self.private_group_filter.get()
+        selected = self.show_account_selector("选择私发账号", group_filter_default=filter_group, status_filter_default="正常")
+        self.selected_private_accounts = selected
+        self.selected_private_accounts_label.config(text=f"已选: {len(selected)} 个账号")
+        self.log("群发广告", f"已选择 {len(selected)} 个私发账号")
+    
+    def select_group_accounts(self):
+        """选择群发账号的弹窗"""
+        filter_group = self.group_account_group_filter.get()
+        selected = self.show_account_selector("选择群发账号", group_filter_default=filter_group, status_filter_default="正常")
+        self.selected_group_accounts = selected
+        self.selected_group_accounts_label.config(text=f"已选: {len(selected)} 个账号")
+        self.log("群发广告", f"已选择 {len(selected)} 个群发账号")
+    
+    def select_chat_accounts(self):
+        """选择自动群聊账号的弹窗"""
+        filter_group = self.chat_group_filter.get()
+        selected = self.show_account_selector("选择自动群聊账号", group_filter_default=filter_group, status_filter_default="正常")
+        self.selected_chat_accounts = selected
+        self.selected_chat_accounts_label.config(text=f"已选: {len(selected)} 个账号")
+        self.log("自动群聊", f"已选择 {len(selected)} 个账号")
     
     def refresh_invite_account_listbox(self, event=None):
-        self.invite_account_listbox.delete(0, tk.END)
-        filter_group = self.invite_group_filter.get()
-        for acc in self.accounts:
-            if acc.get('status') == '正常':
-                if filter_group == "全部" or acc.get('group') == filter_group:
-                    display_text = f"{acc.get('phone')[-6:]} - {acc.get('nickname')[:10]}"
-                    self.invite_account_listbox.insert(tk.END, display_text)
-        self.account_select_all_var.set(False)
+        # 保留方法以兼容，但不再使用
+        pass
     
     def get_selected_invite_accounts(self):
-        selected_indices = self.invite_account_listbox.curselection()
-        selected_accounts = []
-        for idx in selected_indices:
-            text = self.invite_account_listbox.get(idx)
-            phone = text.split(" - ")[0]
-            for acc in self.accounts:
-                if acc.get('phone')[-6:] == phone and acc.get('status') == '正常':
-                    selected_accounts.append(acc)
-                    break
-        return selected_accounts
+        return self.selected_invite_accounts
     
     def select_user_list_file(self):
         file_path = filedialog.askopenfilename(title="选择用户列表文件", filetypes=[("文本文件", "*.txt"), ("JSON文件", "*.json"), ("所有文件", "*.*")])
@@ -3263,26 +3411,17 @@ class TelegramFullGUI:
         self.private_group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=15)
         self.private_group_filter.set("全部")
         self.private_group_filter.pack(side="left", padx=5)
-        self.private_group_filter.bind("<<ComboboxSelected>>", self.refresh_private_account_list)
         
-        ttk.Label(filter_row, text="账号筛选:").pack(side="left", padx=20)
+        ttk.Label(filter_row, text="状态筛选:").pack(side="left", padx=20)
         self.private_status_filter = ttk.Combobox(filter_row, values=["全部", "正常"], width=10)
         self.private_status_filter.set("正常")
         self.private_status_filter.pack(side="left", padx=5)
-        self.private_status_filter.bind("<<ComboboxSelected>>", self.refresh_private_account_list)
         
-        self.private_select_all_var = tk.BooleanVar()
-        ttk.Checkbutton(filter_row, text="全选", variable=self.private_select_all_var,
-                       command=lambda: self.toggle_listbox_select(self.private_account_listbox, self.private_select_all_var)).pack(side="left", padx=20)
+        ttk.Button(filter_row, text="选择账号", command=self.select_private_accounts, width=12).pack(side="left", padx=20)
+        self.selected_private_accounts_label = ttk.Label(filter_row, text="已选: 0 个账号", foreground="blue")
+        self.selected_private_accounts_label.pack(side="left", padx=10)
         
-        listbox_frame = ttk.Frame(account_frame)
-        listbox_frame.pack(fill="x", padx=5, pady=5)
-        
-        self.private_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
-        account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.private_account_listbox.yview)
-        self.private_account_listbox.configure(yscrollcommand=account_scrollbar.set)
-        self.private_account_listbox.pack(side="left", fill="x", expand=True)
-        account_scrollbar.pack(side="right", fill="y")
+        self.selected_private_accounts = []
         
         user_list_frame = ttk.LabelFrame(private_inner, text="用户列表导入")
         user_list_frame.pack(fill="x", padx=10, pady=5)
@@ -3404,26 +3543,17 @@ class TelegramFullGUI:
         self.group_account_group_filter = ttk.Combobox(group_filter_row, values=["全部"] + self.groups, width=15)
         self.group_account_group_filter.set("全部")
         self.group_account_group_filter.pack(side="left", padx=5)
-        self.group_account_group_filter.bind("<<ComboboxSelected>>", self.refresh_group_account_list)
         
-        ttk.Label(group_filter_row, text="账号筛选:").pack(side="left", padx=20)
+        ttk.Label(group_filter_row, text="状态筛选:").pack(side="left", padx=20)
         self.group_account_status_filter = ttk.Combobox(group_filter_row, values=["全部", "正常"], width=10)
         self.group_account_status_filter.set("正常")
         self.group_account_status_filter.pack(side="left", padx=5)
-        self.group_account_status_filter.bind("<<ComboboxSelected>>", self.refresh_group_account_list)
         
-        self.group_select_all_var = tk.BooleanVar()
-        ttk.Checkbutton(group_filter_row, text="全选", variable=self.group_select_all_var,
-                       command=lambda: self.toggle_listbox_select(self.group_account_listbox, self.group_select_all_var)).pack(side="left", padx=20)
+        ttk.Button(group_filter_row, text="选择账号", command=self.select_group_accounts, width=12).pack(side="left", padx=20)
+        self.selected_group_accounts_label = ttk.Label(group_filter_row, text="已选: 0 个账号", foreground="blue")
+        self.selected_group_accounts_label.pack(side="left", padx=10)
         
-        group_listbox_frame = ttk.Frame(group_account_frame)
-        group_listbox_frame.pack(fill="x", padx=5, pady=5)
-        
-        self.group_account_listbox = tk.Listbox(group_listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
-        group_account_scrollbar = ttk.Scrollbar(group_listbox_frame, orient="vertical", command=self.group_account_listbox.yview)
-        self.group_account_listbox.configure(yscrollcommand=group_account_scrollbar.set)
-        self.group_account_listbox.pack(side="left", fill="x", expand=True)
-        group_account_scrollbar.pack(side="right", fill="y")
+        self.selected_group_accounts = []
         
         group_ad_frame = ttk.LabelFrame(group_inner, text="广告内容")
         group_ad_frame.pack(fill="x", padx=10, pady=5)
@@ -3492,31 +3622,14 @@ class TelegramFullGUI:
         self.group_send_running = False
         self.group_send_paused = False
         self.group_stop_flag = False
-        
-        self.refresh_private_account_list()
-        self.refresh_group_account_list()
     
     def refresh_private_account_list(self, event=None):
-        self.private_account_listbox.delete(0, tk.END)
-        filter_group = self.private_group_filter.get()
-        filter_status = self.private_status_filter.get()
-        for acc in self.accounts:
-            if filter_status == "全部" or acc.get('status') == filter_status:
-                if filter_group == "全部" or acc.get('group') == filter_group:
-                    display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
-                    self.private_account_listbox.insert(tk.END, display_text)
-        self.private_select_all_var.set(False)
+        # 保留方法以兼容
+        pass
     
     def refresh_group_account_list(self, event=None):
-        self.group_account_listbox.delete(0, tk.END)
-        filter_group = self.group_account_group_filter.get()
-        filter_status = self.group_account_status_filter.get()
-        for acc in self.accounts:
-            if filter_status == "全部" or acc.get('status') == filter_status:
-                if filter_group == "全部" or acc.get('group') == filter_group:
-                    display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
-                    self.group_account_listbox.insert(tk.END, display_text)
-        self.group_select_all_var.set(False)
+        # 保留方法以兼容
+        pass
     
     def import_private_user_txt(self):
         file_path = filedialog.askopenfilename(title="选择用户列表文件", filetypes=[("文本文件", "*.txt")])
@@ -3673,28 +3786,10 @@ class TelegramFullGUI:
         self.group_log.see(tk.END)
     
     def get_selected_private_accounts(self):
-        selected_indices = self.private_account_listbox.curselection()
-        selected_accounts = []
-        for idx in selected_indices:
-            text = self.private_account_listbox.get(idx)
-            phone = text.split(" - ")[0]
-            for acc in self.accounts:
-                if acc.get('phone') == phone:
-                    selected_accounts.append(acc)
-                    break
-        return selected_accounts
+        return self.selected_private_accounts
     
     def get_selected_group_accounts(self):
-        selected_indices = self.group_account_listbox.curselection()
-        selected_accounts = []
-        for idx in selected_indices:
-            text = self.group_account_listbox.get(idx)
-            phone = text.split(" - ")[0]
-            for acc in self.accounts:
-                if acc.get('phone') == phone:
-                    selected_accounts.append(acc)
-                    break
-        return selected_accounts
+        return self.selected_group_accounts
     
     def start_private_send(self):
         if self.private_send_running:
@@ -4174,26 +4269,17 @@ class TelegramFullGUI:
         self.chat_group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=15)
         self.chat_group_filter.set("全部")
         self.chat_group_filter.pack(side="left", padx=5)
-        self.chat_group_filter.bind("<<ComboboxSelected>>", self.refresh_chat_account_list)
         
         ttk.Label(filter_row, text="状态筛选:").pack(side="left", padx=20)
         self.chat_status_filter = ttk.Combobox(filter_row, values=["全部", "正常"], width=10)
         self.chat_status_filter.set("正常")
         self.chat_status_filter.pack(side="left", padx=5)
-        self.chat_status_filter.bind("<<ComboboxSelected>>", self.refresh_chat_account_list)
         
-        self.chat_select_all_var = tk.BooleanVar()
-        ttk.Checkbutton(filter_row, text="全选", variable=self.chat_select_all_var,
-                       command=lambda: self.toggle_listbox_select(self.chat_account_listbox, self.chat_select_all_var)).pack(side="left", padx=20)
+        ttk.Button(filter_row, text="选择账号", command=self.select_chat_accounts, width=12).pack(side="left", padx=20)
+        self.selected_chat_accounts_label = ttk.Label(filter_row, text="已选: 0 个账号", foreground="blue")
+        self.selected_chat_accounts_label.pack(side="left", padx=10)
         
-        listbox_frame = ttk.Frame(account_frame)
-        listbox_frame.pack(fill="x", padx=5, pady=5)
-        
-        self.chat_account_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=5, exportselection=False)
-        chat_account_scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.chat_account_listbox.yview)
-        self.chat_account_listbox.configure(yscrollcommand=chat_account_scrollbar.set)
-        self.chat_account_listbox.pack(side="left", fill="x", expand=True)
-        chat_account_scrollbar.pack(side="right", fill="y")
+        self.selected_chat_accounts = []
         
         # 话术设置区域
         script_frame = ttk.LabelFrame(chat_inner, text="话术设置")
@@ -4265,7 +4351,6 @@ class TelegramFullGUI:
         self.chat_tasks = []
         self.chat_current_script_index = {}
         
-        self.refresh_chat_account_list()
         self.init_group_bind_ui()
     
     def init_group_bind_ui(self):
@@ -4416,27 +4501,11 @@ class TelegramFullGUI:
         self.log("自动群聊", f"话术解析完成，共 {len(self.chat_script_items)} 条有效话术")
     
     def refresh_chat_account_list(self, event=None):
-        self.chat_account_listbox.delete(0, tk.END)
-        filter_group = self.chat_group_filter.get()
-        filter_status = self.chat_status_filter.get()
-        for acc in self.accounts:
-            if filter_status == "全部" or acc.get('status') == filter_status:
-                if filter_group == "全部" or acc.get('group') == filter_group:
-                    display_text = f"{acc.get('phone')} - {acc.get('nickname')} [{acc.get('group')}]"
-                    self.chat_account_listbox.insert(tk.END, display_text)
-        self.chat_select_all_var.set(False)
+        # 保留方法以兼容
+        pass
     
     def get_selected_chat_accounts(self):
-        selected_indices = self.chat_account_listbox.curselection()
-        selected_accounts = []
-        for idx in selected_indices:
-            text = self.chat_account_listbox.get(idx)
-            phone = text.split(" - ")[0]
-            for acc in self.accounts:
-                if acc.get('phone') == phone:
-                    selected_accounts.append(acc)
-                    break
-        return selected_accounts
+        return self.selected_chat_accounts
     
     def get_accounts_by_group(self, group_name):
         return [acc for acc in self.accounts if acc.get('group') == group_name and acc.get('status') == '正常']
