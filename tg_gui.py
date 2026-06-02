@@ -4224,6 +4224,13 @@ class TelegramFullGUI:
         self.chat_max_interval.insert(0, "60")
         self.chat_max_interval.pack(side="left", padx=5)
         
+        # 新增：从第几行话术开始
+        ttk.Label(param_row, text="从第几行话术开始:").pack(side="left", padx=20)
+        self.chat_start_line = ttk.Entry(param_row, width=10)
+        self.chat_start_line.insert(0, "1")
+        self.chat_start_line.pack(side="left", padx=5)
+        ttk.Label(param_row, text="（0=从第一行开始）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        
         self.chat_loop_enabled = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_row, text="无限循环", variable=self.chat_loop_enabled).pack(side="left", padx=20)
         
@@ -4470,6 +4477,9 @@ class TelegramFullGUI:
             min_interval = int(self.chat_min_interval.get())
             max_interval = int(self.chat_max_interval.get())
             loop_enabled = self.chat_loop_enabled.get()
+            start_line = int(self.chat_start_line.get()) - 1
+            if start_line < 0:
+                start_line = 0
         except ValueError:
             self.log("自动群聊", "参数错误")
             return
@@ -4487,6 +4497,7 @@ class TelegramFullGUI:
         self.log("自动群聊", f"账号: {len(selected_accounts)}个 | 群组: {len(self.chat_groups)}个 | 话术: {len(self.chat_script_items)}条")
         self.log("自动群聊", f"间隔: {min_interval}~{max_interval}秒 | 无限循环: {'是' if loop_enabled else '否'}")
         self.log("自动群聊", f"模式: {'全账号全群' if self.chat_mode.get() == 'all' else '分组对应群'}")
+        self.log("自动群聊", f"从第 {start_line + 1} 行话术开始")
         
         for acc in selected_accounts:
             self.update_account_task(acc.get('phone'), "自动群聊", True)
@@ -4496,7 +4507,7 @@ class TelegramFullGUI:
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self.do_auto_chat(
                 selected_accounts, self.chat_groups, self.chat_script_items,
-                min_interval, max_interval, loop_enabled
+                min_interval, max_interval, loop_enabled, start_line
             ))
             loop.close()
             self.chat_running = False
@@ -4507,7 +4518,7 @@ class TelegramFullGUI:
         
         threading.Thread(target=run_auto_chat, daemon=True).start()
     
-    async def do_auto_chat(self, accounts, groups, script_items, min_interval, max_interval, loop_enabled):
+    async def do_auto_chat(self, accounts, groups, script_items, min_interval, max_interval, loop_enabled, start_line):
         group_bindings = {}
         if self.chat_mode.get() == "group":
             bindings = self.get_group_bindings()
@@ -4520,7 +4531,6 @@ class TelegramFullGUI:
             if self.chat_mode.get() == "group":
                 target_groups = group_bindings.get(acc_group, [])
                 if not target_groups:
-                    self.log("自动群聊", f"[{acc.get('phone')}] 分组「{acc_group}」未绑定群组，跳过")
                     continue
                 account_groups[acc.get('phone')] = target_groups
             else:
@@ -4574,19 +4584,15 @@ class TelegramFullGUI:
                 continue
             
             try:
-                self.log("自动群聊", f"[{phone[-6:]}] 正在初始化...")
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.log("自动群聊", f"[{phone[-6:]}] 未登录，跳过")
                     continue
                 
-                self.log("自动群聊", f"[{phone[-6:]}] 登录成功")
-                
                 # 加入所有目标群组
                 group_entities = []
-                for idx, group_link in enumerate(target_groups, 1):
-                    self.log("自动群聊", f"[{phone[-6:]}] 正在处理群组 [{idx}/{len(target_groups)}]: {group_link[:50]}")
+                for group_link in target_groups:
                     try:
                         entity = None
                         if 't.me/+' in group_link or 't.me/joinchat' in group_link:
@@ -4598,9 +4604,7 @@ class TelegramFullGUI:
                                 result = await client(ImportChatInviteRequest(invite_hash))
                                 if result.chats:
                                     entity = result.chats[0]
-                                    self.log("自动群聊", f"[{phone[-6:]}] 加入私有群成功: {getattr(entity, 'title', group_link)[:30]}")
                             except UserAlreadyParticipantError:
-                                self.log("自动群聊", f"[{phone[-6:]}] 已是群成员")
                                 try:
                                     if 't.me/' in group_link:
                                         username = group_link.split('t.me/')[-1].split('?')[0]
@@ -4609,8 +4613,8 @@ class TelegramFullGUI:
                                         entity = await client.get_entity(group_link)
                                 except:
                                     pass
-                            except Exception as e:
-                                self.log("自动群聊", f"[{phone[-6:]}] 加入私有群失败: {str(e)[:50]}")
+                            except Exception:
+                                pass
                         else:
                             if 't.me/' in group_link:
                                 username = group_link.split('t.me/')[-1].split('?')[0]
@@ -4620,24 +4624,21 @@ class TelegramFullGUI:
                                 entity = await client.get_entity(username)
                                 try:
                                     await client(JoinChannelRequest(entity))
-                                    self.log("自动群聊", f"[{phone[-6:]}] 加入公开群成功: {getattr(entity, 'title', username)[:30]}")
                                 except UserAlreadyParticipantError:
-                                    self.log("自动群聊", f"[{phone[-6:]}] 已是群成员: {getattr(entity, 'title', username)[:30]}")
+                                    pass
                                 except Exception:
-                                    self.log("自动群聊", f"[{phone[-6:]}] 已是成员: {getattr(entity, 'title', username)[:30]}")
-                            except Exception as e:
-                                self.log("自动群聊", f"[{phone[-6:]}] 获取群组失败 {group_link}: {str(e)[:30]}")
+                                    pass
+                            except Exception:
+                                pass
                         
                         if entity:
                             group_entities.append(entity)
-                            self.log("自动群聊", f"[{phone[-6:]}] 群组已添加")
-                    except Exception as e:
-                        self.log("自动群聊", f"[{phone[-6:]}] 处理群组失败: {str(e)[:50]}")
+                    except Exception:
+                        pass
                     
                     await asyncio.sleep(1)
                 
                 if not group_entities:
-                    self.log("自动群聊", f"[{phone[-6:]}] 无可用群组，跳过")
                     await client.disconnect()
                     continue
                 
@@ -4647,7 +4648,6 @@ class TelegramFullGUI:
                     'scripts': item['scripts'],
                     'index': item['index']
                 }
-                self.log("自动群聊", f"[{phone[-6:]}] 准备就绪! 可用群组: {len(group_entities)}个, 话术: {len(item['scripts'])}条")
                 
             except Exception as e:
                 self.log("自动群聊", f"[{phone[-6:]}] 初始化失败: {str(e)[:50]}")
@@ -4655,10 +4655,6 @@ class TelegramFullGUI:
         if not account_clients:
             self.log("自动群聊", "没有账号成功初始化")
             return
-        
-        # 顺序执行话术
-        round_count = 0
-        script_pointer = 0  # 当前执行到第几条话术（跨账号）
         
         # 将所有账号的话术合并成一个顺序列表
         all_scripts_in_order = []
@@ -4669,7 +4665,16 @@ class TelegramFullGUI:
                     'script': script
                 })
         
-        self.log("自动群聊", f"话术队列共 {len(all_scripts_in_order)} 条，将按顺序依次发言")
+        # 从指定行开始
+        if start_line > 0 and start_line < len(all_scripts_in_order):
+            all_scripts_in_order = all_scripts_in_order[start_line:]
+            self.log("自动群聊", f"从第 {start_line + 1} 行话术开始，剩余 {len(all_scripts_in_order)} 条")
+        
+        if not all_scripts_in_order:
+            self.log("自动群聊", "没有可执行的话术")
+            return
+        
+        script_pointer = 0
         
         while self.chat_running and not self.chat_stop_flag:
             if self.chat_paused:
@@ -4679,8 +4684,6 @@ class TelegramFullGUI:
             if script_pointer >= len(all_scripts_in_order):
                 if loop_enabled:
                     script_pointer = 0
-                    round_count += 1
-                    self.log("自动群聊", f"========== 第 {round_count} 轮循环开始 ==========")
                 else:
                     break
             
@@ -4692,7 +4695,6 @@ class TelegramFullGUI:
             info = account_clients.get(phone)
             
             if not info:
-                self.log("自动群聊", f"[{phone[-6:]}] 客户端已失效，跳过")
                 continue
             
             client = info['client']
@@ -4704,18 +4706,15 @@ class TelegramFullGUI:
                     break
                 
                 try:
-                    group_title = getattr(entity, 'title', str(entity))[:25]
-                    
                     if script_item['reply_to_idx'] > 0:
                         # 回复模式：查找目标账号的消息
                         target_account = None
                         for acc in accounts:
-                            if acc.get('phone') and len(accounts) > 0:
-                                # 通过序号查找目标账号
-                                for i, a in enumerate(accounts):
-                                    if i + 1 == script_item['reply_to_idx']:
-                                        target_account = a
-                                        break
+                            for i, a in enumerate(accounts):
+                                if i + 1 == script_item['reply_to_idx']:
+                                    target_account = a
+                                    break
+                            if target_account:
                                 break
                         
                         if target_account:
@@ -4727,14 +4726,10 @@ class TelegramFullGUI:
                                 async for msg in client.iter_messages(entity, limit=50):
                                     if msg.sender_id:
                                         try:
-                                            # 尝试获取发送者信息
                                             sender = await client.get_entity(msg.sender_id)
                                             if hasattr(sender, 'phone') and sender.phone == target_phone:
                                                 found_msg = msg
                                                 break
-                                            elif hasattr(sender, 'username') and sender.username:
-                                                # 可以通过用户名进一步匹配
-                                                pass
                                         except:
                                             pass
                             except:
@@ -4742,16 +4737,16 @@ class TelegramFullGUI:
                             
                             if found_msg:
                                 await client.send_message(entity, script_item['message'], reply_to=found_msg.id)
-                                self.log("自动群聊", f"[{phone[-6:]}] 回复@{target_phone[-6:]}({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                self.log("自动群聊", f"[{phone[-6:]}] 回复@{target_phone[-6:]}: {script_item['message'][:40]}")
                             else:
                                 await client.send_message(entity, script_item['message'])
-                                self.log("自动群聊", f"[{phone[-6:]}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]} (未找到@目标消息)")
+                                self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
                         else:
                             await client.send_message(entity, script_item['message'])
-                            self.log("自动群聊", f"[{phone[-6:]}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]} (目标账号不存在)")
+                            self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
                     else:
                         await client.send_message(entity, script_item['message'])
-                        self.log("自动群聊", f"[{phone[-6:]}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                        self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
                     
                 except FloodWaitError as e:
                     self.log("自动群聊", f"[{phone[-6:]}] 频率限制，等待{e.seconds}秒")
@@ -4763,14 +4758,12 @@ class TelegramFullGUI:
             
             # 话术间隔
             interval = random.randint(min_interval, max_interval)
-            self.log("自动群聊", f"等待 {interval} 秒后执行下一条话术")
             await asyncio.sleep(interval)
         
         # 断开所有客户端
         for phone, info in account_clients.items():
             try:
                 await info['client'].disconnect()
-                self.log("自动群聊", f"[{phone[-6:]}] 已断开连接")
             except:
                 pass
     
