@@ -4572,7 +4572,7 @@ class TelegramFullGUI:
         # 为每个账号准备客户端和群组实体
         account_clients = {}
         
-        # 先初始化所有账号的客户端并加入群组
+        # 先初始化所有账号的客户端并加入群组（静默模式，不输出日志）
         for item in valid_accounts:
             acc = item['acc']
             phone = acc.get('phone', '')
@@ -4701,13 +4701,13 @@ class TelegramFullGUI:
             group_entities = info['groups']
             
             # 向所有群组发送这条话术
-            for group_idx, entity in enumerate(group_entities, 1):
+            for entity in group_entities:
                 if self.chat_stop_flag:
                     break
                 
                 try:
                     if script_item['reply_to_idx'] > 0:
-                        # 回复模式：查找目标账号的消息
+                        # 回复模式：查找目标账号在群组中发送的最新消息
                         target_account = None
                         for acc in accounts:
                             for i, a in enumerate(accounts):
@@ -4721,26 +4721,35 @@ class TelegramFullGUI:
                             target_phone = target_account.get('phone')
                             found_msg = None
                             
-                            # 在群组中查找目标账号的消息
+                            # 在群组聊天记录中搜索目标账号发送的最新消息
                             try:
-                                async for msg in client.iter_messages(entity, limit=50):
-                                    if msg.sender_id:
-                                        try:
-                                            sender = await client.get_entity(msg.sender_id)
-                                            if hasattr(sender, 'phone') and sender.phone == target_phone:
-                                                found_msg = msg
-                                                break
-                                        except:
-                                            pass
-                            except:
+                                # 先尝试获取目标用户的实体，然后按发送者过滤
+                                try:
+                                    target_user = await client.get_entity(target_phone)
+                                    target_user_id = target_user.id
+                                    async for msg in client.iter_messages(entity, from_user=target_user_id, limit=5):
+                                        found_msg = msg
+                                        break
+                                except:
+                                    # 如果无法直接获取，遍历消息并匹配发送者信息
+                                    async for msg in client.iter_messages(entity, limit=100):
+                                        if msg.sender_id:
+                                            try:
+                                                sender = await client.get_entity(msg.sender_id)
+                                                if hasattr(sender, 'phone') and sender.phone == target_phone:
+                                                    found_msg = msg
+                                                    break
+                                            except:
+                                                pass
+                            except Exception:
                                 pass
                             
                             if found_msg:
                                 await client.send_message(entity, script_item['message'], reply_to=found_msg.id)
-                                self.log("自动群聊", f"[{phone[-6:]}] 回复@{target_phone[-6:]}: {script_item['message'][:40]}")
+                                self.log("自动群聊", f"[{phone[-6:]}] @回复账号{script_item['reply_to_idx']}: {script_item['message'][:40]}")
                             else:
                                 await client.send_message(entity, script_item['message'])
-                                self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
+                                self.log("自动群聊", f"[{phone[-6:]}] 发言(未找到@目标): {script_item['message'][:40]}")
                         else:
                             await client.send_message(entity, script_item['message'])
                             self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
