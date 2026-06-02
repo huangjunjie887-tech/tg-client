@@ -4546,31 +4546,29 @@ class TelegramFullGUI:
             self.log("自动群聊", "没有账号分配到有效群组")
             return
         
-        # 为每个需要发言的账号准备客户端和群组实体
-        account_clients = {}
+        self.log("自动群聊", "正在初始化账号并加入群组...")
         
-        # 先初始化所有可能有话术的账号的客户端
-        for acc in accounts:
+        # 并行初始化所有账号
+        async def init_account(acc):
             phone = acc.get('phone', '')
             if phone not in account_groups:
-                continue
+                return None
             
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
             target_groups = account_groups.get(phone, [])
             
             if not target_groups:
-                continue
+                return None
             
             try:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
-                    continue
+                    return None
                 
-                # 加入所有目标群组
-                group_entities = []
-                for group_link in target_groups:
+                # 并行加入所有目标群组
+                async def join_single_group(group_link):
                     try:
                         entity = None
                         if 't.me/+' in group_link or 't.me/joinchat' in group_link:
@@ -4608,55 +4606,64 @@ class TelegramFullGUI:
                                     pass
                             except Exception:
                                 pass
-                        
-                        if entity:
-                            group_entities.append(entity)
-                            
-                            # 添加消息监听器来更新缓存
-                            @client.on(events.NewMessage(chats=entity))
-                            async def message_handler(event):
-                                if event.message.out:
-                                    return
-                                if not event.sender_id:
-                                    return
-                                
-                                # 获取发送者的手机号
-                                try:
-                                    sender = await event.client.get_entity(event.sender_id)
-                                    sender_phone = getattr(sender, 'phone', None)
-                                    if sender_phone:
-                                        group_id = event.chat_id
-                                        if group_id not in self.chat_message_cache:
-                                            self.chat_message_cache[group_id] = {}
-                                        self.chat_message_cache[group_id][sender_phone] = {
-                                            'msg_id': event.message.id,
-                                            'content': event.message.text or '',
-                                            'timestamp': time.time()
-                                        }
-                                except:
-                                    pass
-                            
+                        return entity
                     except Exception:
-                        pass
-                    
-                    await asyncio.sleep(1)
+                        return None
+                
+                # 并行执行所有加入操作
+                join_tasks = [join_single_group(gl) for gl in target_groups]
+                entities = await asyncio.gather(*join_tasks)
+                group_entities = [e for e in entities if e is not None]
                 
                 if not group_entities:
                     await client.disconnect()
-                    continue
+                    return None
                 
-                account_clients[phone] = {
+                # 为每个群组添加消息监听器来更新缓存
+                for entity in group_entities:
+                    @client.on(events.NewMessage(chats=entity))
+                    async def message_handler(event):
+                        if event.message.out:
+                            return
+                        if not event.sender_id:
+                            return
+                        try:
+                            sender = await event.client.get_entity(event.sender_id)
+                            sender_phone = getattr(sender, 'phone', None)
+                            if sender_phone:
+                                group_id = event.chat_id
+                                if group_id not in self.chat_message_cache:
+                                    self.chat_message_cache[group_id] = {}
+                                self.chat_message_cache[group_id][sender_phone] = {
+                                    'msg_id': event.message.id,
+                                    'content': event.message.text or '',
+                                    'timestamp': time.time()
+                                }
+                        except:
+                            pass
+                
+                return {
                     'client': client,
                     'groups': group_entities,
                     'phone': phone
                 }
-                
             except Exception as e:
                 self.log("自动群聊", f"[{phone[-6:]}] 初始化失败: {str(e)[:50]}")
+                return None
+        
+        # 并行初始化所有账号
+        init_tasks = [init_account(acc) for acc in accounts]
+        results = await asyncio.gather(*init_tasks)
+        account_clients = {}
+        for r in results:
+            if r:
+                account_clients[r['phone']] = r
         
         if not account_clients:
             self.log("自动群聊", "没有账号成功初始化")
             return
+        
+        self.log("自动群聊", f"初始化完成，成功 {len(account_clients)} 个账号")
         
         # 构建话术执行队列 - 按原始顺序，每个话术项关联对应的账号
         script_queue = []
@@ -4687,6 +4694,7 @@ class TelegramFullGUI:
         self.log("自动群聊", f"话术队列共 {len(script_queue)} 条，将按顺序依次发言")
         
         script_pointer = 0
+        last_phone = None  # 记录上一条话术的账号
         
         while self.chat_running and not self.chat_stop_flag:
             if self.chat_paused:
@@ -4812,7 +4820,12 @@ class TelegramFullGUI:
                 
                 await asyncio.sleep(2)
             
-            # 话术间隔
+            # 话术间隔：如果连续两条话术是同一个账号，则不等待
+            if script_pointer < len(script_queue) and script_queue[script_pointer]['phone'] == phone:
+                # 同一账号连续发言，不等待间隔
+                self.log("自动群聊", f"同一账号连续发言，跳过间隔等待")
+                continue
+            
             interval = random.randint(min_interval, max_interval)
             await asyncio.sleep(interval)
         
