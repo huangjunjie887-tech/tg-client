@@ -35,7 +35,6 @@ from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlineBotResultRequest
 from telethon.tl.functions.auth import SendCodeRequest, SignInRequest, LogOutRequest
-from telethon.tl.types import CodeType
 
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
@@ -4253,7 +4252,7 @@ class TelegramFullGUI:
         self.chat_paused = False
         self.chat_stop_flag = False
         self.chat_tasks = []
-        self.chat_current_script_index = {}  # 记录每个账号的当前话术索引
+        self.chat_current_script_index = {}
         
         self.refresh_chat_account_list()
         self.init_group_bind_ui()
@@ -4481,7 +4480,7 @@ class TelegramFullGUI:
         self.chat_running = True
         self.chat_paused = False
         self.chat_stop_flag = False
-        self.chat_current_script_index = {}  # 重置话术索引
+        self.chat_current_script_index = {}
         
         self.log("自动群聊", f"========== 启动自动群聊 ==========")
         self.log("自动群聊", f"账号: {len(selected_accounts)}个 | 群组: {len(self.chat_groups)}个 | 话术: {len(self.chat_script_items)}条")
@@ -4551,7 +4550,6 @@ class TelegramFullGUI:
                 self.log("自动群聊", f"[{phone}] 无法获取账号索引")
                 return
             
-            # 获取该账号的话术索引
             script_index = self.chat_current_script_index.get(phone, 0)
             
             try:
@@ -4594,7 +4592,6 @@ class TelegramFullGUI:
                         else:
                             break
                     
-                    # 保存当前话术索引
                     self.chat_current_script_index[phone] = script_index
                     
                     for entity in group_entities:
@@ -4911,17 +4908,14 @@ class TelegramFullGUI:
         def do_login():
             async def login():
                 try:
-                    # 尝试登录
                     if code:
                         await self.direct_client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
                     else:
-                        # 尝试直接登录（已授权情况）
                         me = await self.direct_client.get_me()
                         self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
                         await self.save_direct_account(phone, save_path)
                         return
                     
-                    # 检查是否需要2FA
                     try:
                         me = await self.direct_client.get_me()
                         self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
@@ -4960,16 +4954,12 @@ class TelegramFullGUI:
     async def save_direct_account(self, phone, save_path):
         """保存账号到指定路径"""
         try:
-            # 获取账号信息
             me = await self.direct_client.get_me()
             
-            # 创建session文件路径
             session_file = os.path.join(save_path, f"{phone}.session")
             
-            # 保存session
             await self.direct_client.log_out()
             
-            # 重新创建并连接，保存session
             api_id = int(self.direct_api_id.get().strip())
             api_hash = self.direct_api_hash.get().strip()
             
@@ -4989,7 +4979,6 @@ class TelegramFullGUI:
             
             me = await client.get_me()
             
-            # 保存JSON文件
             json_file = os.path.join(save_path, f"{phone}.json")
             account_info = {
                 "phone": phone,
@@ -5011,7 +5000,6 @@ class TelegramFullGUI:
             self.direct_status.config(text="保存成功", foreground="green")
             self.show_centered_info("成功", f"账号 {phone} 已成功转为协议号并保存")
             
-            # 刷新账号列表
             self.refresh_account_list_filter()
             
         except Exception as e:
