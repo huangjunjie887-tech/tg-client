@@ -33,6 +33,7 @@ from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRe
 from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline, InputFile
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
+from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlineBotResultRequest
 
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
@@ -3817,12 +3818,41 @@ class TelegramFullGUI:
                     clean_username = username.lstrip('@')
                     user_entity = await client.get_entity(clean_username)
                     
-                    # 判断是否是PostBot命令格式（以@开头后跟空格）
-                    # PostBot机器人命令格式: @PostBot 参数
-                    if ad_text.strip().startswith('@') and ' ' in ad_text:
-                        # 使用 send_message 发送文本即可，Telegram会自动识别为机器人命令
-                        await client.send_message(user_entity.id, ad_text)
-                        self.private_log_insert(f"[{phone}] 发送PostBot命令成功 | {clean_username}")
+                    # 判断是否是PostBot内联命令格式（@PostBot 开头）
+                    if ad_text.strip().startswith('@PostBot'):
+                        # 提取命令参数
+                        parts = ad_text.strip().split(' ')
+                        if len(parts) >= 2:
+                            command = parts[1]
+                            try:
+                                # 获取PostBot的实体
+                                postbot_entity = await client.get_entity('PostBot')
+                                
+                                # 发送内联查询
+                                result = await client(GetInlineBotResultsRequest(
+                                    bot=postbot_entity,
+                                    peer=user_entity.id,
+                                    query=command,
+                                    offset=''
+                                ))
+                                
+                                # 发送第一个内联结果
+                                if result.results:
+                                    await client(SendInlineBotResultRequest(
+                                        peer=user_entity.id,
+                                        query_id=result.query_id,
+                                        id=result.results[0].id
+                                    ))
+                                    self.private_log_insert(f"[{phone}] 发送PostBot广告成功 | {clean_username}")
+                                else:
+                                    self.private_log_insert(f"[{phone}] PostBot无结果 | {clean_username}")
+                                    return False
+                            except Exception as e:
+                                self.private_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
+                                return False
+                        else:
+                            self.private_log_insert(f"[{phone}] PostBot命令格式错误")
+                            return False
                     elif image_path and os.path.exists(image_path):
                         file = await client.upload_file(image_path)
                         if ad_text:
@@ -4034,17 +4064,42 @@ class TelegramFullGUI:
                         if self.group_stop_flag:
                             break
                         try:
-                            # 判断是否是PostBot命令格式
-                            if ad_text.strip().startswith('@') and ' ' in ad_text:
-                                await client.send_message(entity, ad_text)
+                            # 判断是否是PostBot内联命令格式
+                            if ad_text.strip().startswith('@PostBot'):
+                                parts = ad_text.strip().split(' ')
+                                if len(parts) >= 2:
+                                    command = parts[1]
+                                    try:
+                                        postbot_entity = await client.get_entity('PostBot')
+                                        result = await client(GetInlineBotResultsRequest(
+                                            bot=postbot_entity,
+                                            peer=entity,
+                                            query=command,
+                                            offset=''
+                                        ))
+                                        if result.results:
+                                            await client(SendInlineBotResultRequest(
+                                                peer=entity,
+                                                query_id=result.query_id,
+                                                id=result.results[0].id
+                                            ))
+                                            self.group_log_insert(f"[{phone}] 群发PostBot广告成功")
+                                        else:
+                                            self.group_log_insert(f"[{phone}] PostBot无结果")
+                                    except Exception as e:
+                                        self.group_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
+                                else:
+                                    self.group_log_insert(f"[{phone}] PostBot命令格式错误")
                             elif image_path and os.path.exists(image_path):
                                 file = await client.upload_file(image_path)
                                 if ad_text:
                                     await client.send_file(entity, file, caption=ad_text)
                                 else:
                                     await client.send_file(entity, file)
+                                self.group_log_insert(f"[{phone}] 群发图片成功")
                             else:
                                 await client.send_message(entity, ad_text)
+                                self.group_log_insert(f"[{phone}] 群发文本成功")
                             
                             sent_count += 1
                             group_title = getattr(entity, 'title', str(entity))[:20]
