@@ -4562,12 +4562,58 @@ class TelegramFullGUI:
                 group_entities = []
                 for group_link in target_groups:
                     try:
-                        entity_username = self.parse_group_link_entity(group_link)
-                        entity = await client.get_entity(entity_username)
-                        group_entities.append(entity)
-                        self.log("自动群聊", f"[{phone}] 加入群组: {getattr(entity, 'title', group_link)[:30]}")
+                        entity = None
+                        # 处理不同类型的群组链接
+                        if 't.me/+' in group_link or 't.me/joinchat' in group_link:
+                            # 私有群邀请链接
+                            if '/+' in group_link:
+                                invite_hash = group_link.split('/+')[-1].split('?')[0]
+                            else:
+                                invite_hash = group_link.split('/joinchat/')[-1].split('?')[0]
+                            try:
+                                # 使用 ImportChatInviteRequest 加入私有群
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                if result.chats:
+                                    entity = result.chats[0]
+                                    self.log("自动群聊", f"[{phone}] 加入私有群成功: {getattr(entity, 'title', group_link)[:30]}")
+                            except UserAlreadyParticipantError:
+                                # 已经是群成员，直接获取实体
+                                self.log("自动群聊", f"[{phone}] 已是群成员")
+                                try:
+                                    if 't.me/' in group_link:
+                                        username = group_link.split('t.me/')[-1].split('?')[0]
+                                        entity = await client.get_entity(username)
+                                    else:
+                                        entity = await client.get_entity(group_link)
+                                except Exception as e2:
+                                    self.log("自动群聊", f"[{phone}] 获取群组信息失败: {str(e2)[:30]}")
+                            except Exception as e:
+                                self.log("自动群聊", f"[{phone}] 加入私有群失败: {str(e)[:50]}")
+                        else:
+                            # 公开群组，通过用户名加入
+                            if 't.me/' in group_link:
+                                username = group_link.split('t.me/')[-1].split('?')[0]
+                            else:
+                                username = group_link
+                            
+                            try:
+                                entity = await client.get_entity(username)
+                                # 尝试加入群组
+                                try:
+                                    await client(JoinChannelRequest(entity))
+                                    self.log("自动群聊", f"[{phone}] 加入公开群成功: {getattr(entity, 'title', username)[:30]}")
+                                except UserAlreadyParticipantError:
+                                    self.log("自动群聊", f"[{phone}] 已是群成员: {getattr(entity, 'title', username)[:30]}")
+                                except Exception as e:
+                                    # 可能不需要加入就能发送消息（已经是成员或频道）
+                                    self.log("自动群聊", f"[{phone}] 已是成员或无需加入: {getattr(entity, 'title', username)[:30]}")
+                            except Exception as e:
+                                self.log("自动群聊", f"[{phone}] 获取公开群失败 {group_link}: {str(e)[:30]}")
+                        
+                        if entity:
+                            group_entities.append(entity)
                     except Exception as e:
-                        self.log("自动群聊", f"[{phone}] 加入群组失败 {group_link}: {str(e)[:30]}")
+                        self.log("自动群聊", f"[{phone}] 处理群组失败 {group_link}: {str(e)[:50]}")
                 
                 if not group_entities:
                     self.log("自动群聊", f"[{phone}] 无可用群组")
