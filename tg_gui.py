@@ -4573,6 +4573,11 @@ class TelegramFullGUI:
                     
                     self.log("自动群聊", f"[{phone}] 登录成功")
                     
+                    # 获取当前账号的完整信息用于@回复
+                    current_user = await client.get_me()
+                    current_username = current_user.username if current_user.username else None
+                    current_user_id = current_user.id
+                    
                     group_entities = []
                     for idx, group_link in enumerate(target_groups, 1):
                         self.log("自动群聊", f"[{phone}] 正在处理群组 [{idx}/{len(target_groups)}]: {group_link[:50]}")
@@ -4656,29 +4661,57 @@ class TelegramFullGUI:
                                 group_title = getattr(entity, 'title', str(entity))[:25]
                                 
                                 if script_item['reply_to_idx'] > 0:
-                                    target_phone = None
+                                    # 修复@回复功能：在群组中查找目标账号发送的最新消息
+                                    target_account = None
                                     for i, a in enumerate(accounts):
                                         if i + 1 == script_item['reply_to_idx']:
-                                            target_phone = a.get('phone')
+                                            target_account = a
                                             break
                                     
-                                    if target_phone:
+                                    if target_account:
+                                        target_phone = target_account.get('phone')
+                                        found_msg = None
+                                        
+                                        # 方法1：尝试通过用户ID在群组消息中查找
                                         try:
-                                            target_user = await client.get_entity(target_phone)
-                                            async for msg in client.iter_messages(entity, from_user=target_user.id, limit=1):
-                                                await client.send_message(entity, script_item['message'], reply_to=msg.id)
-                                                self.log("自动群聊", f"[{phone}] 回复@{target_phone[-6:]}({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                            # 先获取目标用户的实体（如果可能）
+                                            target_entity = await client.get_entity(target_phone)
+                                            target_user_id = target_entity.id
+                                            
+                                            async for msg in client.iter_messages(entity, from_user=target_user_id, limit=5):
+                                                found_msg = msg
                                                 break
-                                            else:
-                                                await client.send_message(entity, script_item['message'])
-                                                self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]} (未找到@目标)")
-                                        except Exception as e:
-                                            self.log("自动群聊", f"[{phone}] @回复失败: {str(e)[:30]}")
+                                        except:
+                                            pass
+                                        
+                                        # 方法2：如果方法1失败，遍历最近消息匹配发送者ID
+                                        if not found_msg:
+                                            try:
+                                                async for msg in client.iter_messages(entity, limit=50):
+                                                    if msg.sender_id:
+                                                        # 检查是否可能是目标账号
+                                                        try:
+                                                            sender_entity = await client.get_entity(msg.sender_id)
+                                                            if hasattr(sender_entity, 'phone') and sender_entity.phone == target_phone:
+                                                                found_msg = msg
+                                                                break
+                                                            elif hasattr(sender_entity, 'username') and sender_entity.username:
+                                                                # 可以通过用户名进一步匹配
+                                                                pass
+                                                        except:
+                                                            pass
+                                            except:
+                                                pass
+                                        
+                                        if found_msg:
+                                            await client.send_message(entity, script_item['message'], reply_to=found_msg.id)
+                                            self.log("自动群聊", f"[{phone}] 回复@{target_phone[-6:]}({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                        else:
                                             await client.send_message(entity, script_item['message'])
-                                            self.log("自动群聊", f"[{phone}] 发言降级({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                            self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]} (未找到@目标消息)")
                                     else:
                                         await client.send_message(entity, script_item['message'])
-                                        self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
+                                        self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]} (目标账号不存在)")
                                 else:
                                     await client.send_message(entity, script_item['message'])
                                     self.log("自动群聊", f"[{phone}] 发言({group_idx}/{len(group_entities)}): {script_item['message'][:40]}")
