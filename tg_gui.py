@@ -14,12 +14,12 @@ import random
 import sqlite3
 import asyncio
 import re
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.errors import (
     FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, 
     PhoneNumberBannedError, UserAlreadyParticipantError, UserPrivacyRestrictedError,
     PeerFloodError, InviteHashExpiredError, InviteHashInvalidError,
-    ChannelInvalidError, ChannelPrivateError, UserInvalidError, UsernameInvalidError,
+    ChannelInvalidError, ChannelPrivateError, UsernameInvalidError,
     UserKickedError, UserBannedInChannelError, ChatAdminRequiredError,
     UserNotMutualContactError, ChatWriteForbiddenError, UserChannelsTooMuchError
 )
@@ -59,6 +59,9 @@ class TelegramFullGUI:
         self.user_list_file_path = None
         self.user_list_lock = threading.Lock()
         
+        # 消息缓存：用于自动群聊的回复功能
+        self.chat_message_cache = {}  # {group_id: {account_phone: {'msg_id': xxx, 'content': xxx, 'timestamp': xxx}}}
+        
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
         
@@ -93,8 +96,7 @@ class TelegramFullGUI:
                     "register_time": acc.get("register_time", ""),
                     "session_path": acc.get("session_path", ""),
                     "json_path": acc.get("json_path", ""),
-                    "proxy": acc.get("proxy", ""),
-                    "user_id": acc.get("user_id", 0)
+                    "proxy": acc.get("proxy", "")
                 })
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
@@ -545,11 +547,10 @@ class TelegramFullGUI:
                     me = await client.get_me()
                     nickname = me.first_name or me.username or phone
                     acc['nickname'] = nickname
-                    acc['user_id'] = me.id
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname} | UID: {me.id}")
+                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
                     await client.disconnect()
                     return True
                 else:
@@ -574,9 +575,8 @@ class TelegramFullGUI:
                         await client.sign_in(password=twofa)
                         me = await client.get_me()
                         acc['nickname'] = me.first_name or phone
-                        acc['user_id'] = me.id
                         acc['status'] = '正常'
-                        self.log("多账号管理", f"[{phone}] 2FA登录成功 | UID: {me.id}")
+                        self.log("多账号管理", f"[{phone}] 2FA登录成功")
                         return True
                     except:
                         self.log("多账号管理", f"[{phone}] 2FA密码错误")
@@ -647,7 +647,6 @@ class TelegramFullGUI:
                 me = await client.get_me()
                 nickname = me.first_name or me.username or phone
                 acc['nickname'] = nickname
-                acc['user_id'] = me.id
                 
                 if hasattr(me, 'date'):
                     reg_time = me.date.strftime("%Y-%m-%d")
@@ -658,7 +657,7 @@ class TelegramFullGUI:
                 try:
                     await client.send_message('me', '状态检测')
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 正常 | UID: {me.id}")
+                    self.log("多账号管理", f"[{phone}] 检测结果: 正常")
                 except UserNotMutualContactError:
                     acc['status'] = '双向限制'
                     self.log("多账号管理", f"[{phone}] 检测结果: 双向限制(只能给双向联系人发消息)")
@@ -1201,8 +1200,7 @@ class TelegramFullGUI:
                 "session_path": session_path,
                 "json_path": json_path,
                 "account_info": account_info,
-                "proxy": proxy,
-                "user_id": 0
+                "proxy": proxy
             })
             count += 1
             self.log("多账号管理", f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
@@ -4498,6 +4496,9 @@ class TelegramFullGUI:
         self.chat_stop_flag = False
         self.chat_current_script_index = {}
         
+        # 清空消息缓存
+        self.chat_message_cache = {}
+        
         self.log("自动群聊", f"========== 启动自动群聊 ==========")
         self.log("自动群聊", f"账号: {len(selected_accounts)}个 | 群组: {len(self.chat_groups)}个 | 话术: {len(self.chat_script_items)}条")
         self.log("自动群聊", f"间隔: {min_interval}~{max_interval}秒 | 无限循环: {'是' if loop_enabled else '否'}")
@@ -4547,10 +4548,8 @@ class TelegramFullGUI:
         
         # 为每个需要发言的账号准备客户端和群组实体
         account_clients = {}
-        # 建立账号序号到user_id的映射
-        account_user_ids = {}
         
-        # 先初始化所有可能有话术的账号的客户端，并获取user_id
+        # 先初始化所有可能有话术的账号的客户端
         for acc in accounts:
             phone = acc.get('phone', '')
             if phone not in account_groups:
@@ -4568,11 +4567,6 @@ class TelegramFullGUI:
                 await client.connect()
                 if not await client.is_user_authorized():
                     continue
-                
-                # 获取当前账号的user_id
-                me = await client.get_me()
-                user_id = me.id
-                account_user_ids[phone] = user_id
                 
                 # 加入所有目标群组
                 group_entities = []
@@ -4617,6 +4611,31 @@ class TelegramFullGUI:
                         
                         if entity:
                             group_entities.append(entity)
+                            
+                            # 添加消息监听器来更新缓存
+                            @client.on(events.NewMessage(chats=entity))
+                            async def message_handler(event):
+                                if event.message.out:
+                                    return
+                                if not event.sender_id:
+                                    return
+                                
+                                # 获取发送者的手机号
+                                try:
+                                    sender = await event.client.get_entity(event.sender_id)
+                                    sender_phone = getattr(sender, 'phone', None)
+                                    if sender_phone:
+                                        group_id = event.chat_id
+                                        if group_id not in self.chat_message_cache:
+                                            self.chat_message_cache[group_id] = {}
+                                        self.chat_message_cache[group_id][sender_phone] = {
+                                            'msg_id': event.message.id,
+                                            'content': event.message.text or '',
+                                            'timestamp': time.time()
+                                        }
+                                except:
+                                    pass
+                            
                     except Exception:
                         pass
                     
@@ -4709,22 +4728,60 @@ class TelegramFullGUI:
                         
                         if target_account:
                             target_phone = target_account.get('phone')
-                            target_user_id = account_user_ids.get(target_phone)
                             found_msg = None
+                            group_id = entity.id
                             
-                            if target_user_id:
+                            # 先从缓存中查找
+                            if group_id in self.chat_message_cache:
+                                cache = self.chat_message_cache[group_id]
+                                if target_phone in cache:
+                                    cached = cache[target_phone]
+                                    # 缓存的消息ID可能已过期，尝试获取最新消息
+                                    try:
+                                        # 尝试获取该用户的最新消息
+                                        target_user = await client.get_entity(target_phone)
+                                        target_user_id = target_user.id
+                                        async for msg in client.iter_messages(entity, from_user=target_user_id, limit=1):
+                                            found_msg = msg
+                                            # 更新缓存
+                                            cache[target_phone] = {
+                                                'msg_id': msg.id,
+                                                'content': msg.text or '',
+                                                'timestamp': time.time()
+                                            }
+                                            break
+                                    except:
+                                        # 如果无法通过手机号获取，使用缓存的msg_id尝试
+                                        try:
+                                            found_msg = await client.get_messages(entity, ids=cached['msg_id'])
+                                            if not found_msg:
+                                                found_msg = None
+                                        except:
+                                            found_msg = None
+                            
+                            # 如果缓存中没有，搜索群组消息
+                            if not found_msg:
                                 try:
-                                    async for msg in client.iter_messages(entity, from_user=target_user_id, limit=5):
+                                    # 尝试获取目标用户的实体
+                                    target_user = await client.get_entity(target_phone)
+                                    target_user_id = target_user.id
+                                    async for msg in client.iter_messages(entity, from_user=target_user_id, limit=10):
                                         found_msg = msg
+                                        # 更新缓存
+                                        if group_id not in self.chat_message_cache:
+                                            self.chat_message_cache[group_id] = {}
+                                        self.chat_message_cache[group_id][target_phone] = {
+                                            'msg_id': msg.id,
+                                            'content': msg.text or '',
+                                            'timestamp': time.time()
+                                        }
                                         break
-                                except Exception as e:
-                                    self.log("自动群聊", f"[{phone[-6:]}] 查找目标消息异常: {str(e)[:30]}")
-                            else:
-                                self.log("自动群聊", f"[{phone[-6:]}] 无法获取目标账号{script_item['reply_to_idx']}的UID")
+                                except:
+                                    pass
                             
                             if found_msg:
                                 await client.send_message(entity, script_item['message'], reply_to=found_msg.id)
-                                self.log("自动群聊", f"[{phone[-6:]}] @回复账号{script_item['reply_to_idx']}: {script_item['message'][:40]}")
+                                self.log("自动群聊", f"[{phone[-6:]}] 回复账号{script_item['reply_to_idx']}: {script_item['message'][:40]}")
                             else:
                                 await client.send_message(entity, script_item['message'])
                                 self.log("自动群聊", f"[{phone[-6:]}] 发言(未找到@目标): {script_item['message'][:40]}")
@@ -4732,8 +4789,20 @@ class TelegramFullGUI:
                             await client.send_message(entity, script_item['message'])
                             self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
                     else:
-                        await client.send_message(entity, script_item['message'])
+                        # 主动发送消息，发送后更新缓存
+                        sent_msg = await client.send_message(entity, script_item['message'])
                         self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
+                        
+                        # 将发送的消息加入缓存，以便其他账号回复
+                        if sent_msg:
+                            group_id = entity.id
+                            if group_id not in self.chat_message_cache:
+                                self.chat_message_cache[group_id] = {}
+                            self.chat_message_cache[group_id][phone] = {
+                                'msg_id': sent_msg.id,
+                                'content': script_item['message'],
+                                'timestamp': time.time()
+                            }
                     
                 except FloodWaitError as e:
                     self.log("自动群聊", f"[{phone[-6:]}] 频率限制，等待{e.seconds}秒")
@@ -5136,7 +5205,6 @@ class TelegramFullGUI:
         self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊+回复\n- 自动注册\n- 监听群组\n- 直登转协议")
 
 if __name__ == "__main__":
-    from telethon import events
     root = tk.Tk()
     app = TelegramFullGUI(root)
     root.mainloop()
