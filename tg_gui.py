@@ -667,7 +667,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def login_filtered_accounts(self):
@@ -1530,7 +1530,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
         self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def add_proxy_group(self):
@@ -1981,7 +1981,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
+        self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
         self.log_widgets["采集群成员"].pack(fill="both", expand=True, padx=5, pady=5)
         
         self.is_scraping = False
@@ -2871,14 +2871,10 @@ class TelegramFullGUI:
         ttk.Label(file_frame, text="执行后自动删除已处理的用户", font=("微软雅黑", 8), foreground="red").pack(side="left", padx=10)
         current_row += 1
         
-        # 账号分组筛选 - 改为按钮触发弹窗
+        # 账号选择（删除分组筛选，只保留选择账号按钮）
         account_select_frame = ttk.Frame(self.settings_panel)
         account_select_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
-        ttk.Label(account_select_frame, text="账号分组筛选:").pack(side="left", padx=5)
-        self.invite_group_filter = ttk.Combobox(account_select_frame, values=["全部"] + self.groups, width=15)
-        self.invite_group_filter.set("全部")
-        self.invite_group_filter.pack(side="left", padx=5)
-        ttk.Button(account_select_frame, text="选择账号", command=self.select_invite_accounts, width=12).pack(side="left", padx=20)
+        ttk.Button(account_select_frame, text="选择账号", command=self.select_invite_accounts, width=12).pack(side="left", padx=5)
         self.selected_invite_accounts_label = ttk.Label(account_select_frame, text="已选: 0 个账号", foreground="blue")
         self.selected_invite_accounts_label.pack(side="left", padx=10)
         current_row += 1
@@ -2951,32 +2947,28 @@ class TelegramFullGUI:
     
     def select_invite_accounts(self):
         """选择拉人账号的弹窗"""
-        filter_group = self.invite_group_filter.get()
-        selected = self.show_account_selector("选择拉人账号", group_filter_default=filter_group, status_filter_default="正常")
+        selected = self.show_account_selector("选择拉人账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_invite_accounts = selected
         self.selected_invite_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("批量拉人", f"已选择 {len(selected)} 个账号")
     
     def select_private_accounts(self):
         """选择私发账号的弹窗"""
-        filter_group = self.private_group_filter.get()
-        selected = self.show_account_selector("选择私发账号", group_filter_default=filter_group, status_filter_default="正常")
+        selected = self.show_account_selector("选择私发账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_private_accounts = selected
         self.selected_private_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("群发广告", f"已选择 {len(selected)} 个私发账号")
     
     def select_group_accounts(self):
         """选择群发账号的弹窗"""
-        filter_group = self.group_account_group_filter.get()
-        selected = self.show_account_selector("选择群发账号", group_filter_default=filter_group, status_filter_default="正常")
+        selected = self.show_account_selector("选择群发账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_group_accounts = selected
         self.selected_group_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("群发广告", f"已选择 {len(selected)} 个群发账号")
     
     def select_chat_accounts(self):
         """选择自动群聊账号的弹窗"""
-        filter_group = self.chat_group_filter.get()
-        selected = self.show_account_selector("选择自动群聊账号", group_filter_default=filter_group, status_filter_default="正常")
+        selected = self.show_account_selector("选择自动群聊账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_chat_accounts = selected
         self.selected_chat_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("自动群聊", f"已选择 {len(selected)} 个账号")
@@ -3408,20 +3400,11 @@ class TelegramFullGUI:
         account_frame = ttk.LabelFrame(private_top, text="选择任务账号")
         account_frame.pack(fill="x", pady=5)
         
+        # 删除分组筛选和状态筛选，只保留选择账号按钮
         filter_row = ttk.Frame(account_frame)
         filter_row.pack(fill="x", padx=5, pady=5)
         
-        ttk.Label(filter_row, text="分组筛选:").pack(side="left", padx=5)
-        self.private_group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=15)
-        self.private_group_filter.set("全部")
-        self.private_group_filter.pack(side="left", padx=5)
-        
-        ttk.Label(filter_row, text="状态筛选:").pack(side="left", padx=20)
-        self.private_status_filter = ttk.Combobox(filter_row, values=["全部", "正常"], width=10)
-        self.private_status_filter.set("正常")
-        self.private_status_filter.pack(side="left", padx=5)
-        
-        ttk.Button(filter_row, text="选择账号", command=self.select_private_accounts, width=12).pack(side="left", padx=20)
+        ttk.Button(filter_row, text="选择账号", command=self.select_private_accounts, width=12).pack(side="left", padx=5)
         self.selected_private_accounts_label = ttk.Label(filter_row, text="已选: 0 个账号", foreground="blue")
         self.selected_private_accounts_label.pack(side="left", padx=10)
         
@@ -3527,20 +3510,11 @@ class TelegramFullGUI:
         group_account_frame = ttk.LabelFrame(group_top, text="选择任务账号")
         group_account_frame.pack(fill="x", pady=5)
         
+        # 删除分组筛选和状态筛选，只保留选择账号按钮
         group_filter_row = ttk.Frame(group_account_frame)
         group_filter_row.pack(fill="x", padx=5, pady=5)
         
-        ttk.Label(group_filter_row, text="分组筛选:").pack(side="left", padx=5)
-        self.group_account_group_filter = ttk.Combobox(group_filter_row, values=["全部"] + self.groups, width=15)
-        self.group_account_group_filter.set("全部")
-        self.group_account_group_filter.pack(side="left", padx=5)
-        
-        ttk.Label(group_filter_row, text="状态筛选:").pack(side="left", padx=20)
-        self.group_account_status_filter = ttk.Combobox(group_filter_row, values=["全部", "正常"], width=10)
-        self.group_account_status_filter.set("正常")
-        self.group_account_status_filter.pack(side="left", padx=5)
-        
-        ttk.Button(group_filter_row, text="选择账号", command=self.select_group_accounts, width=12).pack(side="left", padx=20)
+        ttk.Button(group_filter_row, text="选择账号", command=self.select_group_accounts, width=12).pack(side="left", padx=5)
         self.selected_group_accounts_label = ttk.Label(group_filter_row, text="已选: 0 个账号", foreground="blue")
         self.selected_group_accounts_label.pack(side="left", padx=10)
         
@@ -4245,24 +4219,14 @@ class TelegramFullGUI:
         self.chat_group_count_label = ttk.Label(group_frame, text="已加载: 0 个群组", foreground="blue")
         self.chat_group_count_label.pack(anchor="w", padx=5, pady=2)
         
-        # 账号选择区域
+        # 账号选择区域（删除分组筛选和状态筛选，只保留选择账号按钮）
         account_frame = ttk.LabelFrame(chat_inner, text="选择任务账号")
         account_frame.pack(fill="x", padx=10, pady=5)
         
         filter_row = ttk.Frame(account_frame)
         filter_row.pack(fill="x", padx=5, pady=5)
         
-        ttk.Label(filter_row, text="分组筛选:").pack(side="left", padx=5)
-        self.chat_group_filter = ttk.Combobox(filter_row, values=["全部"] + self.groups, width=15)
-        self.chat_group_filter.set("全部")
-        self.chat_group_filter.pack(side="left", padx=5)
-        
-        ttk.Label(filter_row, text="状态筛选:").pack(side="left", padx=20)
-        self.chat_status_filter = ttk.Combobox(filter_row, values=["全部", "正常"], width=10)
-        self.chat_status_filter.set("正常")
-        self.chat_status_filter.pack(side="left", padx=5)
-        
-        ttk.Button(filter_row, text="选择账号", command=self.select_chat_accounts, width=12).pack(side="left", padx=20)
+        ttk.Button(filter_row, text="选择账号", command=self.select_chat_accounts, width=12).pack(side="left", padx=5)
         self.selected_chat_accounts_label = ttk.Label(filter_row, text="已选: 0 个账号", foreground="blue")
         self.selected_chat_accounts_label.pack(side="left", padx=10)
         
