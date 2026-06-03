@@ -667,7 +667,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def login_filtered_accounts(self):
@@ -1530,7 +1530,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
+        self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
         self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def add_proxy_group(self):
@@ -1981,7 +1981,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
+        self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
         self.log_widgets["采集群成员"].pack(fill="both", expand=True, padx=5, pady=5)
         
         self.is_scraping = False
@@ -2941,7 +2941,7 @@ class TelegramFullGUI:
         # 运行日志区域 - 自动铺满剩余空间
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
+        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
         self.is_inviting = False
@@ -4324,7 +4324,7 @@ class TelegramFullGUI:
         # 运行日志区域 - 自动铺满剩余空间
         log_frame = ttk.LabelFrame(chat_main, text="运行日志")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
+        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
         self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
         
         # 初始化变量
