@@ -2940,9 +2940,9 @@ class TelegramFullGUI:
         
         # 运行日志区域 - 自动铺满剩余空间
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
-        log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
-        self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
+        log_frame.pack(fill="x", pady=5)
+        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
+        self.log_widgets["批量拉人"].pack(fill="x", padx=5, pady=5)
         
         self.is_inviting = False
         self.invite_stop_flag = False
@@ -4323,9 +4323,9 @@ class TelegramFullGUI:
         
         # 运行日志区域 - 自动铺满剩余空间
         log_frame = ttk.LabelFrame(chat_main, text="运行日志")
-        log_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
-        self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
+        log_frame.pack(fill="x", pady=5)
+        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
+        self.log_widgets["自动群聊"].pack(fill="x", padx=5, pady=5)
         
         # 初始化变量
         self.chat_groups = []  # 存储 (group_name, group_link) 元组
