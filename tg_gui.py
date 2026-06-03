@@ -3593,103 +3593,103 @@ class TelegramFullGUI:
             return None
     
     def start_invite_advanced(self):
-        if self.is_inviting:
-            self.log("批量拉人", "任务进行中")
+    if self.is_inviting:
+        self.log("批量拉人", "任务进行中")
+        return
+    
+    users = self.load_user_list()
+    if not users:
+        self.log("批量拉人", "请先选择用户列表文件")
+        self.show_centered_warning("提示", "请先选择用户列表文件")
+        return
+    
+    selected_accounts = self.get_selected_invite_accounts()
+    if not selected_accounts:
+        self.log("批量拉人", "请至少选择一个账号")
+        self.show_centered_warning("提示", "请至少选择一个账号")
+        return
+    
+    try:
+        per_batch = int(self.invite_per_batch.get())
+        per_account_max = int(self.invite_per_account_max.get())
+        total_limit = int(self.total_limit.get())
+        thread_cnt = int(self.thread_count.get())
+        thread_wait = float(self.thread_interval.get())
+        invite_wait = float(self.invite_interval.get())
+        auto_switch = self.auto_switch_account.get()
+    except ValueError as e:
+        self.log("批量拉人", f"参数错误: {str(e)}")
+        self.show_centered_warning("提示", "请检查参数格式")
+        return
+    
+    if per_batch <= 0:
+        self.log("批量拉人", "每次拉人数必须大于0")
+        return
+    if thread_cnt <= 0:
+        thread_cnt = 1
+    
+    mode = self.invite_mode.get()
+    targets = []
+    if mode == "single":
+        target = self.single_target_group.get().strip()
+        if not target:
+            self.log("批量拉人", "请输入目标群组")
             return
-        
-        users = self.load_user_list()
-        if not users:
-            self.log("批量拉人", "请先选择用户列表文件")
-            self.show_centered_warning("提示", "请先选择用户列表文件")
+        targets = [target]
+        per_account_limit = 0
+    elif mode == "multi":
+        target_text = self.multi_target_groups.get().strip()
+        if not target_text:
+            self.log("批量拉人", "请输入目标群组列表")
             return
-        
-        selected_accounts = self.get_selected_invite_accounts()
-        if not selected_accounts:
-            self.log("批量拉人", "请至少选择一个账号")
-            self.show_centered_warning("提示", "请至少选择一个账号")
-            return
-        
+        targets = [t.strip() for t in target_text.split(',') if t.strip()]
         try:
-            per_batch = int(self.invite_per_batch.get())
-            per_account_max = int(self.invite_per_account_max.get())
-            total_limit = int(self.total_limit.get())
-            thread_cnt = int(self.thread_count.get())
-            thread_wait = float(self.thread_interval.get())
-            invite_wait = float(self.invite_interval.get())
-            auto_switch = self.auto_switch_account.get()
-        except ValueError as e:
-            self.log("批量拉人", f"参数错误: {str(e)}")
-            self.show_centered_warning("提示", "请检查参数格式")
-            return
-        
-        if per_batch <= 0:
-            self.log("批量拉人", "每次拉人数必须大于0")
-            return
-        if thread_cnt <= 0:
-            thread_cnt = 1
-        
-        mode = self.invite_mode.get()
-        targets = []
-        if mode == "single":
-            target = self.single_target_group.get().strip()
-            if not target:
-                self.log("批量拉人", "请输入目标群组")
-                return
-            targets = [target]
+            per_account_limit = int(self.multi_per_account_limit.get())
+        except:
             per_account_limit = 0
-              elif mode == "multi":
-            target_text = self.multi_target_groups.get().strip()
-            if not target_text:
-                self.log("批量拉人", "请输入目标群组列表")
-                return
-            targets = [t.strip() for t in target_text.split(',') if t.strip()]
-            try:
-                per_account_limit = int(self.multi_per_account_limit.get())
-            except:
-                per_account_limit = 0
-        else:
-            target = self.admin_target_group.get().strip()
-            if not target:
-                self.log("批量拉人", "请输入目标群组或频道")
-                return
-            targets = [target]
-            try:
-                per_account_limit = int(self.admin_per_account_limit.get())
-            except:
-                per_account_limit = 0
-        
-        if total_limit > 0 and total_limit < len(users):
-            users = users[:total_limit]
-        
-        self.log("批量拉人", f"========== 开始拉人 ==========")
-        self.log("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
-        
-        self.is_inviting = True
-        self.invite_stop_flag = False
-        self.total_success = 0
-        self.total_fail = 0
-        self.total_processed = 0
-        self.processed_usernames = set()
-        
+    else:
+        target = self.admin_target_group.get().strip()
+        if not target:
+            self.log("批量拉人", "请输入目标群组或频道")
+            return
+        targets = [target]
+        try:
+            per_account_limit = int(self.admin_per_account_limit.get())
+        except:
+            per_account_limit = 0
+    
+    if total_limit > 0 and total_limit < len(users):
+        users = users[:total_limit]
+    
+    self.log("批量拉人", f"========== 开始拉人 ==========")
+    self.log("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
+    
+    self.is_inviting = True
+    self.invite_stop_flag = False
+    self.total_success = 0
+    self.total_fail = 0
+    self.total_processed = 0
+    self.processed_usernames = set()
+    
+    for acc in selected_accounts:
+        self.update_account_task(acc.get('phone'), "批量拉人", True)
+    
+    def run_invite_task():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.run_invite_advanced_multi_accounts(
+            selected_accounts, users, targets, per_batch, per_account_max, 
+            per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch
+        ))
+        loop.close()
+        self.is_inviting = False
         for acc in selected_accounts:
-            self.update_account_task(acc.get('phone'), "批量拉人", True)
-        
-        def run_invite_task():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.run_invite_advanced_multi_accounts(
-                selected_accounts, users, targets, per_batch, per_account_max, 
-                per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch
-            ))
-            loop.close()
-            self.is_inviting = False
-            for acc in selected_accounts:
-                self.update_account_task(acc.get('phone'), "", False)
-                self.update_account_task(acc.get('phone'), "批量拉人", False)
-            self.log("批量拉人", f"========== 拉人完成 ==========")
-            self.log("批量拉人", f"总统计 | 成功:{self.total_success} | 失败:{self.total_fail} | 总处理:{self.total_processed}")
-        
-        threading.Thread(target=run_invite_task, daemon=True).start()
+            self.update_account_task(acc.get('phone'), "", False)
+            self.update_account_task(acc.get('phone'), "批量拉人", False)
+        self.log("批量拉人", f"========== 拉人完成 ==========")
+        self.log("批量拉人", f"总统计 | 成功:{self.total_success} | 失败:{self.total_fail} | 总处理:{self.total_processed}")
+    
+    threading.Thread(target=run_invite_task, daemon=True).start()
     
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
         account_users = [[] for _ in range(len(accounts))]
