@@ -64,9 +64,13 @@ class TelegramFullGUI:
         self.chat_message_cache = {}  # {group_id: {account_phone: {'msg_id': xxx, 'content': xxx, 'timestamp': xxx}}}
         
         # 消息监听相关变量
-        self.message_cache = {}  # {phone: {type: {sender_id: {'username': xxx, 'first_name': xxx, 'unread': N, 'messages': []}}}}
-        self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'task': thread}}
+        self.message_cache = {}  # {phone: {type: {sender_id: {...}}}}
+        self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'thread': thread}}
         self.message_cache_lock = threading.Lock()
+        
+        # 异步锁（用于防止database is locked错误）
+        self.client_locks = {}  # {phone: asyncio.Lock}
+        self.client_lock_lock = threading.Lock()
         
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
@@ -363,8 +367,7 @@ class TelegramFullGUI:
     def on_exit(self):
         self.save_config()
         # 停止所有消息监听
-        for phone in list(self.monitoring_clients.keys()):
-            self.stop_message_monitor(phone)
+        self.stop_all_monitors()
         self.root.quit()
     
     def show_card_info(self):
@@ -470,6 +473,13 @@ class TelegramFullGUI:
                     total += data.get('unread', 0)
             return total
     
+    def get_client_lock(self, phone):
+        """获取账号的异步锁（防止database is locked）"""
+        with self.client_lock_lock:
+            if phone not in self.client_locks:
+                self.client_locks[phone] = asyncio.Lock()
+            return self.client_locks[phone]
+    
     # ==================== 消息监听功能 ====================
     def start_message_monitor(self):
         """为选中的账号启动消息监听"""
@@ -501,10 +511,10 @@ class TelegramFullGUI:
         self.log("多账号管理", f"正在为 {len(phones_to_start)} 个账号启动消息监听...")
         
         for acc in phones_to_start:
-            self.start_single_monitor_fast(acc)
+            self.start_single_monitor(acc)
     
-    def start_single_monitor_fast(self, acc):
-        """为单个账号快速启动消息监听"""
+    def start_single_monitor(self, acc):
+        """为单个账号启动消息监听"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -518,8 +528,6 @@ class TelegramFullGUI:
                     return
                 
                 me = await client.get_me()
-                my_id = me.id
-                
                 self.log("多账号管理", f"[{phone}] 消息监听已启动")
                 
                 @client.on(events.NewMessage(incoming=True))
@@ -564,36 +572,35 @@ class TelegramFullGUI:
                             self.root.after(0, self.refresh_account_list_filter)
                             self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}")
                         
-                        elif event.is_group:
-                            if event.message.mentioned:
-                                chat = await event.get_chat()
-                                chat_name = getattr(chat, 'title', '未知群组')
+                        elif event.is_group and event.message.mentioned:
+                            chat = await event.get_chat()
+                            chat_name = getattr(chat, 'title', '未知群组')
+                            
+                            with self.message_cache_lock:
+                                if phone not in self.message_cache:
+                                    self.message_cache[phone] = {'private': {}, 'group_mention': {}}
                                 
-                                with self.message_cache_lock:
-                                    if phone not in self.message_cache:
-                                        self.message_cache[phone] = {'private': {}, 'group_mention': {}}
-                                    
-                                    group_key = f"group_{chat.id}"
-                                    if group_key not in self.message_cache[phone]['group_mention']:
-                                        self.message_cache[phone]['group_mention'][group_key] = {
-                                            'group_name': chat_name,
-                                            'group_id': chat.id,
-                                            'unread': 0,
-                                            'messages': []
-                                        }
-                                    
-                                    self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
-                                    self.message_cache[phone]['group_mention'][group_key]['messages'].append({
-                                        'from_user': f"@{sender_username}" if sender_username else sender_name,
-                                        'text': message_text,
-                                        'time': message_time,
-                                        'is_read': False
-                                    })
-                                    if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
-                                        self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
+                                group_key = f"group_{chat.id}"
+                                if group_key not in self.message_cache[phone]['group_mention']:
+                                    self.message_cache[phone]['group_mention'][group_key] = {
+                                        'group_name': chat_name,
+                                        'group_id': chat.id,
+                                        'unread': 0,
+                                        'messages': []
+                                    }
                                 
-                                self.root.after(0, self.refresh_account_list_filter)
-                                self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @")
+                                self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
+                                self.message_cache[phone]['group_mention'][group_key]['messages'].append({
+                                    'from_user': f"@{sender_username}" if sender_username else sender_name,
+                                    'text': message_text,
+                                    'time': message_time,
+                                    'is_read': False
+                                })
+                                if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
+                                    self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
+                            
+                            self.root.after(0, self.refresh_account_list_filter)
+                            self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @")
                     
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:50]}")
@@ -636,6 +643,32 @@ class TelegramFullGUI:
         else:
             for p in list(self.monitoring_clients.keys()):
                 self.stop_message_monitor(p)
+    
+    def start_all_monitors(self):
+        """为所有正常账号启动消息监听"""
+        normal_accounts = [acc for acc in self.accounts if acc.get('status') == '正常']
+        if not normal_accounts:
+            self.log("多账号管理", "没有正常状态的账号")
+            return
+        
+        already_running = [p for p in self.monitoring_clients.keys()]
+        to_start = [acc for acc in normal_accounts if acc.get('phone', '') not in already_running]
+        
+        if not to_start:
+            self.log("多账号管理", "所有账号已在监听中")
+            return
+        
+        self.log("多账号管理", f"正在为 {len(to_start)} 个账号启动消息监听...")
+        
+        for acc in to_start:
+            self.start_single_monitor(acc)
+        
+        self.log("多账号管理", f"已发起 {len(to_start)} 个账号的监听启动")
+    
+    def stop_all_monitors(self):
+        """停止所有消息监听"""
+        self.stop_message_monitor()
+        self.log("多账号管理", "已停止所有消息监听")
     
     def show_message_center(self):
         """显示消息中心窗口"""
@@ -857,6 +890,7 @@ class TelegramFullGUI:
             image_path_var.set(file_path)
     
     def send_reply_message(self, phone, target_id, data, msg_type, reply_text, image_path):
+        """发送回复消息（带重试机制和异步锁）"""
         acc = None
         for a in self.accounts:
             if a.get('phone') == phone:
@@ -871,98 +905,95 @@ class TelegramFullGUI:
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         
-        async def send():
-            client = None
-            try:
-                client = TelegramClient(session_path, api_id, api_hash)
-                await client.connect()
-                if not await client.is_user_authorized():
-                    self.log("多账号管理", f"[{phone}] 未登录")
-                    return
-                
-                if msg_type == 'private':
-                    try:
-                        target_entity = await client.get_entity(target_id)
-                        if image_path and os.path.exists(image_path):
-                            file = await client.upload_file(image_path)
-                            if reply_text:
-                                await client.send_file(target_entity, file, caption=reply_text)
-                            else:
-                                await client.send_file(target_entity, file)
-                        else:
-                            await client.send_message(target_entity, reply_text)
-                        self.log("多账号管理", f"[{phone}] 私信回复成功")
-                    except Exception as e:
-                        self.log("多账号管理", f"[{phone}] 私信回复失败: {str(e)[:50]}")
-                else:
-                    group_id = data.get('group_id')
-                    last_messages = data.get('messages', [])
-                    if last_messages:
-                        last_msg = last_messages[-1]
-                        from_user = last_msg.get('from_user', '').lstrip('@')
-                        if from_user and reply_text and not reply_text.startswith('@'):
-                            reply_text = f"@{from_user} {reply_text}"
+        async def send_with_retry():
+            lock = self.get_client_lock(phone)
+            
+            async with lock:  # 使用异步锁确保同一账号不会同时操作数据库
+                client = None
+                try:
+                    client = TelegramClient(session_path, api_id, api_hash)
+                    await client.connect()
+                    if not await client.is_user_authorized():
+                        self.log("多账号管理", f"[{phone}] 未登录")
+                        return
                     
-                    try:
+                    if msg_type == 'private':
+                        target_entity = await client.get_entity(target_id)
+                        
+                        # 带重试的发送
+                        for retry in range(3):
+                            try:
+                                if image_path and os.path.exists(image_path):
+                                    file = await client.upload_file(image_path)
+                                    if reply_text:
+                                        await client.send_file(target_entity, file, caption=reply_text)
+                                    else:
+                                        await client.send_file(target_entity, file)
+                                else:
+                                    await client.send_message(target_entity, reply_text)
+                                self.log("多账号管理", f"[{phone}] 私信回复成功")
+                                break
+                            except Exception as e:
+                                error_msg = str(e).lower()
+                                if 'database is locked' in error_msg and retry < 2:
+                                    await asyncio.sleep(1 * (retry + 1))
+                                    continue
+                                raise e
+                    else:
+                        group_id = data.get('group_id')
+                        last_messages = data.get('messages', [])
+                        if last_messages:
+                            last_msg = last_messages[-1]
+                            from_user = last_msg.get('from_user', '').lstrip('@')
+                            if from_user and reply_text and not reply_text.startswith('@'):
+                                reply_text = f"@{from_user} {reply_text}"
+                        
                         target_entity = await client.get_entity(group_id)
-                        if image_path and os.path.exists(image_path):
-                            file = await client.upload_file(image_path)
-                            if reply_text:
-                                await client.send_file(target_entity, file, caption=reply_text)
-                            else:
-                                await client.send_file(target_entity, file)
-                        else:
-                            await client.send_message(target_entity, reply_text)
-                        self.log("多账号管理", f"[{phone}] 群聊回复成功")
-                    except Exception as e:
-                        self.log("多账号管理", f"[{phone}] 群聊回复失败: {str(e)[:50]}")
-                
-                await client.disconnect()
-                self.show_centered_info("成功", "消息已发送")
-                
-            except Exception as e:
-                self.log("多账号管理", f"[{phone}] 发送失败: {str(e)[:50]}")
-                self.show_centered_error("失败", f"发送失败: {str(e)[:50]}")
-            finally:
-                if client:
-                    try:
-                        await client.disconnect()
-                    except:
-                        pass
+                        
+                        for retry in range(3):
+                            try:
+                                if image_path and os.path.exists(image_path):
+                                    file = await client.upload_file(image_path)
+                                    if reply_text:
+                                        await client.send_file(target_entity, file, caption=reply_text)
+                                    else:
+                                        await client.send_file(target_entity, file)
+                                else:
+                                    await client.send_message(target_entity, reply_text)
+                                self.log("多账号管理", f"[{phone}] 群聊回复成功")
+                                break
+                            except Exception as e:
+                                error_msg = str(e).lower()
+                                if 'database is locked' in error_msg and retry < 2:
+                                    await asyncio.sleep(1 * (retry + 1))
+                                    continue
+                                raise e
+                    
+                    await client.disconnect()
+                    self.show_centered_info("成功", "消息已发送")
+                    
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    self.log("多账号管理", f"[{phone}] 发送失败: {error_msg[:50]}")
+                    if 'database is locked' in error_msg:
+                        self.log("多账号管理", f"[{phone}] 数据库繁忙，请稍后重试")
+                        self.show_centered_warning("提示", f"数据库繁忙，请稍后重试")
+                    else:
+                        self.show_centered_error("失败", f"发送失败: {error_msg[:50]}")
+                finally:
+                    if client:
+                        try:
+                            await client.disconnect()
+                        except:
+                            pass
         
         def run_send():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(send())
+            loop.run_until_complete(send_with_retry())
             loop.close()
         
         threading.Thread(target=run_send, daemon=True).start()
-    
-    def start_all_monitors(self):
-        """为所有正常账号启动消息监听"""
-        normal_accounts = [acc for acc in self.accounts if acc.get('status') == '正常']
-        if not normal_accounts:
-            self.log("多账号管理", "没有正常状态的账号")
-            return
-        
-        already_running = [p for p in self.monitoring_clients.keys()]
-        to_start = [acc for acc in normal_accounts if acc.get('phone', '') not in already_running]
-        
-        if not to_start:
-            self.log("多账号管理", "所有账号已在监听中")
-            return
-        
-        self.log("多账号管理", f"正在为 {len(to_start)} 个账号启动消息监听...")
-        
-        for acc in to_start:
-            self.start_single_monitor_fast(acc)
-        
-        self.log("多账号管理", f"已发起 {len(to_start)} 个账号的监听启动")
-    
-    def stop_all_monitors(self):
-        """停止所有消息监听"""
-        self.stop_message_monitor()
-        self.log("多账号管理", "已停止所有消息监听")
     
     # ==================== 通用账号选择弹窗 ====================
     def show_account_selector(self, title, group_filter_default="全部", status_filter_default="正常", multi_select=True):
@@ -1143,6 +1174,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts_filtered).pack(side="left", padx=2)
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list_filter).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="启动监听", command=self.start_all_monitors).pack(side="left", padx=2)
         ttk.Button(toolbar, text="停止监听", command=self.stop_all_monitors).pack(side="left", padx=2)
         ttk.Button(toolbar, text="消息中心", command=self.show_message_center).pack(side="left", padx=2)
         
@@ -1215,17 +1247,6 @@ class TelegramFullGUI:
                 time.sleep(2)
             
             self.log("多账号管理", f"登录完成，成功 {len(success_accounts)} 个账号")
-            
-            # 登录成功后自动启动消息监听
-            if success_accounts:
-                self.log("多账号管理", f"正在为 {len(success_accounts)} 个账号自动启动消息监听...")
-                for acc in success_accounts:
-                    phone = acc.get('phone', '')
-                    if phone not in self.monitoring_clients:
-                        self.start_single_monitor_fast(acc)
-                        time.sleep(0.3)
-                self.log("多账号管理", "消息监听已自动启动")
-            
             self.save_config()
         
         threading.Thread(target=do_login, daemon=True).start()
@@ -3625,8 +3646,7 @@ class TelegramFullGUI:
             try:
                 per_account_limit = int(self.multi_per_account_limit.get())
             except:
-                per_account_limit = 0
-        else:
+                per_account_limit = 0        else:
             target = self.admin_target_group.get().strip()
             if not target:
                 self.log("批量拉人", "请输入目标群组或频道")
