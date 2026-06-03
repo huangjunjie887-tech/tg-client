@@ -44,7 +44,7 @@ class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("天师府TG全能营销系统 联系@Tian2547")
-        self.root.geometry("1200x800")
+        self.root.geometry("1200x950")
         self.root.resizable(True, True)
         
         self.is_logged_in = False
@@ -2784,9 +2784,9 @@ class TelegramFullGUI:
         main_container = ttk.Frame(page)
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上方内容区域（可滚动，不自动扩展）
+        # 上方内容区域（可滚动，占据所有剩余空间）
         top_frame = ttk.Frame(main_container)
-        top_frame.pack(fill="x", pady=(0, 5))
+        top_frame.pack(fill="both", expand=True, pady=(0, 5))
         
         settings_canvas = tk.Canvas(top_frame, highlightthickness=0)
         settings_scrollbar = ttk.Scrollbar(top_frame, orient="vertical", command=settings_canvas.yview)
@@ -2809,6 +2809,8 @@ class TelegramFullGUI:
         def on_mousewheel(event):
             settings_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         settings_canvas.bind("<MouseWheel>", on_mousewheel)
+        
+        # ========== 以下所有设置内容都在 settings_frame 中 ==========
         
         mode_frame = ttk.LabelFrame(settings_frame, text="拉人模式")
         mode_frame.pack(fill="x", pady=5, padx=5)
@@ -2938,11 +2940,11 @@ class TelegramFullGUI:
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
-        # 运行日志区域 - 自动铺满剩余空间
+        # ========== 运行日志区域 - 放在最底部，固定高度 ==========
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
         log_frame.pack(fill="x", pady=5)
-        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
-        self.log_widgets["批量拉人"].pack(fill="x", padx=5, pady=5)
+        self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
+        self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
         self.is_inviting = False
         self.invite_stop_flag = False
@@ -4185,19 +4187,16 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
         
+        # 主容器 - 垂直布局
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 使用垂直布局，确保日志铺满
-        chat_main = ttk.Frame(main_frame)
-        chat_main.pack(fill="both", expand=True)
+        # 上方内容区域（可滚动，占据所有剩余空间）
+        top_frame = ttk.Frame(main_frame)
+        top_frame.pack(fill="both", expand=True, pady=(0, 5))
         
-        # 上方内容区域（可滚动，不自动扩展）
-        chat_top = ttk.Frame(chat_main)
-        chat_top.pack(fill="x", pady=(0, 5))
-        
-        chat_canvas = tk.Canvas(chat_top, highlightthickness=0)
-        chat_scrollbar = ttk.Scrollbar(chat_top, orient="vertical", command=chat_canvas.yview)
+        chat_canvas = tk.Canvas(top_frame, highlightthickness=0)
+        chat_scrollbar = ttk.Scrollbar(top_frame, orient="vertical", command=chat_canvas.yview)
         chat_inner = ttk.Frame(chat_canvas)
         
         chat_canvas.configure(yscrollcommand=chat_scrollbar.set)
@@ -4217,6 +4216,8 @@ class TelegramFullGUI:
         def on_chat_mousewheel(event):
             chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         chat_canvas.bind("<MouseWheel>", on_chat_mousewheel)
+        
+        # ========== 以下所有设置内容都在 chat_inner 中 ==========
         
         # 群聊模式 - 一排显示
         mode_frame = ttk.LabelFrame(chat_inner, text="群聊模式")
@@ -4244,7 +4245,7 @@ class TelegramFullGUI:
         self.chat_group_count_label = ttk.Label(group_frame, text="已加载: 0 个群组", foreground="blue")
         self.chat_group_count_label.pack(anchor="w", padx=5, pady=2)
         
-        # 账号选择区域（删除分组绑定设置）
+        # 账号选择区域
         account_frame = ttk.LabelFrame(chat_inner, text="选择任务账号")
         account_frame.pack(fill="x", padx=10, pady=5)
         
@@ -4321,11 +4322,11 @@ class TelegramFullGUI:
         self.chat_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_auto_chat, width=12)
         self.chat_resume_btn.pack(side="left", padx=5)
         
-        # 运行日志区域 - 自动铺满剩余空间
-        log_frame = ttk.LabelFrame(chat_main, text="运行日志")
+        # ========== 运行日志区域 - 放在最底部，固定高度 ==========
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
-        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
-        self.log_widgets["自动群聊"].pack(fill="x", padx=5, pady=5)
+        self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
+        self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
         
         # 初始化变量
         self.chat_groups = []  # 存储 (group_name, group_link) 元组
