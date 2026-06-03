@@ -436,8 +436,8 @@ class TelegramFullGUI:
             self.account_tree.insert("", "end", values=(
                 i, acc.get('phone', ''), acc.get('group', '默认分组'),
                 acc.get('nickname', ''), acc.get('current_task', ''),
-                acc.get('last_action', ''), acc.get('status', '待检测'),
-                acc.get('register_time', '未知'), acc.get('proxy', '未设置')
+                acc.get('status', '待检测'),
+                acc.get('register_time', '未知'), acc.get('proxy', '未设置'), "📭"
             ))
             i += 1
     
@@ -645,7 +645,8 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(main_frame, text="账号列表")
         frame.pack(fill="both", expand=True, pady=5)
         
-        columns = ("序号", "手机号", "分组", "昵称", "当前任务", "上一次操作", "账号状态", "注册时长", "代理IP")
+        # 删除了"上一次操作"列，新增"消息"列
+        columns = ("序号", "手机号", "分组", "昵称", "当前任务", "账号状态", "注册时长", "代理IP", "消息")
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         for col in columns:
             self.account_tree.heading(col, text=col)
@@ -655,10 +656,10 @@ class TelegramFullGUI:
         self.account_tree.column("分组", anchor="center", width=100)
         self.account_tree.column("昵称", anchor="center", width=120)
         self.account_tree.column("当前任务", anchor="center", width=100)
-        self.account_tree.column("上一次操作", anchor="center", width=130)
         self.account_tree.column("账号状态", anchor="center", width=100)
         self.account_tree.column("注册时长", anchor="center", width=100)
         self.account_tree.column("代理IP", anchor="center", width=120)
+        self.account_tree.column("消息", anchor="center", width=60)
         
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.account_tree.yview)
         self.account_tree.configure(yscrollcommand=scrollbar.set)
@@ -667,7 +668,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
+        self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=2)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def login_filtered_accounts(self):
@@ -1354,7 +1355,6 @@ class TelegramFullGUI:
                 "group": target_group,
                 "status": "待检测",
                 "current_task": "",
-                "last_action": "",
                 "register_time": register_time if register_time else "未知",
                 "session_path": session_path,
                 "json_path": json_path,
@@ -1530,7 +1530,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
+        self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=2)
         self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
     
     def add_proxy_group(self):
@@ -1981,7 +1981,7 @@ class TelegramFullGUI:
         
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
-        self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
+        self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=2)
         self.log_widgets["采集群成员"].pack(fill="both", expand=True, padx=5, pady=5)
         
         self.is_scraping = False
