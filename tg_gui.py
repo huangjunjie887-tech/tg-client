@@ -1960,7 +1960,7 @@ class TelegramFullGUI:
         self.continue_btn = ttk.Button(btn_frame, text="继续", command=self.resume_scrape, width=12)
         self.continue_btn.pack(side="left", padx=5)
         
-        right_frame = ttk.LabelFrame(main_frame, text="采集预览与日志")
+        right_frame = ttk.LabelFrame(main_frame, text="采集预览")
         right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
         
         preview_frame = ttk.Frame(right_frame)
@@ -1977,8 +1977,7 @@ class TelegramFullGUI:
         self.preview_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         preview_scrollbar.pack(side="right", fill="y")
         
-        self.scrape_stats = ttk.Label(preview_frame, text="已采集: 0 人", font=("微软雅黑", 10))
-        self.scrape_stats.pack(pady=5)
+        # 删除"已采集: X 人"标签
         
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
@@ -2123,10 +2122,8 @@ class TelegramFullGUI:
                 display_name, info.get('online_status', '未知'),
                 "是" if info.get('is_admin', False) else "否", "是" if is_bot else "否"
             ))
-        total_count = len(self.scraped_members)
-        self.scrape_stats.config(text=f"已采集: {total_count} 人")
-        self.preview_tree.yview_moveto(1)
-    
+        # 不再更新"已采集"标签
+        
     def parse_group_link(self, link):
         topic_id = None
         group_username = None
@@ -2208,7 +2205,6 @@ class TelegramFullGUI:
         self.is_paused = False
         self.scraped_members = []
         self.preview_tree.delete(*self.preview_tree.get_children())
-        self.scrape_stats.config(text="已采集: 0 人")
         
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -2933,12 +2929,13 @@ class TelegramFullGUI:
         self.settings_panel.columnconfigure(0, weight=1)
         
         btn_frame = ttk.Frame(settings_frame)
-        btn_frame.pack(pady=10)
+        btn_frame.pack(fill="x", pady=10)
         self.start_invite_btn = ttk.Button(btn_frame, text="开始拉人", command=self.start_invite_advanced, width=12)
         self.start_invite_btn.pack(side="left", padx=10)
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
+        # 运行日志区域 - 自动铺满
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
@@ -3503,6 +3500,7 @@ class TelegramFullGUI:
         self.private_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_private_send, width=10)
         self.private_resume_btn.pack(side="left", padx=5)
         
+        # 运行日志区域 - 自动铺满
         private_log_frame = ttk.LabelFrame(private_inner, text="运行日志")
         private_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
         self.private_log = scrolledtext.ScrolledText(private_log_frame, width=100, height=8)
@@ -3625,6 +3623,7 @@ class TelegramFullGUI:
         self.group_resume_btn = ttk.Button(group_btn_frame, text="继续", command=self.resume_group_send, width=10)
         self.group_resume_btn.pack(side="left", padx=5)
         
+        # 运行日志区域 - 自动铺满
         group_log_frame = ttk.LabelFrame(group_inner, text="运行日志")
         group_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
         self.group_log = scrolledtext.ScrolledText(group_log_frame, width=100, height=8)
@@ -4339,7 +4338,7 @@ class TelegramFullGUI:
         self.chat_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_auto_chat, width=12)
         self.chat_resume_btn.pack(side="left", padx=5)
         
-        # 日志区域
+        # 运行日志区域 - 自动铺满
         log_frame = ttk.LabelFrame(chat_inner, text="运行日志")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
         self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
