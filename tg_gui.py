@@ -2780,14 +2780,16 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
         
+        # 主容器 - 垂直布局
         main_container = ttk.Frame(page)
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
-        settings_container = ttk.Frame(main_container)
-        settings_container.pack(fill="both", expand=True, pady=(0, 5))
+        # 上方内容区域（可滚动，不自动扩展）
+        top_frame = ttk.Frame(main_container)
+        top_frame.pack(fill="x", pady=(0, 5))
         
-        settings_canvas = tk.Canvas(settings_container, highlightthickness=0)
-        settings_scrollbar = ttk.Scrollbar(settings_container, orient="vertical", command=settings_canvas.yview)
+        settings_canvas = tk.Canvas(top_frame, highlightthickness=0)
+        settings_scrollbar = ttk.Scrollbar(top_frame, orient="vertical", command=settings_canvas.yview)
         settings_frame = ttk.Frame(settings_canvas)
         
         settings_canvas.configure(yscrollcommand=settings_scrollbar.set)
@@ -2928,6 +2930,7 @@ class TelegramFullGUI:
         
         self.settings_panel.columnconfigure(0, weight=1)
         
+        # 按钮区域
         btn_frame = ttk.Frame(settings_frame)
         btn_frame.pack(fill="x", pady=10)
         self.start_invite_btn = ttk.Button(btn_frame, text="开始拉人", command=self.start_invite_advanced, width=12)
@@ -2935,7 +2938,7 @@ class TelegramFullGUI:
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
-        # 运行日志区域 - 自动铺满
+        # 运行日志区域 - 自动铺满剩余空间
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
@@ -3392,30 +3395,16 @@ class TelegramFullGUI:
         private_frame = ttk.Frame(send_notebook)
         send_notebook.add(private_frame, text="私发(私聊)")
         
-        private_canvas = tk.Canvas(private_frame, highlightthickness=0)
-        private_scrollbar = ttk.Scrollbar(private_frame, orient="vertical", command=private_canvas.yview)
-        private_inner = ttk.Frame(private_canvas)
+        # 使用垂直布局，确保日志铺满
+        private_main = ttk.Frame(private_frame)
+        private_main.pack(fill="both", expand=True, padx=10, pady=5)
         
-        private_canvas.configure(yscrollcommand=private_scrollbar.set)
-        private_canvas.pack(side="left", fill="both", expand=True)
-        private_scrollbar.pack(side="right", fill="y")
+        # 上方内容区域（不扩展，随内容大小）
+        private_top = ttk.Frame(private_main)
+        private_top.pack(fill="x", pady=(0, 5))
         
-        private_window = private_canvas.create_window((0, 0), window=private_inner, anchor="nw")
-        
-        def on_private_configure(event):
-            private_canvas.configure(scrollregion=private_canvas.bbox("all"))
-        private_inner.bind("<Configure>", on_private_configure)
-        
-        def on_private_canvas_configure(event):
-            private_canvas.itemconfig(private_window, width=event.width)
-        private_canvas.bind("<Configure>", on_private_canvas_configure)
-        
-        def on_private_mousewheel(event):
-            private_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        private_canvas.bind("<MouseWheel>", on_private_mousewheel)
-        
-        account_frame = ttk.LabelFrame(private_inner, text="选择任务账号")
-        account_frame.pack(fill="x", padx=10, pady=5)
+        account_frame = ttk.LabelFrame(private_top, text="选择任务账号")
+        account_frame.pack(fill="x", pady=5)
         
         filter_row = ttk.Frame(account_frame)
         filter_row.pack(fill="x", padx=5, pady=5)
@@ -3436,8 +3425,8 @@ class TelegramFullGUI:
         
         self.selected_private_accounts = []
         
-        user_list_frame = ttk.LabelFrame(private_inner, text="用户列表导入")
-        user_list_frame.pack(fill="x", padx=10, pady=5)
+        user_list_frame = ttk.LabelFrame(private_top, text="用户列表导入")
+        user_list_frame.pack(fill="x", pady=5)
         
         user_list_row = ttk.Frame(user_list_frame)
         user_list_row.pack(fill="x", padx=5, pady=5)
@@ -3452,8 +3441,8 @@ class TelegramFullGUI:
         self.private_user_count_label.pack(anchor="w", padx=5, pady=2)
         self.private_users = []
         
-        ad_frame = ttk.LabelFrame(private_inner, text="广告内容")
-        ad_frame.pack(fill="x", padx=10, pady=5)
+        ad_frame = ttk.LabelFrame(private_top, text="广告内容")
+        ad_frame.pack(fill="x", pady=5)
         
         self.private_ad_text = scrolledtext.ScrolledText(ad_frame, width=80, height=6)
         self.private_ad_text.pack(fill="x", padx=5, pady=5)
@@ -3465,8 +3454,8 @@ class TelegramFullGUI:
         if hasattr(self, 'private_image_path'):
             ttk.Label(ad_btn_frame, textvariable=self.private_image_path).pack(side="left", padx=5)
         
-        param_frame = ttk.LabelFrame(private_inner, text="发送参数")
-        param_frame.pack(fill="x", padx=10, pady=5)
+        param_frame = ttk.LabelFrame(private_top, text="发送参数")
+        param_frame.pack(fill="x", pady=5)
         
         param_row = ttk.Frame(param_frame)
         param_row.pack(fill="x", padx=5, pady=5)
@@ -3489,8 +3478,8 @@ class TelegramFullGUI:
         self.private_auto_skip = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_row, text="账号异常自动跳过", variable=self.private_auto_skip).pack(side="left", padx=20)
         
-        btn_frame = ttk.Frame(private_inner)
-        btn_frame.pack(pady=15)
+        btn_frame = ttk.Frame(private_top)
+        btn_frame.pack(pady=10)
         self.private_start_btn = ttk.Button(btn_frame, text="开始", command=self.start_private_send, width=10)
         self.private_start_btn.pack(side="left", padx=5)
         self.private_stop_btn = ttk.Button(btn_frame, text="停止", command=self.stop_private_send, width=10)
@@ -3500,9 +3489,9 @@ class TelegramFullGUI:
         self.private_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_private_send, width=10)
         self.private_resume_btn.pack(side="left", padx=5)
         
-        # 运行日志区域 - 自动铺满
-        private_log_frame = ttk.LabelFrame(private_inner, text="运行日志")
-        private_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        # 运行日志区域 - 自动铺满剩余空间
+        private_log_frame = ttk.LabelFrame(private_main, text="运行日志")
+        private_log_frame.pack(fill="both", expand=True, pady=5)
         self.private_log = scrolledtext.ScrolledText(private_log_frame, width=100, height=8)
         self.private_log.pack(fill="both", expand=True, padx=5, pady=5)
         
@@ -3510,30 +3499,16 @@ class TelegramFullGUI:
         group_frame_tab = ttk.Frame(send_notebook)
         send_notebook.add(group_frame_tab, text="群发(群聊)")
         
-        group_canvas = tk.Canvas(group_frame_tab, highlightthickness=0)
-        group_scrollbar = ttk.Scrollbar(group_frame_tab, orient="vertical", command=group_canvas.yview)
-        group_inner = ttk.Frame(group_canvas)
+        # 使用垂直布局，确保日志铺满
+        group_main = ttk.Frame(group_frame_tab)
+        group_main.pack(fill="both", expand=True, padx=10, pady=5)
         
-        group_canvas.configure(yscrollcommand=group_scrollbar.set)
-        group_canvas.pack(side="left", fill="both", expand=True)
-        group_scrollbar.pack(side="right", fill="y")
+        # 上方内容区域（不扩展，随内容大小）
+        group_top = ttk.Frame(group_main)
+        group_top.pack(fill="x", pady=(0, 5))
         
-        group_window = group_canvas.create_window((0, 0), window=group_inner, anchor="nw")
-        
-        def on_group_configure(event):
-            group_canvas.configure(scrollregion=group_canvas.bbox("all"))
-        group_inner.bind("<Configure>", on_group_configure)
-        
-        def on_group_canvas_configure(event):
-            group_canvas.itemconfig(group_window, width=event.width)
-        group_canvas.bind("<Configure>", on_group_canvas_configure)
-        
-        def on_group_mousewheel(event):
-            group_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        group_canvas.bind("<MouseWheel>", on_group_mousewheel)
-        
-        target_frame = ttk.LabelFrame(group_inner, text="目标群组")
-        target_frame.pack(fill="x", padx=10, pady=5)
+        target_frame = ttk.LabelFrame(group_top, text="目标群组")
+        target_frame.pack(fill="x", pady=5)
         
         target_row = ttk.Frame(target_frame)
         target_row.pack(fill="x", padx=5, pady=10)
@@ -3547,8 +3522,8 @@ class TelegramFullGUI:
         self.group_target_count_label.pack(anchor="w", padx=5, pady=2)
         self.group_targets = []
         
-        group_account_frame = ttk.LabelFrame(group_inner, text="选择任务账号")
-        group_account_frame.pack(fill="x", padx=10, pady=5)
+        group_account_frame = ttk.LabelFrame(group_top, text="选择任务账号")
+        group_account_frame.pack(fill="x", pady=5)
         
         group_filter_row = ttk.Frame(group_account_frame)
         group_filter_row.pack(fill="x", padx=5, pady=5)
@@ -3569,8 +3544,8 @@ class TelegramFullGUI:
         
         self.selected_group_accounts = []
         
-        group_ad_frame = ttk.LabelFrame(group_inner, text="广告内容")
-        group_ad_frame.pack(fill="x", padx=10, pady=5)
+        group_ad_frame = ttk.LabelFrame(group_top, text="广告内容")
+        group_ad_frame.pack(fill="x", pady=5)
         
         self.group_ad_text = scrolledtext.ScrolledText(group_ad_frame, width=80, height=6)
         self.group_ad_text.pack(fill="x", padx=5, pady=5)
@@ -3580,8 +3555,8 @@ class TelegramFullGUI:
         ttk.Button(group_ad_btn_frame, text="导入文本广告", command=self.import_group_ad_text).pack(side="left", padx=5)
         ttk.Button(group_ad_btn_frame, text="导入图片广告", command=self.import_group_image).pack(side="left", padx=5)
         
-        group_param_frame = ttk.LabelFrame(group_inner, text="发送参数")
-        group_param_frame.pack(fill="x", padx=10, pady=5)
+        group_param_frame = ttk.LabelFrame(group_top, text="发送参数")
+        group_param_frame.pack(fill="x", pady=5)
         
         group_param_row = ttk.Frame(group_param_frame)
         group_param_row.pack(fill="x", padx=5, pady=5)
@@ -3612,8 +3587,8 @@ class TelegramFullGUI:
         self.group_auto_skip = tk.BooleanVar(value=True)
         ttk.Checkbutton(group_param_row2, text="账号异常自动跳过", variable=self.group_auto_skip).pack(side="left", padx=5)
         
-        group_btn_frame = ttk.Frame(group_inner)
-        group_btn_frame.pack(pady=15)
+        group_btn_frame = ttk.Frame(group_top)
+        group_btn_frame.pack(pady=10)
         self.group_start_btn = ttk.Button(group_btn_frame, text="开始", command=self.start_group_send, width=10)
         self.group_start_btn.pack(side="left", padx=5)
         self.group_stop_btn = ttk.Button(group_btn_frame, text="停止", command=self.stop_group_send, width=10)
@@ -3623,9 +3598,9 @@ class TelegramFullGUI:
         self.group_resume_btn = ttk.Button(group_btn_frame, text="继续", command=self.resume_group_send, width=10)
         self.group_resume_btn.pack(side="left", padx=5)
         
-        # 运行日志区域 - 自动铺满
-        group_log_frame = ttk.LabelFrame(group_inner, text="运行日志")
-        group_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        # 运行日志区域 - 自动铺满剩余空间
+        group_log_frame = ttk.LabelFrame(group_main, text="运行日志")
+        group_log_frame.pack(fill="both", expand=True, pady=5)
         self.group_log = scrolledtext.ScrolledText(group_log_frame, width=100, height=8)
         self.group_log.pack(fill="both", expand=True, padx=5, pady=5)
         
@@ -4213,15 +4188,23 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        chat_canvas = tk.Canvas(main_frame, highlightthickness=0)
-        chat_scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=chat_canvas.yview)
+        # 使用垂直布局，确保日志铺满
+        chat_main = ttk.Frame(main_frame)
+        chat_main.pack(fill="both", expand=True)
+        
+        # 上方内容区域（可滚动，不自动扩展）
+        chat_top = ttk.Frame(chat_main)
+        chat_top.pack(fill="x", pady=(0, 5))
+        
+        chat_canvas = tk.Canvas(chat_top, highlightthickness=0)
+        chat_scrollbar = ttk.Scrollbar(chat_top, orient="vertical", command=chat_canvas.yview)
         chat_inner = ttk.Frame(chat_canvas)
         
         chat_canvas.configure(yscrollcommand=chat_scrollbar.set)
         chat_canvas.pack(side="left", fill="both", expand=True)
         chat_scrollbar.pack(side="right", fill="y")
         
-        chat_window = chat_canvas.create_window((0, 0), window=chat_inner, anchor="nw")
+        chat_window = chat_canvas.create_window((0, 0), window=chat_inner, anchor="nw", width=chat_canvas.winfo_width())
         
         def on_chat_configure(event):
             chat_canvas.configure(scrollregion=chat_canvas.bbox("all"))
@@ -4338,8 +4321,8 @@ class TelegramFullGUI:
         self.chat_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_auto_chat, width=12)
         self.chat_resume_btn.pack(side="left", padx=5)
         
-        # 运行日志区域 - 自动铺满
-        log_frame = ttk.LabelFrame(chat_inner, text="运行日志")
+        # 运行日志区域 - 自动铺满剩余空间
+        log_frame = ttk.LabelFrame(chat_main, text="运行日志")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
         self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
