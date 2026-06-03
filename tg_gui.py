@@ -3637,7 +3637,7 @@ class TelegramFullGUI:
                 return
             targets = [target]
             per_account_limit = 0
-        elif mode == "multi":
+              elif mode == "multi":
             target_text = self.multi_target_groups.get().strip()
             if not target_text:
                 self.log("批量拉人", "请输入目标群组列表")
@@ -3646,7 +3646,8 @@ class TelegramFullGUI:
             try:
                 per_account_limit = int(self.multi_per_account_limit.get())
             except:
-                per_account_limit = 0        else:
+                per_account_limit = 0
+        else:
             target = self.admin_target_group.get().strip()
             if not target:
                 self.log("批量拉人", "请输入目标群组或频道")
