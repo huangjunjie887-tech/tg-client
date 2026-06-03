@@ -44,7 +44,7 @@ class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("天师府TG全能营销系统 联系@Tian2547")
-        self.root.geometry("1200x800")
+        self.root.geometry("1200x950")
         self.root.resizable(True, True)
         
         self.is_logged_in = False
