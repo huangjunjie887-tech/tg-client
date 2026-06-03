@@ -14,6 +14,7 @@ import random
 import sqlite3
 import asyncio
 import re
+from concurrent.futures import ThreadPoolExecutor
 from telethon import TelegramClient, events
 from telethon.errors import (
     FloodWaitError, UserDeactivatedError, SessionPasswordNeededError, 
@@ -500,10 +501,10 @@ class TelegramFullGUI:
         self.log("多账号管理", f"正在为 {len(phones_to_start)} 个账号启动消息监听...")
         
         for acc in phones_to_start:
-            self.start_single_monitor(acc)
+            self.start_single_monitor_fast(acc)
     
-    def start_single_monitor(self, acc):
-        """为单个账号启动消息监听"""
+    def start_single_monitor_fast(self, acc):
+        """为单个账号快速启动消息监听"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -514,14 +515,12 @@ class TelegramFullGUI:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
-                    self.log("多账号管理", f"[{phone}] 未登录，无法启动监听")
                     return
                 
                 me = await client.get_me()
-                my_username = me.username
                 my_id = me.id
                 
-                self.log("多账号管理", f"[{phone}] 消息监听已启动 (ID: {my_id})")
+                self.log("多账号管理", f"[{phone}] 消息监听已启动")
                 
                 @client.on(events.NewMessage(incoming=True))
                 async def message_handler(event):
@@ -530,6 +529,9 @@ class TelegramFullGUI:
                             return
                         
                         sender = await event.get_sender()
+                        if sender is None:
+                            return
+                        
                         sender_name = getattr(sender, 'first_name', '') or getattr(sender, 'username', '') or str(sender.id)
                         sender_username = getattr(sender, 'username', '')
                         sender_id = sender.id
@@ -537,9 +539,7 @@ class TelegramFullGUI:
                         message_text = event.message.text or "[非文本消息]"
                         message_time = datetime.now().strftime("%H:%M:%S")
                         
-                        # 判断消息类型
                         if event.is_private:
-                            # 私信处理
                             with self.message_cache_lock:
                                 if phone not in self.message_cache:
                                     self.message_cache[phone] = {'private': {}, 'group_mention': {}}
@@ -558,15 +558,13 @@ class TelegramFullGUI:
                                     'time': message_time,
                                     'is_read': False
                                 })
-                                # 只保留最近50条消息
                                 if len(self.message_cache[phone]['private'][sender_id]['messages']) > 50:
                                     self.message_cache[phone]['private'][sender_id]['messages'] = self.message_cache[phone]['private'][sender_id]['messages'][-50:]
                             
                             self.root.after(0, self.refresh_account_list_filter)
-                            self.log("多账号管理", f"[{phone}] 收到私信: {sender_name} -> {message_text[:50]}")
+                            self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}")
                         
                         elif event.is_group:
-                            # 群聊处理，检查是否@了当前账号
                             if event.message.mentioned:
                                 chat = await event.get_chat()
                                 chat_name = getattr(chat, 'title', '未知群组')
@@ -591,17 +589,15 @@ class TelegramFullGUI:
                                         'time': message_time,
                                         'is_read': False
                                     })
-                                    # 只保留最近50条消息
                                     if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
                                         self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
                                 
                                 self.root.after(0, self.refresh_account_list_filter)
-                                self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @: {sender_name} -> {message_text[:50]}")
+                                self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @")
                     
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:50]}")
                 
-                # 保持连接
                 self.monitoring_clients[phone] = {'client': client, 'running': True}
                 await client.run_until_disconnected()
                 
@@ -610,7 +606,6 @@ class TelegramFullGUI:
             finally:
                 if phone in self.monitoring_clients:
                     del self.monitoring_clients[phone]
-                self.log("多账号管理", f"[{phone}] 消息监听已停止")
         
         def run_monitor():
             loop = asyncio.new_event_loop()
@@ -626,7 +621,6 @@ class TelegramFullGUI:
         """停止消息监听"""
         if phone:
             if phone in self.monitoring_clients:
-                # 异步断开连接
                 async def disconnect():
                     if self.monitoring_clients[phone].get('client'):
                         await self.monitoring_clients[phone]['client'].disconnect()
@@ -640,7 +634,6 @@ class TelegramFullGUI:
                 del self.monitoring_clients[phone]
                 self.log("多账号管理", f"[{phone}] 已停止监听")
         else:
-            # 停止所有
             for p in list(self.monitoring_clients.keys()):
                 self.stop_message_monitor(p)
     
@@ -713,8 +706,7 @@ class TelegramFullGUI:
                 msg_frame.grid(row=row, column=0, sticky="ew", padx=5, pady=5)
                 msg_frame.columnconfigure(0, weight=1)
                 
-                for msg in data.get('messages', [])[-20:]:  # 显示最近20条
-                # 构建消息显示
+                for msg in data.get('messages', [])[-20:]:
                     text_color = "gray" if msg.get('is_read') else "black"
                     msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('text')}", anchor="w", justify="left", fg=text_color, wraplength=600)
                     msg_label.pack(fill="x", padx=5, pady=2)
@@ -722,11 +714,9 @@ class TelegramFullGUI:
                 btn_frame = ttk.Frame(msg_frame)
                 btn_frame.pack(fill="x", pady=5)
                 
-                # 回复按钮
                 reply_btn = ttk.Button(btn_frame, text="回复", command=lambda p=phone, sid=sender_id, un=data: self.open_reply_window(p, sid, data, 'private'))
                 reply_btn.pack(side="left", padx=5)
                 
-                # 标记已读按钮
                 def mark_read(p=phone, sid=sender_id):
                     with self.message_cache_lock:
                         if p in self.message_cache and 'private' in self.message_cache[p] and sid in self.message_cache[p]['private']:
@@ -777,11 +767,9 @@ class TelegramFullGUI:
                 btn_frame = ttk.Frame(msg_frame)
                 btn_frame.pack(fill="x", pady=5)
                 
-                # 回复按钮（群聊回复需要@对方）
                 reply_btn = ttk.Button(btn_frame, text="回复", command=lambda p=phone, gk=group_key, data=data: self.open_reply_window(p, gk, data, 'group'))
                 reply_btn.pack(side="left", padx=5)
                 
-                # 标记已读按钮
                 def mark_group_read(p=phone, gk=group_key):
                     with self.message_cache_lock:
                         if p in self.message_cache and 'group_mention' in self.message_cache[p] and gk in self.message_cache[p]['group_mention']:
@@ -797,7 +785,6 @@ class TelegramFullGUI:
                 
                 g_row += 1
         
-        # 关闭按钮
         close_btn = ttk.Button(main_frame, text="关闭", command=dialog.destroy)
         close_btn.pack(pady=10)
     
@@ -822,12 +809,10 @@ class TelegramFullGUI:
         ttk.Label(main_frame, text=f"回复对象: {target_info}").pack(anchor="w", pady=5)
         ttk.Label(main_frame, text=f"消息类型: {'私信' if msg_type == 'private' else '群聊@'}").pack(anchor="w", pady=5)
         
-        # 文本输入框
         ttk.Label(main_frame, text="回复内容:").pack(anchor="w", pady=5)
         text_entry = scrolledtext.ScrolledText(main_frame, width=60, height=8)
         text_entry.pack(fill="x", pady=5)
         
-        # 图片选择
         image_path_var = tk.StringVar()
         image_frame = ttk.LabelFrame(main_frame, text="图片附件")
         image_frame.pack(fill="x", pady=5)
@@ -850,7 +835,6 @@ class TelegramFullGUI:
         
         image_path_var.trace('w', update_preview)
         
-        # 按钮
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(pady=10)
         
@@ -868,14 +852,11 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
     
     def select_reply_image(self, image_path_var):
-        """选择回复图片"""
         file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
         if file_path:
             image_path_var.set(file_path)
     
     def send_reply_message(self, phone, target_id, data, msg_type, reply_text, image_path):
-        """发送回复消息"""
-        # 找到账号信息
         acc = None
         for a in self.accounts:
             if a.get('phone') == phone:
@@ -900,7 +881,6 @@ class TelegramFullGUI:
                     return
                 
                 if msg_type == 'private':
-                    # 私信回复：target_id 是发送者ID
                     try:
                         target_entity = await client.get_entity(target_id)
                         if image_path and os.path.exists(image_path):
@@ -915,16 +895,13 @@ class TelegramFullGUI:
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 私信回复失败: {str(e)[:50]}")
                 else:
-                    # 群聊回复：target_id 是群组ID
                     group_id = data.get('group_id')
-                    # 获取最近的@消息，回复时@对方
                     last_messages = data.get('messages', [])
                     if last_messages:
                         last_msg = last_messages[-1]
                         from_user = last_msg.get('from_user', '').lstrip('@')
-                        if from_user:
-                            # 在回复内容前加上 @对方
-                            reply_text = f"@{from_user} {reply_text}" if reply_text and not reply_text.startswith('@') else reply_text
+                        if from_user and reply_text and not reply_text.startswith('@'):
+                            reply_text = f"@{from_user} {reply_text}"
                     
                     try:
                         target_entity = await client.get_entity(group_id)
@@ -962,21 +939,25 @@ class TelegramFullGUI:
         threading.Thread(target=run_send, daemon=True).start()
     
     def start_all_monitors(self):
-        """为所有正常账号启动监听"""
+        """为所有正常账号启动消息监听"""
         normal_accounts = [acc for acc in self.accounts if acc.get('status') == '正常']
         if not normal_accounts:
             self.log("多账号管理", "没有正常状态的账号")
             return
         
-        count = 0
-        for acc in normal_accounts:
-            phone = acc.get('phone', '')
-            if phone not in self.monitoring_clients:
-                self.start_single_monitor(acc)
-                count += 1
-                time.sleep(0.5)
+        already_running = [p for p in self.monitoring_clients.keys()]
+        to_start = [acc for acc in normal_accounts if acc.get('phone', '') not in already_running]
         
-        self.log("多账号管理", f"已为 {count} 个账号启动消息监听")
+        if not to_start:
+            self.log("多账号管理", "所有账号已在监听中")
+            return
+        
+        self.log("多账号管理", f"正在为 {len(to_start)} 个账号启动消息监听...")
+        
+        for acc in to_start:
+            self.start_single_monitor_fast(acc)
+        
+        self.log("多账号管理", f"已发起 {len(to_start)} 个账号的监听启动")
     
     def stop_all_monitors(self):
         """停止所有消息监听"""
@@ -1162,7 +1143,6 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts_filtered).pack(side="left", padx=2)
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list_filter).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="启动监听", command=self.start_all_monitors).pack(side="left", padx=2)
         ttk.Button(toolbar, text="停止监听", command=self.stop_all_monitors).pack(side="left", padx=2)
         ttk.Button(toolbar, text="消息中心", command=self.show_message_center).pack(side="left", padx=2)
         
@@ -1226,12 +1206,26 @@ class TelegramFullGUI:
         self.log("多账号管理", f"开始登录 {len(filtered_accounts)} 个账号（当前筛选结果）...")
         
         def do_login():
+            success_accounts = []
             for idx, acc in enumerate(filtered_accounts, 1):
                 phone = acc.get('phone', '')
                 self.log("多账号管理", f"[{idx}/{len(filtered_accounts)}] 正在登录: {phone}")
-                self.login_single_account(acc)
+                if self.login_single_account(acc):
+                    success_accounts.append(acc)
                 time.sleep(2)
-            self.log("多账号管理", "登录完成")
+            
+            self.log("多账号管理", f"登录完成，成功 {len(success_accounts)} 个账号")
+            
+            # 登录成功后自动启动消息监听
+            if success_accounts:
+                self.log("多账号管理", f"正在为 {len(success_accounts)} 个账号自动启动消息监听...")
+                for acc in success_accounts:
+                    phone = acc.get('phone', '')
+                    if phone not in self.monitoring_clients:
+                        self.start_single_monitor_fast(acc)
+                        time.sleep(0.3)
+                self.log("多账号管理", "消息监听已自动启动")
+            
             self.save_config()
         
         threading.Thread(target=do_login, daemon=True).start()
