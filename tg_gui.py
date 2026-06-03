@@ -447,11 +447,11 @@ class TelegramFullGUI:
         
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
-        dialog.geometry("500x500")
+        dialog.geometry("700x550")
         dialog.resizable(True, True)
         dialog.transient(self.root)
         dialog.grab_set()
-        self.center_window(dialog, 550, 500)
+        self.center_window(dialog, 750, 550)
         
         main_frame = ttk.Frame(dialog)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -467,32 +467,33 @@ class TelegramFullGUI:
         
         ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
         status_var = tk.StringVar(value=status_filter_default)
-        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常"], width=10)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "销号", "封禁"], width=12)
         status_combo.pack(side="left", padx=5)
         
         # 全选按钮
         select_all_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(filter_frame, text="全选", variable=select_all_var).pack(side="left", padx=20)
         
-        # 账号列表（带复选框）
+        # 账号列表（带复选框）- 使用Treeview带复选框
         listbox_frame = ttk.Frame(main_frame)
         listbox_frame.pack(fill="both", expand=True, pady=5)
         
-        # 使用Treeview带复选框
-        columns = ("选择", "序号", "手机号", "昵称", "分组")
-        tree = ttk.Treeview(listbox_frame, columns=columns, show="headings", height=15)
+        columns = ("选择", "序号", "手机号", "昵称", "分组", "状态")
+        tree = ttk.Treeview(listbox_frame, columns=columns, show="headings", height=18)
         
         tree.heading("选择", text="☑")
         tree.heading("序号", text="序号")
         tree.heading("手机号", text="手机号")
         tree.heading("昵称", text="昵称")
         tree.heading("分组", text="分组")
+        tree.heading("状态", text="状态")
         
         tree.column("选择", anchor="center", width=40)
         tree.column("序号", anchor="center", width=50)
         tree.column("手机号", anchor="center", width=120)
         tree.column("昵称", anchor="center", width=150)
         tree.column("分组", anchor="center", width=100)
+        tree.column("状态", anchor="center", width=80)
         
         scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -500,7 +501,7 @@ class TelegramFullGUI:
         scrollbar.pack(side="right", fill="y")
         
         # 存储复选框状态
-        check_vars = {}
+        check_vars = {}  # {phone: BooleanVar}
         
         def refresh_account_list():
             # 清空tree
@@ -522,13 +523,27 @@ class TelegramFullGUI:
             for idx, i in enumerate(selected_indices, 1):
                 acc = self.accounts[i]
                 phone = acc.get('phone', '')
-                nickname = acc.get('nickname', '')
+                nickname = acc.get('nickname', '')[:25]
                 group = acc.get('group', '默认分组')
+                status = acc.get('status', '待检测')
                 
                 var = tk.BooleanVar(value=False)
                 check_vars[phone] = var
                 
-                tree.insert("", "end", iid=phone, values=("", idx, phone, nickname[:20], group))
+                # 设置状态颜色标记
+                status_display = status
+                tree.insert("", "end", iid=phone, values=("", idx, phone, nickname, group, status_display))
+                
+                # 根据状态设置行颜色
+                if status == "正常":
+                    tree.tag_configure('normal', background='#e8f5e9')
+                    tree.item(phone, tags=('normal',))
+                elif status in ["销号", "封禁"]:
+                    tree.tag_configure('dead', background='#ffebee')
+                    tree.item(phone, tags=('dead',))
+                elif status in ["未授权", "需要2FA"]:
+                    tree.tag_configure('unauth', background='#fff3e0')
+                    tree.item(phone, tags=('unauth',))
         
         def on_tree_click(event):
             region = tree.identify_region(event.x, event.y)
@@ -579,6 +594,7 @@ class TelegramFullGUI:
         
         ttk.Button(btn_frame, text="确定", command=on_confirm, width=12).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="取消", command=on_cancel, width=12).pack(side="left", padx=10)
+        ttk.Label(btn_frame, text=f"共 {len([v for v in check_vars.values() if v.get()])} 个账号", foreground="blue").pack(side="left", padx=20)
         
         self.root.wait_window(dialog)
         
@@ -650,7 +666,7 @@ class TelegramFullGUI:
         scrollbar.pack(side="right", fill="y")
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
-        log_frame.pack(fill="x", pady=5)
+        log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
     
@@ -1513,7 +1529,7 @@ class TelegramFullGUI:
         scrollbar.pack(side="right", fill="y")
         
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
-        log_frame.pack(fill="x", pady=5)
+        log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
         self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
     
@@ -1965,7 +1981,7 @@ class TelegramFullGUI:
         self.scrape_stats.pack(pady=5)
         
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
-        log_frame.pack(fill="x", pady=5)
+        log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
         self.log_widgets["采集群成员"].pack(fill="both", expand=True, padx=5, pady=5)
         
@@ -2924,7 +2940,7 @@ class TelegramFullGUI:
         self.stop_invite_btn.pack(side="left", padx=10)
         
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
-        log_frame.pack(fill="x", pady=5)
+        log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
         
@@ -4241,24 +4257,12 @@ class TelegramFullGUI:
         self.chat_group_file = tk.StringVar()
         ttk.Entry(group_row, textvariable=self.chat_group_file, width=60).pack(side="left", padx=5)
         ttk.Button(group_row, text="导入群链接文件", command=self.import_chat_groups, width=15).pack(side="left", padx=5)
-        ttk.Label(group_row, text="（每行一个群链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
+        ttk.Label(group_row, text="（每行一个群链接或ID，分组对应群模式下格式：分组名 - 链接）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=10)
         
         self.chat_group_count_label = ttk.Label(group_frame, text="已加载: 0 个群组", foreground="blue")
         self.chat_group_count_label.pack(anchor="w", padx=5, pady=2)
         
-        # 分组绑定设置（分组对应群模式下显示）
-        self.group_bind_frame = ttk.LabelFrame(chat_inner, text="分组绑定设置")
-        
-        def update_group_bind_visibility():
-            if self.chat_mode.get() == "group":
-                self.group_bind_frame.pack(fill="x", padx=10, pady=5)
-                self.refresh_group_bind()
-            else:
-                self.group_bind_frame.pack_forget()
-        
-        self.chat_mode.trace('w', lambda *args: update_group_bind_visibility())
-        
-        # 账号选择区域
+        # 账号选择区域（删除分组绑定设置）
         account_frame = ttk.LabelFrame(chat_inner, text="选择任务账号")
         account_frame.pack(fill="x", padx=10, pady=5)
         
@@ -4342,7 +4346,7 @@ class TelegramFullGUI:
         self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
         
         # 初始化变量
-        self.chat_groups = []
+        self.chat_groups = []  # 存储 (group_name, group_link) 元组
         self.chat_scripts = []
         self.chat_script_items = []
         self.chat_running = False
@@ -4350,53 +4354,6 @@ class TelegramFullGUI:
         self.chat_stop_flag = False
         self.chat_tasks = []
         self.chat_current_script_index = {}
-        
-        self.init_group_bind_ui()
-    
-    def init_group_bind_ui(self):
-        for widget in self.group_bind_frame.winfo_children():
-            widget.destroy()
-        
-        if not hasattr(self, 'group_bindings'):
-            self.group_bindings = {}
-        
-        for group_name in self.groups:
-            if group_name == "默认分组" or not group_name:
-                continue
-            
-            row_frame = ttk.Frame(self.group_bind_frame)
-            row_frame.pack(fill="x", padx=5, pady=2)
-            
-            ttk.Label(row_frame, text=f"{group_name}:", width=15).pack(side="left", padx=5)
-            
-            listbox = tk.Listbox(row_frame, selectmode=tk.MULTIPLE, height=3, width=50)
-            scrollbar = ttk.Scrollbar(row_frame, orient="vertical", command=listbox.yview)
-            listbox.configure(yscrollcommand=scrollbar.set)
-            listbox.pack(side="left", fill="x", expand=True, padx=5)
-            scrollbar.pack(side="left", fill="y")
-            
-            self.group_bindings[group_name] = listbox
-            self.refresh_group_bind_listbox(group_name, listbox)
-        
-        if len(self.groups) <= 1:
-            ttk.Label(self.group_bind_frame, text="暂无分组，请先在\"多账号管理\"中创建分组", foreground="gray").pack(pady=10)
-    
-    def refresh_group_bind_listbox(self, group_name, listbox):
-        listbox.delete(0, tk.END)
-        for i, g in enumerate(self.chat_groups):
-            display = f"{i+1}. {g[:50]}"
-            listbox.insert(tk.END, display)
-    
-    def refresh_group_bind(self):
-        for group_name, listbox in self.group_bindings.items():
-            self.refresh_group_bind_listbox(group_name, listbox)
-    
-    def get_group_bindings(self):
-        bindings = {}
-        for group_name, listbox in self.group_bindings.items():
-            selected = listbox.curselection()
-            bindings[group_name] = [int(idx) for idx in selected]
-        return bindings
     
     def import_chat_groups(self):
         file_path = filedialog.askopenfilename(title="选择群组链接文件", filetypes=[("文本文件", "*.txt")])
@@ -4418,13 +4375,31 @@ class TelegramFullGUI:
                     return
                 
                 for line in content.split('\n'):
-                    group_link = line.strip()
-                    if group_link:
-                        groups.append(group_link)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # 解析格式：支持 "分组名 - 链接" 或直接 "链接"
+                    group_name = None
+                    group_link = line
+                    
+                    if ' - ' in line:
+                        parts = line.split(' - ', 1)
+                        group_name = parts[0].strip()
+                        group_link = parts[1].strip()
+                    
+                    groups.append({
+                        'name': group_name,
+                        'link': group_link
+                    })
+                
                 self.chat_groups = groups
                 self.chat_group_count_label.config(text=f"已加载: {len(groups)} 个群组")
                 self.log("自动群聊", f"导入群组链接: {file_path}, 共 {len(groups)} 个群组")
-                self.refresh_group_bind()
+                # 解析分组名用于日志
+                group_names = [g['name'] for g in groups if g['name']]
+                if group_names:
+                    self.log("自动群聊", f"检测到分组绑定: {', '.join(set(group_names))}")
             except Exception as e:
                 self.log("自动群聊", f"导入失败: {str(e)}")
     
@@ -4594,22 +4569,27 @@ class TelegramFullGUI:
         threading.Thread(target=run_auto_chat, daemon=True).start()
     
     async def do_auto_chat(self, accounts, groups, script_items, min_interval, max_interval, loop_enabled, start_line):
-        group_bindings = {}
-        if self.chat_mode.get() == "group":
-            bindings = self.get_group_bindings()
-            for group_name, indices in bindings.items():
-                group_bindings[group_name] = [groups[idx] for idx in indices if idx < len(groups)]
-        
+        # 构建账号到群组的映射
         account_groups = {}
-        for acc in accounts:
-            acc_group = acc.get('group', '默认分组')
-            if self.chat_mode.get() == "group":
-                target_groups = group_bindings.get(acc_group, [])
-                if not target_groups:
-                    continue
-                account_groups[acc.get('phone')] = target_groups
-            else:
-                account_groups[acc.get('phone')] = groups
+        
+        if self.chat_mode.get() == "group":
+            # 分组对应群模式：根据群链接前的分组名分配
+            for acc in accounts:
+                acc_group = acc.get('group', '默认分组')
+                target_links = []
+                for g in groups:
+                    # 如果群有指定的分组名，且匹配账号分组
+                    if g.get('name') and g.get('name') == acc_group:
+                        target_links.append(g.get('link'))
+                    # 如果没有指定分组名，则所有账号都加入
+                    elif not g.get('name'):
+                        target_links.append(g.get('link'))
+                if target_links:
+                    account_groups[acc.get('phone')] = target_links
+        else:
+            # 全账号全群模式：所有账号加入所有群组
+            for acc in accounts:
+                account_groups[acc.get('phone')] = [g.get('link') for g in groups]
         
         if not account_groups:
             self.log("自动群聊", "没有账号分配到有效群组")
@@ -4813,14 +4793,11 @@ class TelegramFullGUI:
                                 cache = self.chat_message_cache[group_id]
                                 if target_phone in cache:
                                     cached = cache[target_phone]
-                                    # 缓存的消息ID可能已过期，尝试获取最新消息
                                     try:
-                                        # 尝试获取该用户的最新消息
                                         target_user = await client.get_entity(target_phone)
                                         target_user_id = target_user.id
                                         async for msg in client.iter_messages(entity, from_user=target_user_id, limit=1):
                                             found_msg = msg
-                                            # 更新缓存
                                             cache[target_phone] = {
                                                 'msg_id': msg.id,
                                                 'content': msg.text or '',
@@ -4828,7 +4805,6 @@ class TelegramFullGUI:
                                             }
                                             break
                                     except:
-                                        # 如果无法通过手机号获取，使用缓存的msg_id尝试
                                         try:
                                             found_msg = await client.get_messages(entity, ids=cached['msg_id'])
                                             if not found_msg:
@@ -4836,15 +4812,12 @@ class TelegramFullGUI:
                                         except:
                                             found_msg = None
                             
-                            # 如果缓存中没有，搜索群组消息
                             if not found_msg:
                                 try:
-                                    # 尝试获取目标用户的实体
                                     target_user = await client.get_entity(target_phone)
                                     target_user_id = target_user.id
                                     async for msg in client.iter_messages(entity, from_user=target_user_id, limit=10):
                                         found_msg = msg
-                                        # 更新缓存
                                         if group_id not in self.chat_message_cache:
                                             self.chat_message_cache[group_id] = {}
                                         self.chat_message_cache[group_id][target_phone] = {
@@ -4866,11 +4839,9 @@ class TelegramFullGUI:
                             await client.send_message(entity, script_item['message'])
                             self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
                     else:
-                        # 主动发送消息，发送后更新缓存
                         sent_msg = await client.send_message(entity, script_item['message'])
                         self.log("自动群聊", f"[{phone[-6:]}] 发言: {script_item['message'][:40]}")
                         
-                        # 将发送的消息加入缓存，以便其他账号回复
                         if sent_msg:
                             group_id = entity.id
                             if group_id not in self.chat_message_cache:
@@ -4891,7 +4862,6 @@ class TelegramFullGUI:
             
             # 话术间隔：如果连续两条话术是同一个账号，则不等待
             if script_pointer < len(script_queue) and script_queue[script_pointer]['phone'] == phone:
-                # 同一账号连续发言，不等待间隔
                 self.log("自动群聊", f"同一账号连续发言，跳过间隔等待")
                 continue
             
