@@ -62,6 +62,11 @@ class TelegramFullGUI:
         # 消息缓存：用于自动群聊的回复功能
         self.chat_message_cache = {}  # {group_id: {account_phone: {'msg_id': xxx, 'content': xxx, 'timestamp': xxx}}}
         
+        # 消息监听相关变量
+        self.message_cache = {}  # {phone: {type: {sender_id: {'username': xxx, 'first_name': xxx, 'unread': N, 'messages': []}}}}
+        self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'task': thread}}
+        self.message_cache_lock = threading.Lock()
+        
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
         
@@ -356,6 +361,9 @@ class TelegramFullGUI:
     
     def on_exit(self):
         self.save_config()
+        # 停止所有消息监听
+        for phone in list(self.monitoring_clients.keys()):
+            self.stop_message_monitor(phone)
         self.root.quit()
     
     def show_card_info(self):
@@ -433,13 +441,547 @@ class TelegramFullGUI:
             if filter_status != "全部" and acc.get('status', '待检测') != filter_status:
                 continue
             
+            # 获取未读消息总数
+            unread_count = self.get_unread_count(acc.get('phone', ''))
+            message_display = f"💬 {unread_count}" if unread_count > 0 else "📭"
+            
             self.account_tree.insert("", "end", values=(
                 i, acc.get('phone', ''), acc.get('group', '默认分组'),
                 acc.get('nickname', ''), acc.get('current_task', ''),
                 acc.get('status', '待检测'),
-                acc.get('register_time', '未知'), acc.get('proxy', '未设置'), "📭"
+                acc.get('register_time', '未知'), acc.get('proxy', '未设置'), message_display
             ))
             i += 1
+    
+    def get_unread_count(self, phone):
+        """获取账号的未读消息总数"""
+        with self.message_cache_lock:
+            if phone not in self.message_cache:
+                return 0
+            total = 0
+            # 私信未读
+            if 'private' in self.message_cache[phone]:
+                for sender_id, data in self.message_cache[phone]['private'].items():
+                    total += data.get('unread', 0)
+            # 群聊@未读
+            if 'group_mention' in self.message_cache[phone]:
+                for group_id, data in self.message_cache[phone]['group_mention'].items():
+                    total += data.get('unread', 0)
+            return total
+    
+    # ==================== 消息监听功能 ====================
+    def start_message_monitor(self):
+        """为选中的账号启动消息监听"""
+        selected = self.account_tree.selection()
+        if not selected:
+            self.log("多账号管理", "请先选中要启动监听的账号")
+            self.show_centered_warning("提示", "请先选中要启动监听的账号")
+            return
+        
+        filtered_accounts = self.get_filtered_accounts()
+        phones_to_start = []
+        for item in selected:
+            idx = int(self.account_tree.item(item)['values'][0]) - 1
+            if idx < len(filtered_accounts):
+                acc = filtered_accounts[idx]
+                phone = acc.get('phone', '')
+                if acc.get('status') == '正常':
+                    if phone not in self.monitoring_clients:
+                        phones_to_start.append(acc)
+                    else:
+                        self.log("多账号管理", f"[{phone}] 已在监听中")
+                else:
+                    self.log("多账号管理", f"[{phone}] 账号状态异常，请先登录")
+        
+        if not phones_to_start:
+            self.log("多账号管理", "没有可启动监听的账号")
+            return
+        
+        self.log("多账号管理", f"正在为 {len(phones_to_start)} 个账号启动消息监听...")
+        
+        for acc in phones_to_start:
+            self.start_single_monitor(acc)
+    
+    def start_single_monitor(self, acc):
+        """为单个账号启动消息监听"""
+        phone = acc.get('phone', '')
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
+        
+        async def monitor():
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.log("多账号管理", f"[{phone}] 未登录，无法启动监听")
+                    return
+                
+                me = await client.get_me()
+                my_username = me.username
+                my_id = me.id
+                
+                self.log("多账号管理", f"[{phone}] 消息监听已启动 (ID: {my_id})")
+                
+                @client.on(events.NewMessage(incoming=True))
+                async def message_handler(event):
+                    try:
+                        if event.message.out:
+                            return
+                        
+                        sender = await event.get_sender()
+                        sender_name = getattr(sender, 'first_name', '') or getattr(sender, 'username', '') or str(sender.id)
+                        sender_username = getattr(sender, 'username', '')
+                        sender_id = sender.id
+                        
+                        message_text = event.message.text or "[非文本消息]"
+                        message_time = datetime.now().strftime("%H:%M:%S")
+                        
+                        # 判断消息类型
+                        if event.is_private:
+                            # 私信处理
+                            with self.message_cache_lock:
+                                if phone not in self.message_cache:
+                                    self.message_cache[phone] = {'private': {}, 'group_mention': {}}
+                                
+                                if sender_id not in self.message_cache[phone]['private']:
+                                    self.message_cache[phone]['private'][sender_id] = {
+                                        'username': f"@{sender_username}" if sender_username else sender_name,
+                                        'first_name': sender_name,
+                                        'unread': 0,
+                                        'messages': []
+                                    }
+                                
+                                self.message_cache[phone]['private'][sender_id]['unread'] += 1
+                                self.message_cache[phone]['private'][sender_id]['messages'].append({
+                                    'text': message_text,
+                                    'time': message_time,
+                                    'is_read': False
+                                })
+                                # 只保留最近50条消息
+                                if len(self.message_cache[phone]['private'][sender_id]['messages']) > 50:
+                                    self.message_cache[phone]['private'][sender_id]['messages'] = self.message_cache[phone]['private'][sender_id]['messages'][-50:]
+                            
+                            self.root.after(0, self.refresh_account_list_filter)
+                            self.log("多账号管理", f"[{phone}] 收到私信: {sender_name} -> {message_text[:50]}")
+                        
+                        elif event.is_group:
+                            # 群聊处理，检查是否@了当前账号
+                            if event.message.mentioned:
+                                chat = await event.get_chat()
+                                chat_name = getattr(chat, 'title', '未知群组')
+                                
+                                with self.message_cache_lock:
+                                    if phone not in self.message_cache:
+                                        self.message_cache[phone] = {'private': {}, 'group_mention': {}}
+                                    
+                                    group_key = f"group_{chat.id}"
+                                    if group_key not in self.message_cache[phone]['group_mention']:
+                                        self.message_cache[phone]['group_mention'][group_key] = {
+                                            'group_name': chat_name,
+                                            'group_id': chat.id,
+                                            'unread': 0,
+                                            'messages': []
+                                        }
+                                    
+                                    self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
+                                    self.message_cache[phone]['group_mention'][group_key]['messages'].append({
+                                        'from_user': f"@{sender_username}" if sender_username else sender_name,
+                                        'text': message_text,
+                                        'time': message_time,
+                                        'is_read': False
+                                    })
+                                    # 只保留最近50条消息
+                                    if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
+                                        self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
+                                
+                                self.root.after(0, self.refresh_account_list_filter)
+                                self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @: {sender_name} -> {message_text[:50]}")
+                    
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:50]}")
+                
+                # 保持连接
+                self.monitoring_clients[phone] = {'client': client, 'running': True}
+                await client.run_until_disconnected()
+                
+            except Exception as e:
+                self.log("多账号管理", f"[{phone}] 监听启动失败: {str(e)[:50]}")
+            finally:
+                if phone in self.monitoring_clients:
+                    del self.monitoring_clients[phone]
+                self.log("多账号管理", f"[{phone}] 消息监听已停止")
+        
+        def run_monitor():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(monitor())
+            loop.close()
+        
+        thread = threading.Thread(target=run_monitor, daemon=True)
+        thread.start()
+        self.monitoring_clients[phone] = {'client': None, 'running': True, 'thread': thread}
+    
+    def stop_message_monitor(self, phone=None):
+        """停止消息监听"""
+        if phone:
+            if phone in self.monitoring_clients:
+                # 异步断开连接
+                async def disconnect():
+                    if self.monitoring_clients[phone].get('client'):
+                        await self.monitoring_clients[phone]['client'].disconnect()
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(disconnect())
+                    loop.close()
+                except:
+                    pass
+                del self.monitoring_clients[phone]
+                self.log("多账号管理", f"[{phone}] 已停止监听")
+        else:
+            # 停止所有
+            for p in list(self.monitoring_clients.keys()):
+                self.stop_message_monitor(p)
+    
+    def show_message_center(self):
+        """显示消息中心窗口"""
+        selected = self.account_tree.selection()
+        if not selected:
+            self.log("多账号管理", "请先选中要查看消息的账号")
+            self.show_centered_warning("提示", "请先选中要查看消息的账号")
+            return
+        
+        filtered_accounts = self.get_filtered_accounts()
+        item = selected[0]
+        idx = int(self.account_tree.item(item)['values'][0]) - 1
+        if idx >= len(filtered_accounts):
+            return
+        acc = filtered_accounts[idx]
+        phone = acc.get('phone', '')
+        
+        if phone not in self.message_cache or (not self.message_cache[phone].get('private') and not self.message_cache[phone].get('group_mention')):
+            self.show_centered_info("消息中心", "暂无消息")
+            return
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"消息中心 - {phone} ({acc.get('nickname', '')})")
+        dialog.geometry("750x600")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.center_window(dialog, 750, 600)
+        
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # 标签页
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill="both", expand=True)
+        
+        # 私信标签页
+        private_frame = ttk.Frame(notebook)
+        notebook.add(private_frame, text="私信")
+        
+        # 群聊@标签页
+        group_frame = ttk.Frame(notebook)
+        notebook.add(group_frame, text="群聊@我")
+        
+        # 构建私信列表
+        private_canvas = tk.Canvas(private_frame, highlightthickness=0)
+        private_scrollbar = ttk.Scrollbar(private_frame, orient="vertical", command=private_canvas.yview)
+        private_inner = ttk.Frame(private_canvas)
+        
+        private_canvas.configure(yscrollcommand=private_scrollbar.set)
+        private_canvas.pack(side="left", fill="both", expand=True)
+        private_scrollbar.pack(side="right", fill="y")
+        
+        private_window = private_canvas.create_window((0, 0), window=private_inner, anchor="nw", width=private_canvas.winfo_width())
+        
+        def on_private_configure(event):
+            private_canvas.configure(scrollregion=private_canvas.bbox("all"))
+        private_inner.bind("<Configure>", on_private_configure)
+        
+        def on_private_canvas_configure(event):
+            private_canvas.itemconfig(private_window, width=event.width)
+        private_canvas.bind("<Configure>", on_private_canvas_configure)
+        
+        # 填充私信
+        row = 0
+        if phone in self.message_cache and 'private' in self.message_cache[phone]:
+            for sender_id, data in self.message_cache[phone]['private'].items():
+                msg_frame = ttk.LabelFrame(private_inner, text=f"{data.get('username', '未知')} ({data.get('unread', 0)}条未读)")
+                msg_frame.grid(row=row, column=0, sticky="ew", padx=5, pady=5)
+                msg_frame.columnconfigure(0, weight=1)
+                
+                for msg in data.get('messages', [])[-20:]:  # 显示最近20条
+                # 构建消息显示
+                    text_color = "gray" if msg.get('is_read') else "black"
+                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('text')}", anchor="w", justify="left", fg=text_color, wraplength=600)
+                    msg_label.pack(fill="x", padx=5, pady=2)
+                
+                btn_frame = ttk.Frame(msg_frame)
+                btn_frame.pack(fill="x", pady=5)
+                
+                # 回复按钮
+                reply_btn = ttk.Button(btn_frame, text="回复", command=lambda p=phone, sid=sender_id, un=data: self.open_reply_window(p, sid, data, 'private'))
+                reply_btn.pack(side="left", padx=5)
+                
+                # 标记已读按钮
+                def mark_read(p=phone, sid=sender_id):
+                    with self.message_cache_lock:
+                        if p in self.message_cache and 'private' in self.message_cache[p] and sid in self.message_cache[p]['private']:
+                            self.message_cache[p]['private'][sid]['unread'] = 0
+                            for msg in self.message_cache[p]['private'][sid]['messages']:
+                                msg['is_read'] = True
+                    self.refresh_account_list_filter()
+                    dialog.destroy()
+                    self.show_message_center()
+                
+                mark_btn = ttk.Button(btn_frame, text="标记已读", command=mark_read)
+                mark_btn.pack(side="left", padx=5)
+                
+                row += 1
+        
+        # 构建群聊@列表
+        group_canvas = tk.Canvas(group_frame, highlightthickness=0)
+        group_scrollbar = ttk.Scrollbar(group_frame, orient="vertical", command=group_canvas.yview)
+        group_inner = ttk.Frame(group_canvas)
+        
+        group_canvas.configure(yscrollcommand=group_scrollbar.set)
+        group_canvas.pack(side="left", fill="both", expand=True)
+        group_scrollbar.pack(side="right", fill="y")
+        
+        group_window = group_canvas.create_window((0, 0), window=group_inner, anchor="nw", width=group_canvas.winfo_width())
+        
+        def on_group_configure(event):
+            group_canvas.configure(scrollregion=group_canvas.bbox("all"))
+        group_inner.bind("<Configure>", on_group_configure)
+        
+        def on_group_canvas_configure(event):
+            group_canvas.itemconfig(group_window, width=event.width)
+        group_canvas.bind("<Configure>", on_group_canvas_configure)
+        
+        # 填充群聊@
+        g_row = 0
+        if phone in self.message_cache and 'group_mention' in self.message_cache[phone]:
+            for group_key, data in self.message_cache[phone]['group_mention'].items():
+                msg_frame = ttk.LabelFrame(group_inner, text=f"{data.get('group_name', '未知群组')} ({data.get('unread', 0)}条未读)")
+                msg_frame.grid(row=g_row, column=0, sticky="ew", padx=5, pady=5)
+                msg_frame.columnconfigure(0, weight=1)
+                
+                for msg in data.get('messages', [])[-20:]:
+                    text_color = "gray" if msg.get('is_read') else "black"
+                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('from_user')}: {msg.get('text')}", anchor="w", justify="left", fg=text_color, wraplength=600)
+                    msg_label.pack(fill="x", padx=5, pady=2)
+                
+                btn_frame = ttk.Frame(msg_frame)
+                btn_frame.pack(fill="x", pady=5)
+                
+                # 回复按钮（群聊回复需要@对方）
+                reply_btn = ttk.Button(btn_frame, text="回复", command=lambda p=phone, gk=group_key, data=data: self.open_reply_window(p, gk, data, 'group'))
+                reply_btn.pack(side="left", padx=5)
+                
+                # 标记已读按钮
+                def mark_group_read(p=phone, gk=group_key):
+                    with self.message_cache_lock:
+                        if p in self.message_cache and 'group_mention' in self.message_cache[p] and gk in self.message_cache[p]['group_mention']:
+                            self.message_cache[p]['group_mention'][gk]['unread'] = 0
+                            for msg in self.message_cache[p]['group_mention'][gk]['messages']:
+                                msg['is_read'] = True
+                    self.refresh_account_list_filter()
+                    dialog.destroy()
+                    self.show_message_center()
+                
+                mark_btn = ttk.Button(btn_frame, text="标记已读", command=mark_group_read)
+                mark_btn.pack(side="left", padx=5)
+                
+                g_row += 1
+        
+        # 关闭按钮
+        close_btn = ttk.Button(main_frame, text="关闭", command=dialog.destroy)
+        close_btn.pack(pady=10)
+    
+    def open_reply_window(self, phone, target_id, data, msg_type):
+        """打开回复窗口"""
+        dialog = tk.Toplevel(self.root)
+        if msg_type == 'private':
+            dialog.title(f"回复 - {data.get('username', '未知')}")
+            target_info = data.get('username', '未知')
+        else:
+            dialog.title(f"回复群聊 - {data.get('group_name', '未知群组')}")
+            target_info = f"{data.get('group_name', '未知群组')}"
+        
+        dialog.geometry("550x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.center_window(dialog, 550, 400)
+        
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        ttk.Label(main_frame, text=f"回复对象: {target_info}").pack(anchor="w", pady=5)
+        ttk.Label(main_frame, text=f"消息类型: {'私信' if msg_type == 'private' else '群聊@'}").pack(anchor="w", pady=5)
+        
+        # 文本输入框
+        ttk.Label(main_frame, text="回复内容:").pack(anchor="w", pady=5)
+        text_entry = scrolledtext.ScrolledText(main_frame, width=60, height=8)
+        text_entry.pack(fill="x", pady=5)
+        
+        # 图片选择
+        image_path_var = tk.StringVar()
+        image_frame = ttk.LabelFrame(main_frame, text="图片附件")
+        image_frame.pack(fill="x", pady=5)
+        
+        image_row = ttk.Frame(image_frame)
+        image_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Entry(image_row, textvariable=image_path_var, width=50).pack(side="left", padx=5)
+        ttk.Button(image_row, text="选择图片", command=lambda: self.select_reply_image(image_path_var)).pack(side="left", padx=5)
+        ttk.Button(image_row, text="清除图片", command=lambda: image_path_var.set("")).pack(side="left", padx=5)
+        
+        self.reply_image_preview_label = ttk.Label(image_frame, text="当前图片: 无", foreground="gray")
+        self.reply_image_preview_label.pack(anchor="w", padx=5, pady=2)
+        
+        def update_preview(*args):
+            if image_path_var.get():
+                self.reply_image_preview_label.config(text=f"当前图片: {os.path.basename(image_path_var.get())}", foreground="blue")
+            else:
+                self.reply_image_preview_label.config(text="当前图片: 无", foreground="gray")
+        
+        image_path_var.trace('w', update_preview)
+        
+        # 按钮
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(pady=10)
+        
+        def do_reply():
+            reply_text = text_entry.get("1.0", tk.END).strip()
+            image_path = image_path_var.get().strip()
+            if not reply_text and not image_path:
+                self.show_centered_warning("提示", "请输入回复内容或选择图片")
+                return
+            
+            dialog.destroy()
+            self.send_reply_message(phone, target_id, data, msg_type, reply_text, image_path)
+        
+        ttk.Button(btn_frame, text="发送", command=do_reply, width=12).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
+    
+    def select_reply_image(self, image_path_var):
+        """选择回复图片"""
+        file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
+        if file_path:
+            image_path_var.set(file_path)
+    
+    def send_reply_message(self, phone, target_id, data, msg_type, reply_text, image_path):
+        """发送回复消息"""
+        # 找到账号信息
+        acc = None
+        for a in self.accounts:
+            if a.get('phone') == phone:
+                acc = a
+                break
+        
+        if not acc or acc.get('status') != '正常':
+            self.log("多账号管理", f"[{phone}] 账号未登录，无法回复")
+            self.show_centered_warning("提示", f"账号 {phone} 未登录，无法回复")
+            return
+        
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
+        
+        async def send():
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.log("多账号管理", f"[{phone}] 未登录")
+                    return
+                
+                if msg_type == 'private':
+                    # 私信回复：target_id 是发送者ID
+                    try:
+                        target_entity = await client.get_entity(target_id)
+                        if image_path and os.path.exists(image_path):
+                            file = await client.upload_file(image_path)
+                            if reply_text:
+                                await client.send_file(target_entity, file, caption=reply_text)
+                            else:
+                                await client.send_file(target_entity, file)
+                        else:
+                            await client.send_message(target_entity, reply_text)
+                        self.log("多账号管理", f"[{phone}] 私信回复成功")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 私信回复失败: {str(e)[:50]}")
+                else:
+                    # 群聊回复：target_id 是群组ID
+                    group_id = data.get('group_id')
+                    # 获取最近的@消息，回复时@对方
+                    last_messages = data.get('messages', [])
+                    if last_messages:
+                        last_msg = last_messages[-1]
+                        from_user = last_msg.get('from_user', '').lstrip('@')
+                        if from_user:
+                            # 在回复内容前加上 @对方
+                            reply_text = f"@{from_user} {reply_text}" if reply_text and not reply_text.startswith('@') else reply_text
+                    
+                    try:
+                        target_entity = await client.get_entity(group_id)
+                        if image_path and os.path.exists(image_path):
+                            file = await client.upload_file(image_path)
+                            if reply_text:
+                                await client.send_file(target_entity, file, caption=reply_text)
+                            else:
+                                await client.send_file(target_entity, file)
+                        else:
+                            await client.send_message(target_entity, reply_text)
+                        self.log("多账号管理", f"[{phone}] 群聊回复成功")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 群聊回复失败: {str(e)[:50]}")
+                
+                await client.disconnect()
+                self.show_centered_info("成功", "消息已发送")
+                
+            except Exception as e:
+                self.log("多账号管理", f"[{phone}] 发送失败: {str(e)[:50]}")
+                self.show_centered_error("失败", f"发送失败: {str(e)[:50]}")
+            finally:
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+        
+        def run_send():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(send())
+            loop.close()
+        
+        threading.Thread(target=run_send, daemon=True).start()
+    
+    def start_all_monitors(self):
+        """为所有正常账号启动监听"""
+        normal_accounts = [acc for acc in self.accounts if acc.get('status') == '正常']
+        if not normal_accounts:
+            self.log("多账号管理", "没有正常状态的账号")
+            return
+        
+        count = 0
+        for acc in normal_accounts:
+            phone = acc.get('phone', '')
+            if phone not in self.monitoring_clients:
+                self.start_single_monitor(acc)
+                count += 1
+                time.sleep(0.5)
+        
+        self.log("多账号管理", f"已为 {count} 个账号启动消息监听")
+    
+    def stop_all_monitors(self):
+        """停止所有消息监听"""
+        self.stop_message_monitor()
+        self.log("多账号管理", "已停止所有消息监听")
     
     # ==================== 通用账号选择弹窗 ====================
     def show_account_selector(self, title, group_filter_default="全部", status_filter_default="正常", multi_select=True):
@@ -620,6 +1162,9 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts_filtered).pack(side="left", padx=2)
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list_filter).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="启动监听", command=self.start_all_monitors).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="停止监听", command=self.stop_all_monitors).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="消息中心", command=self.show_message_center).pack(side="left", padx=2)
         
         filter_bar = ttk.Frame(main_frame)
         filter_bar.pack(fill="x", pady=5)
