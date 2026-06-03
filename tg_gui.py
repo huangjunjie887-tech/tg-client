@@ -44,7 +44,7 @@ class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("天师府TG全能营销系统 联系@Tian2547")
-        self.root.geometry("1200x950")
+        self.root.geometry("1200x800")
         self.root.resizable(True, True)
         
         self.is_logged_in = False
@@ -608,11 +608,7 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上方内容区域 - 不扩展
-        top_frame = ttk.Frame(main_frame)
-        top_frame.pack(fill="x", pady=(0, 5))
-        
-        toolbar = ttk.Frame(top_frame)
+        toolbar = ttk.Frame(main_frame)
         toolbar.pack(fill="x", pady=5)
         
         ttk.Button(toolbar, text="分组管理", command=self.open_group_manager).pack(side="left", padx=2)
@@ -625,7 +621,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts_filtered).pack(side="left", padx=2)
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list_filter).pack(side="left", padx=2)
         
-        filter_bar = ttk.Frame(top_frame)
+        filter_bar = ttk.Frame(main_frame)
         filter_bar.pack(fill="x", pady=5)
         
         ttk.Label(filter_bar, text="分组筛选:").pack(side="left", padx=5)
@@ -646,8 +642,8 @@ class TelegramFullGUI:
             statuses.add(status)
         self.account_list_status_filter['values'] = list(statuses)
         
-        frame = ttk.LabelFrame(top_frame, text="账号列表")
-        frame.pack(fill="x", pady=5)
+        frame = ttk.LabelFrame(main_frame, text="账号列表")
+        frame.pack(fill="both", expand=True, pady=5)
         
         columns = ("序号", "手机号", "分组", "昵称", "当前任务", "上一次操作", "账号状态", "注册时长", "代理IP")
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
@@ -669,7 +665,6 @@ class TelegramFullGUI:
         self.account_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
         
-        # 运行日志区域 - 自动铺满剩余空间
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
@@ -1501,11 +1496,7 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上方内容区域 - 不扩展
-        top_frame = ttk.Frame(main_frame)
-        top_frame.pack(fill="x", pady=(0, 5))
-        
-        toolbar = ttk.Frame(top_frame)
+        toolbar = ttk.Frame(main_frame)
         toolbar.pack(fill="x", pady=5)
         
         self.proxy_count_label = ttk.Label(toolbar, text=f"代理数量: {len(self.proxies)}", font=("微软雅黑", 10))
@@ -1518,8 +1509,8 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="分配代理IP", command=self.assign_proxies_to_accounts).pack(side="left", padx=2)
         
-        frame = ttk.LabelFrame(top_frame, text="代理列表")
-        frame.pack(fill="x", pady=5)
+        frame = ttk.LabelFrame(main_frame, text="代理列表")
+        frame.pack(fill="both", expand=True, pady=5)
         
         columns = ("分组", "序号", "代理类型", "代理地址", "状态")
         self.proxy_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
@@ -1537,7 +1528,6 @@ class TelegramFullGUI:
         self.proxy_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
         
-        # 运行日志区域 - 自动铺满剩余空间
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=8)
@@ -1883,11 +1873,7 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 左右布局容器
-        paned = ttk.Frame(main_frame)
-        paned.pack(fill="both", expand=True)
-        
-        left_frame = ttk.LabelFrame(paned, text="采集设置")
+        left_frame = ttk.LabelFrame(main_frame, text="采集设置")
         left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
         ttk.Label(left_frame, text="群组链接:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
@@ -1974,15 +1960,14 @@ class TelegramFullGUI:
         self.continue_btn = ttk.Button(btn_frame, text="继续", command=self.resume_scrape, width=12)
         self.continue_btn.pack(side="left", padx=5)
         
-        right_frame = ttk.LabelFrame(paned, text="采集预览")
+        right_frame = ttk.LabelFrame(main_frame, text="采集预览")
         right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
         
-        # 预览列表 - 固定高度
         preview_frame = ttk.Frame(right_frame)
         preview_frame.pack(fill="both", expand=True)
         
         preview_columns = ("序号", "用户ID", "用户名", "昵称", "在线状态", "是否管理员", "是否机器人")
-        self.preview_tree = ttk.Treeview(preview_frame, columns=preview_columns, show="headings", height=12)
+        self.preview_tree = ttk.Treeview(preview_frame, columns=preview_columns, show="headings", height=15)
         for col in preview_columns:
             self.preview_tree.heading(col, text=col)
             self.preview_tree.column(col, anchor="center", width=100)
@@ -1992,7 +1977,8 @@ class TelegramFullGUI:
         self.preview_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         preview_scrollbar.pack(side="right", fill="y")
         
-        # 运行日志区域 - 自动铺满剩余空间
+        # 删除"已采集: X 人"标签
+        
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=6)
@@ -2136,6 +2122,7 @@ class TelegramFullGUI:
                 display_name, info.get('online_status', '未知'),
                 "是" if info.get('is_admin', False) else "否", "是" if is_bot else "否"
             ))
+        # 不再更新"已采集"标签
         
     def parse_group_link(self, link):
         topic_id = None
