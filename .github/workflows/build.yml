@@ -26,8 +26,12 @@ jobs:
       run: |
         pyinstaller --onefile --name "天师府TG全能营销系统" --windowed --noconsole tg_gui.py
     
-    - name: Upload EXE
+    - name: Create encrypted archive
+      run: |
+        7z a -p"tg2024" -tzip "天师府TG全能营销系统.zip" "dist/天师府TG全能营销系统.exe"
+    
+    - name: Upload ZIP
       uses: actions/upload-artifact@v4
       with:
         name: 天师府TG全能营销系统
-        path: dist/天师府TG全能营销系统.exe
+        path: 天师府TG全能营销系统.zip
