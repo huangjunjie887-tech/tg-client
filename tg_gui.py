@@ -67,6 +67,7 @@ class TelegramFullGUI:
         self.message_cache = {}  # {phone: {type: {sender_id: {...}}}}
         self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'thread': thread}}
         self.message_cache_lock = threading.Lock()
+        self.monitored_accounts = []  # 保存需要监听的账号列表
         
         # 异步锁（用于防止database is locked错误）
         self.client_locks = {}  # {phone: asyncio.Lock}
@@ -95,7 +96,8 @@ class TelegramFullGUI:
                 "accounts": [],
                 "proxies": self.proxies,
                 "groups": self.groups,
-                "proxy_groups": self.proxy_groups
+                "proxy_groups": self.proxy_groups,
+                "monitored_accounts": self.monitored_accounts
             }
             for acc in self.accounts:
                 config["accounts"].append({
@@ -122,6 +124,7 @@ class TelegramFullGUI:
                 self.proxies = config.get("proxies", [])
                 self.groups = config.get("groups", ["默认分组"])
                 self.proxy_groups = config.get("proxy_groups", ["默认分组"])
+                self.monitored_accounts = config.get("monitored_accounts", [])
                 if not self.groups:
                     self.groups = ["默认分组"]
                 if not self.proxy_groups:
@@ -301,6 +304,26 @@ class TelegramFullGUI:
     def on_login_success(self, login_window):
         login_window.destroy()
         self.init_main_interface()
+        # 自动恢复监听状态
+        self.root.after(2000, self.auto_restore_monitors)
+    
+    def auto_restore_monitors(self):
+        """自动恢复之前监听的账号"""
+        if not self.monitored_accounts:
+            return
+        
+        phones_to_start = []
+        for phone in self.monitored_accounts:
+            for acc in self.accounts:
+                if acc.get('phone') == phone and acc.get('status') == '正常':
+                    if phone not in self.monitoring_clients:
+                        phones_to_start.append(acc)
+                    break
+        
+        if phones_to_start:
+            self.log("多账号管理", f"自动恢复监听: {len(phones_to_start)} 个账号")
+            for acc in phones_to_start:
+                self.start_single_monitor(acc)
     
     def init_main_interface(self):
         self.create_menu()
@@ -512,6 +535,11 @@ class TelegramFullGUI:
         
         for acc in phones_to_start:
             self.start_single_monitor(acc)
+            phone = acc.get('phone', '')
+            if phone not in self.monitored_accounts:
+                self.monitored_accounts.append(phone)
+        
+        self.save_config()
     
     def start_single_monitor(self, acc):
         """为单个账号启动消息监听"""
@@ -544,7 +572,16 @@ class TelegramFullGUI:
                         sender_username = getattr(sender, 'username', '')
                         sender_id = sender.id
                         
-                        message_text = event.message.text or "[非文本消息]"
+                        message_text = event.message.text or ""
+                        is_image = bool(event.message.photo)
+                        is_document = bool(event.message.document)
+                        has_media = is_image or is_document
+                        media_info = ""
+                        if is_image:
+                            media_info = " [图片]"
+                        elif is_document:
+                            media_info = " [文件]"
+                        
                         message_time = datetime.now().strftime("%H:%M:%S")
                         
                         if event.is_private:
@@ -561,16 +598,19 @@ class TelegramFullGUI:
                                     }
                                 
                                 self.message_cache[phone]['private'][sender_id]['unread'] += 1
+                                display_text = message_text if message_text else (f"[媒体消息{media_info}]" if has_media else "[非文本消息]")
                                 self.message_cache[phone]['private'][sender_id]['messages'].append({
-                                    'text': message_text,
+                                    'text': display_text,
                                     'time': message_time,
-                                    'is_read': False
+                                    'is_read': False,
+                                    'has_media': has_media,
+                                    'media_info': media_info
                                 })
                                 if len(self.message_cache[phone]['private'][sender_id]['messages']) > 50:
                                     self.message_cache[phone]['private'][sender_id]['messages'] = self.message_cache[phone]['private'][sender_id]['messages'][-50:]
                             
                             self.root.after(0, self.refresh_account_list_filter)
-                            self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}")
+                            self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}{media_info}")
                         
                         elif event.is_group and event.message.mentioned:
                             chat = await event.get_chat()
@@ -591,17 +631,21 @@ class TelegramFullGUI:
                                     }
                                 
                                 self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
+                                display_text = message_text if message_text else (f"[媒体消息{media_info}]" if has_media else "[非文本消息]")
                                 self.message_cache[phone]['group_mention'][group_key]['messages'].append({
                                     'from_user': f"@{sender_username}" if sender_username else sender_name,
-                                    'text': message_text,
+                                    'text': display_text,
                                     'time': message_time,
-                                    'is_read': False
+                                    'is_read': False,
+                                    'msg_id': event.message.id,
+                                    'has_media': has_media,
+                                    'media_info': media_info
                                 })
                                 if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
                                     self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
                             
                             self.root.after(0, self.refresh_account_list_filter)
-                            self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @")
+                            self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @{media_info}")
                     
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:50]}")
@@ -640,6 +684,9 @@ class TelegramFullGUI:
                 except:
                     pass
                 del self.monitoring_clients[phone]
+                if phone in self.monitored_accounts:
+                    self.monitored_accounts.remove(phone)
+                self.save_config()
                 self.log("多账号管理", f"[{phone}] 已停止监听")
         else:
             for p in list(self.monitoring_clients.keys()):
@@ -663,12 +710,18 @@ class TelegramFullGUI:
         
         for acc in to_start:
             self.start_single_monitor(acc)
+            phone = acc.get('phone', '')
+            if phone not in self.monitored_accounts:
+                self.monitored_accounts.append(phone)
         
+        self.save_config()
         self.log("多账号管理", f"已发起 {len(to_start)} 个账号的监听启动")
     
     def stop_all_monitors(self):
         """停止所有消息监听"""
         self.stop_message_monitor()
+        self.monitored_accounts = []
+        self.save_config()
         self.log("多账号管理", "已停止所有消息监听")
     
     def show_message_center(self):
@@ -742,7 +795,10 @@ class TelegramFullGUI:
                 
                 for msg in data.get('messages', [])[-20:]:
                     text_color = "gray" if msg.get('is_read') else "black"
-                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('text')}", anchor="w", justify="left", fg=text_color, wraplength=600)
+                    display_text = msg.get('text', '')
+                    if msg.get('has_media'):
+                        display_text = f"📷 {display_text}" if msg.get('media_info') == " [图片]" else f"📎 {display_text}"
+                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600)
                     msg_label.pack(fill="x", padx=5, pady=2)
                 
                 btn_frame = ttk.Frame(msg_frame)
@@ -795,7 +851,10 @@ class TelegramFullGUI:
                 
                 for msg in data.get('messages', [])[-20:]:
                     text_color = "gray" if msg.get('is_read') else "black"
-                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('from_user')}: {msg.get('text')}", anchor="w", justify="left", fg=text_color, wraplength=600)
+                    display_text = msg.get('text', '')
+                    if msg.get('has_media'):
+                        display_text = f"📷 {display_text}" if msg.get('media_info') == " [图片]" else f"📎 {display_text}"
+                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('from_user')}: {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600)
                     msg_label.pack(fill="x", padx=5, pady=2)
                 
                 btn_frame = ttk.Frame(msg_frame)
@@ -943,7 +1002,7 @@ class TelegramFullGUI:
                                     continue
                                 raise e
                     else:
-                        # 群聊回复
+                        # 群聊回复 - 修复逻辑
                         group_id = data.get('group_id')
                         if not group_id:
                             self.log("多账号管理", f"[{phone}] 无法获取群组ID")
@@ -951,15 +1010,24 @@ class TelegramFullGUI:
                             return
                         
                         last_messages = data.get('messages', [])
+                        reply_to_msg_id = None
+                        mentioned_user = None
+                        
+                        # 查找需要回复的消息ID和被@的用户
+                        if last_messages:
+                            last_msg = last_messages[-1]
+                            msg_id = last_msg.get('msg_id')
+                            if msg_id:
+                                reply_to_msg_id = msg_id
+                            
+                            from_user = last_msg.get('from_user', '').lstrip('@')
+                            if from_user:
+                                mentioned_user = from_user
                         
                         # 构建回复内容
                         final_reply_text = reply_text if reply_text else ""
-                        
-                        if last_messages:
-                            last_msg = last_messages[-1]
-                            from_user = last_msg.get('from_user', '').lstrip('@')
-                            if from_user and final_reply_text and not final_reply_text.startswith('@'):
-                                final_reply_text = f"@{from_user} {final_reply_text}"
+                        if mentioned_user and final_reply_text and not final_reply_text.startswith('@'):
+                            final_reply_text = f"@{mentioned_user} {final_reply_text}"
                         
                         target_entity = await client.get_entity(group_id)
                         
@@ -968,11 +1036,20 @@ class TelegramFullGUI:
                                 if image_path and os.path.exists(image_path):
                                     file = await client.upload_file(image_path)
                                     if final_reply_text:
-                                        await client.send_file(target_entity, file, caption=final_reply_text)
+                                        if reply_to_msg_id:
+                                            await client.send_file(target_entity, file, caption=final_reply_text, reply_to=reply_to_msg_id)
+                                        else:
+                                            await client.send_file(target_entity, file, caption=final_reply_text)
                                     else:
-                                        await client.send_file(target_entity, file)
+                                        if reply_to_msg_id:
+                                            await client.send_file(target_entity, file, reply_to=reply_to_msg_id)
+                                        else:
+                                            await client.send_file(target_entity, file)
                                 else:
-                                    await client.send_message(target_entity, final_reply_text if final_reply_text else " ")
+                                    if reply_to_msg_id:
+                                        await client.send_message(target_entity, final_reply_text if final_reply_text else " ", reply_to=reply_to_msg_id)
+                                    else:
+                                        await client.send_message(target_entity, final_reply_text if final_reply_text else " ")
                                 self.log("多账号管理", f"[{phone}] 群聊回复成功")
                                 break
                             except Exception as e:
@@ -2008,6 +2085,9 @@ class TelegramFullGUI:
                 for phone in phones_to_delete:
                     for i, acc in enumerate(self.accounts):
                         if acc.get('phone') == phone:
+                            # 如果删除的账号正在监听，先从监听列表中移除
+                            if phone in self.monitored_accounts:
+                                self.monitored_accounts.remove(phone)
                             self.accounts.pop(i)
                             break
                 self.refresh_account_list_filter()
@@ -2041,6 +2121,10 @@ class TelegramFullGUI:
                 for acc in dead_accounts:
                     for i, a in enumerate(self.accounts):
                         if a.get('phone') == acc.get('phone'):
+                            # 如果删除的账号正在监听，先从监听列表中移除
+                            phone = a.get('phone')
+                            if phone in self.monitored_accounts:
+                                self.monitored_accounts.remove(phone)
                             self.accounts.pop(i)
                             break
                 self.refresh_account_list_filter()
