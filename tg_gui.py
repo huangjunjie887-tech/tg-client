@@ -920,7 +920,8 @@ class TelegramFullGUI:
                     if msg_type == 'private':
                         target_entity = await client.get_entity(target_id)
                         
-                        for retry in range(3):
+                        # 带重试的发送，增加等待时间
+                        for retry in range(5):
                             try:
                                 if image_path and os.path.exists(image_path):
                                     file = await client.upload_file(image_path)
@@ -934,8 +935,10 @@ class TelegramFullGUI:
                                 break
                             except Exception as e:
                                 error_msg = str(e).lower()
-                                if 'database is locked' in error_msg and retry < 2:
-                                    await asyncio.sleep(1 * (retry + 1))
+                                if 'database is locked' in error_msg and retry < 4:
+                                    wait_time = 2 * (retry + 1)  # 2, 4, 6, 8 秒
+                                    self.log("多账号管理", f"[{phone}] 数据库繁忙，等待 {wait_time} 秒后重试...")
+                                    await asyncio.sleep(wait_time)
                                     continue
                                 raise e
                     else:
@@ -949,7 +952,7 @@ class TelegramFullGUI:
                         
                         target_entity = await client.get_entity(group_id)
                         
-                        for retry in range(3):
+                        for retry in range(5):
                             try:
                                 if image_path and os.path.exists(image_path):
                                     file = await client.upload_file(image_path)
@@ -963,8 +966,10 @@ class TelegramFullGUI:
                                 break
                             except Exception as e:
                                 error_msg = str(e).lower()
-                                if 'database is locked' in error_msg and retry < 2:
-                                    await asyncio.sleep(1 * (retry + 1))
+                                if 'database is locked' in error_msg and retry < 4:
+                                    wait_time = 2 * (retry + 1)
+                                    self.log("多账号管理", f"[{phone}] 数据库繁忙，等待 {wait_time} 秒后重试...")
+                                    await asyncio.sleep(wait_time)
                                     continue
                                 raise e
                     
