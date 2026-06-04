@@ -310,6 +310,7 @@ class TelegramFullGUI:
     def auto_restore_monitors(self):
         """自动恢复之前监听的账号"""
         if not self.monitored_accounts:
+            self.log("多账号管理", "没有需要自动恢复监听的账号")
             return
         
         phones_to_start = []
@@ -324,6 +325,8 @@ class TelegramFullGUI:
             self.log("多账号管理", f"自动恢复监听: {len(phones_to_start)} 个账号")
             for acc in phones_to_start:
                 self.start_single_monitor(acc)
+        else:
+            self.log("多账号管理", "没有可自动恢复的账号（账号可能未登录或状态异常）")
     
     def init_main_interface(self):
         self.create_menu()
@@ -553,10 +556,12 @@ class TelegramFullGUI:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
+                    self.log("多账号管理", f"[{phone}] 账号未登录，无法启动监听")
                     return
                 
                 me = await client.get_me()
-                self.log("多账号管理", f"[{phone}] 消息监听已启动")
+                my_username = me.username
+                self.log("多账号管理", f"[{phone}] 消息监听已启动 (用户名: @{my_username if my_username else '无'})")
                 
                 @client.on(events.NewMessage(incoming=True))
                 async def message_handler(event):
@@ -590,12 +595,14 @@ class TelegramFullGUI:
                             try:
                                 media_dir = os.path.join(os.path.dirname(session_path) if session_path else ".", "media_cache")
                                 os.makedirs(media_dir, exist_ok=True)
-                                file_name = f"{phone}_{sender_id}_{event.message.id}_{int(time.time())}.jpg"
+                                ext = ".jpg" if is_image else ".bin"
+                                file_name = f"{phone}_{sender_id}_{event.message.id}_{int(time.time())}{ext}"
                                 media_path = os.path.join(media_dir, file_name)
                                 await event.message.download_media(media_path)
-                            except:
+                            except Exception as e:
                                 media_path = None
                         
+                        # 判断消息类型
                         if event.is_private:
                             with self.message_cache_lock:
                                 if phone not in self.message_cache:
@@ -626,44 +633,50 @@ class TelegramFullGUI:
                             self.root.after(0, self.refresh_account_list_filter)
                             self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}{media_info}")
                         
-                        elif event.is_group and event.message.mentioned:
-                            chat = await event.get_chat()
-                            chat_name = getattr(chat, 'title', '未知群组')
-                            chat_id = chat.id
+                        elif event.is_group:
+                            # 检查是否被@
+                            is_mentioned = event.message.mentioned
+                            if my_username and f"@{my_username}" in message_text:
+                                is_mentioned = True
                             
-                            with self.message_cache_lock:
-                                if phone not in self.message_cache:
-                                    self.message_cache[phone] = {'private': {}, 'group_mention': {}}
+                            if is_mentioned:
+                                chat = await event.get_chat()
+                                chat_name = getattr(chat, 'title', '未知群组')
+                                chat_id = chat.id
                                 
-                                group_key = f"group_{chat_id}"
-                                if group_key not in self.message_cache[phone]['group_mention']:
-                                    self.message_cache[phone]['group_mention'][group_key] = {
-                                        'group_name': chat_name,
-                                        'group_id': chat_id,
-                                        'unread': 0,
-                                        'messages': []
-                                    }
+                                with self.message_cache_lock:
+                                    if phone not in self.message_cache:
+                                        self.message_cache[phone] = {'private': {}, 'group_mention': {}}
+                                    
+                                    group_key = f"group_{chat_id}"
+                                    if group_key not in self.message_cache[phone]['group_mention']:
+                                        self.message_cache[phone]['group_mention'][group_key] = {
+                                            'group_name': chat_name,
+                                            'group_id': chat_id,
+                                            'unread': 0,
+                                            'messages': []
+                                        }
+                                    
+                                    self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
+                                    display_text = message_text if message_text else (f"[媒体消息{media_info}]" if has_media else "[非文本消息]")
+                                    self.message_cache[phone]['group_mention'][group_key]['messages'].append({
+                                        'from_user': f"@{sender_username}" if sender_username else sender_name,
+                                        'text': display_text,
+                                        'time': message_time,
+                                        'is_read': False,
+                                        'msg_id': event.message.id,
+                                        'has_media': has_media,
+                                        'media_info': media_info,
+                                        'media_path': media_path
+                                    })
+                                    if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
+                                        self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
                                 
-                                self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
-                                display_text = message_text if message_text else (f"[媒体消息{media_info}]" if has_media else "[非文本消息]")
-                                self.message_cache[phone]['group_mention'][group_key]['messages'].append({
-                                    'from_user': f"@{sender_username}" if sender_username else sender_name,
-                                    'text': display_text,
-                                    'time': message_time,
-                                    'is_read': False,
-                                    'msg_id': event.message.id,
-                                    'has_media': has_media,
-                                    'media_info': media_info,
-                                    'media_path': media_path
-                                })
-                                if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
-                                    self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
-                            
-                            self.root.after(0, self.refresh_account_list_filter)
-                            self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @{media_info}")
+                                self.root.after(0, self.refresh_account_list_filter)
+                                self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @{media_info}")
                     
                     except Exception as e:
-                        self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:50]}")
+                        self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:100]}")
                 
                 self.monitoring_clients[phone] = {'client': client, 'running': True}
                 await client.run_until_disconnected()
@@ -819,10 +832,6 @@ class TelegramFullGUI:
                     
                     # 绑定双击事件预览图片
                     if msg.get('has_media') and msg.get('media_path') and os.path.exists(msg.get('media_path')):
-                        def make_preview_cb(path):
-                            def preview():
-                                self.preview_media(path)
-                            return preview
                         msg_label.bind("<Double-Button-1>", lambda e, p=msg.get('media_path'): self.preview_media(p))
                 
                 btn_frame = ttk.Frame(msg_frame)
@@ -884,10 +893,6 @@ class TelegramFullGUI:
                     
                     # 绑定双击事件预览图片
                     if msg.get('has_media') and msg.get('media_path') and os.path.exists(msg.get('media_path')):
-                        def make_preview_cb(path):
-                            def preview():
-                                self.preview_media(path)
-                            return preview
                         msg_label.bind("<Double-Button-1>", lambda e, p=msg.get('media_path'): self.preview_media(p))
                 
                 btn_frame = ttk.Frame(msg_frame)
@@ -915,40 +920,22 @@ class TelegramFullGUI:
         close_btn.pack(pady=10)
     
     def preview_media(self, media_path):
-        """预览图片媒体文件"""
+        """预览图片媒体文件 - 使用系统默认图片查看器（无需Pillow）"""
         if not media_path or not os.path.exists(media_path):
             self.show_centered_warning("提示", "媒体文件不存在")
             return
         
         try:
-            from PIL import Image, ImageTk
-            preview_window = tk.Toplevel(self.root)
-            preview_window.title("图片预览")
-            preview_window.geometry("500x500")
-            preview_window.transient(self.root)
-            preview_window.grab_set()
-            self.center_window(preview_window, 500, 500)
-            
-            img = Image.open(media_path)
-            # 缩放图片以适应窗口
-            img.thumbnail((450, 450))
-            photo = ImageTk.PhotoImage(img)
-            
-            label = tk.Label(preview_window, image=photo)
-            label.image = photo
-            label.pack(expand=True, fill="both", padx=10, pady=10)
-            
-            info_label = tk.Label(preview_window, text=f"文件: {os.path.basename(media_path)}", font=("微软雅黑", 9), fg="gray")
-            info_label.pack(pady=5)
-            
-            btn_frame = ttk.Frame(preview_window)
-            btn_frame.pack(pady=10)
-            ttk.Button(btn_frame, text="关闭", command=preview_window.destroy, width=10).pack(side="left", padx=5)
-            ttk.Button(btn_frame, text="打开文件位置", command=lambda: os.startfile(os.path.dirname(media_path)), width=15).pack(side="left", padx=5)
-        except ImportError:
-            self.show_centered_warning("提示", "请先安装Pillow库: pip install Pillow")
+            # 使用系统默认程序打开图片
+            if platform.system() == 'Windows':
+                os.startfile(media_path)
+            elif platform.system() == 'Darwin':  # macOS
+                os.system(f'open "{media_path}"')
+            else:  # Linux
+                os.system(f'xdg-open "{media_path}"')
+            self.log("多账号管理", f"打开图片: {os.path.basename(media_path)}")
         except Exception as e:
-            self.show_centered_error("错误", f"无法预览图片: {str(e)[:50]}")
+            self.show_centered_error("错误", f"无法打开图片: {str(e)[:50]}")
     
     def open_reply_window(self, phone, target_id, data, msg_type):
         """打开回复窗口"""
@@ -1071,7 +1058,7 @@ class TelegramFullGUI:
                                     continue
                                 raise e
                     else:
-                        # 群聊回复 - 不添加@前缀，使用reply_to引用原消息
+                        # 群聊回复
                         group_id = data.get('group_id')
                         if not group_id:
                             self.log("多账号管理", f"[{phone}] 无法获取群组ID")
@@ -1081,7 +1068,6 @@ class TelegramFullGUI:
                         last_messages = data.get('messages', [])
                         reply_to_msg_id = None
                         
-                        # 查找需要回复的消息ID
                         if last_messages:
                             last_msg = last_messages[-1]
                             msg_id = last_msg.get('msg_id')
