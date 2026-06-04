@@ -65,7 +65,7 @@ class TelegramFullGUI:
         
         # 消息监听相关变量
         self.message_cache = {}  # {phone: {type: {sender_id: {...}}}}
-        self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'thread': thread, 'loop': None}}
+        self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'thread': thread}}
         self.message_cache_lock = threading.Lock()
         self.monitored_accounts = []  # 保存需要监听的账号列表
         
@@ -506,19 +506,6 @@ class TelegramFullGUI:
                 self.client_locks[phone] = asyncio.Lock()
             return self.client_locks[phone]
     
-    def get_existing_client(self, phone):
-        """获取已存在的客户端实例（必须在当前事件循环中使用）"""
-        if phone in self.monitoring_clients:
-            client_info = self.monitoring_clients[phone]
-            if client_info and client_info.get('client'):
-                client = client_info.get('client')
-                try:
-                    if client.is_connected():
-                        return client
-                except:
-                    pass
-        return None
-    
     # ==================== 消息监听功能 ====================
     def start_message_monitor(self):
         """为选中的账号启动消息监听"""
@@ -558,7 +545,7 @@ class TelegramFullGUI:
         self.save_config()
     
     def start_single_monitor(self, acc):
-        """为单个账号启动消息监听 - 确保每条消息都能被处理"""
+        """为单个账号启动消息监听"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -574,6 +561,7 @@ class TelegramFullGUI:
                 
                 me = await client.get_me()
                 my_username = me.username
+                # 简洁启动日志
                 self.log("多账号管理", f"[{phone}] 监听已启动")
                 
                 @client.on(events.NewMessage(incoming=True))
@@ -582,18 +570,13 @@ class TelegramFullGUI:
                         if event.message.out:
                             return
                         
-                        sender_name = "未知用户"
-                        sender_username = ""
-                        sender_id = event.sender_id or 0
+                        sender = await event.get_sender()
+                        if sender is None:
+                            return
                         
-                        try:
-                            sender = await event.get_sender()
-                            if sender is not None:
-                                sender_name = getattr(sender, 'first_name', '') or getattr(sender, 'username', '') or str(sender.id)
-                                sender_username = getattr(sender, 'username', '')
-                                sender_id = sender.id
-                        except Exception as e:
-                            pass
+                        sender_name = getattr(sender, 'first_name', '') or getattr(sender, 'username', '') or str(sender.id)
+                        sender_username = getattr(sender, 'username', '')
+                        sender_id = sender.id
                         
                         message_text = event.message.text or ""
                         is_image = bool(event.message.photo)
@@ -607,6 +590,7 @@ class TelegramFullGUI:
                         
                         message_time = datetime.now().strftime("%H:%M:%S")
                         
+                        # 保存媒体文件路径（用于预览）
                         media_path = None
                         if is_image or is_document:
                             try:
@@ -619,6 +603,7 @@ class TelegramFullGUI:
                             except Exception as e:
                                 media_path = None
                         
+                        # 判断消息类型
                         if event.is_private:
                             with self.message_cache_lock:
                                 if phone not in self.message_cache:
@@ -650,20 +635,15 @@ class TelegramFullGUI:
                             self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}{media_info}")
                         
                         elif event.is_group:
+                            # 检查是否被@
                             is_mentioned = event.message.mentioned
                             if my_username and f"@{my_username}" in message_text:
                                 is_mentioned = True
                             
                             if is_mentioned:
-                                chat_name = "未知群组"
-                                chat_id = event.chat_id or 0
-                                try:
-                                    chat = await event.get_chat()
-                                    if chat is not None:
-                                        chat_name = getattr(chat, 'title', '未知群组')
-                                        chat_id = chat.id
-                                except Exception as e:
-                                    pass
+                                chat = await event.get_chat()
+                                chat_name = getattr(chat, 'title', '未知群组')
+                                chat_id = chat.id
                                 
                                 with self.message_cache_lock:
                                     if phone not in self.message_cache:
@@ -697,6 +677,7 @@ class TelegramFullGUI:
                                 self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @{media_info}")
                     
                     except Exception as e:
+                        # 捕获异常但不中断监听，继续处理下一条消息
                         self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:100]}")
                 
                 self.monitoring_clients[phone] = {'client': client, 'running': True}
@@ -711,34 +692,27 @@ class TelegramFullGUI:
         def run_monitor():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            self.monitoring_clients[phone] = {'client': None, 'running': True, 'thread': threading.current_thread(), 'loop': loop}
             loop.run_until_complete(monitor())
             loop.close()
         
         thread = threading.Thread(target=run_monitor, daemon=True)
         thread.start()
+        self.monitoring_clients[phone] = {'client': None, 'running': True, 'thread': thread}
     
     def stop_message_monitor(self, phone=None):
         """停止消息监听"""
         if phone:
             if phone in self.monitoring_clients:
-                client_info = self.monitoring_clients[phone]
                 async def disconnect():
-                    if client_info.get('client'):
-                        await client_info['client'].disconnect()
-                
-                loop = client_info.get('loop')
-                if loop and loop.is_running():
-                    asyncio.run_coroutine_threadsafe(disconnect(), loop)
-                else:
-                    try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        loop.run_until_complete(disconnect())
-                        loop.close()
-                    except:
-                        pass
-                
+                    if self.monitoring_clients[phone].get('client'):
+                        await self.monitoring_clients[phone]['client'].disconnect()
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(disconnect())
+                    loop.close()
+                except:
+                    pass
                 del self.monitoring_clients[phone]
                 if phone in self.monitored_accounts:
                     self.monitored_accounts.remove(phone)
@@ -810,15 +784,19 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(dialog)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
+        # 标签页
         notebook = ttk.Notebook(main_frame)
         notebook.pack(fill="both", expand=True)
         
+        # 私信标签页
         private_frame = ttk.Frame(notebook)
         notebook.add(private_frame, text="私信")
         
+        # 群聊@标签页
         group_frame = ttk.Frame(notebook)
         notebook.add(group_frame, text="群聊@我")
         
+        # 构建私信列表
         private_canvas = tk.Canvas(private_frame, highlightthickness=0)
         private_scrollbar = ttk.Scrollbar(private_frame, orient="vertical", command=private_canvas.yview)
         private_inner = ttk.Frame(private_canvas)
@@ -837,6 +815,7 @@ class TelegramFullGUI:
             private_canvas.itemconfig(private_window, width=event.width)
         private_canvas.bind("<Configure>", on_private_canvas_configure)
         
+        # 填充私信
         row = 0
         if phone in self.message_cache and 'private' in self.message_cache[phone]:
             for sender_id, data in self.message_cache[phone]['private'].items():
@@ -853,6 +832,7 @@ class TelegramFullGUI:
                     msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600, cursor="hand2" if msg.get('has_media') else "")
                     msg_label.pack(fill="x", padx=5, pady=2)
                     
+                    # 绑定双击事件预览图片
                     if msg.get('has_media') and msg.get('media_path') and os.path.exists(msg.get('media_path')):
                         msg_label.bind("<Double-Button-1>", lambda e, p=msg.get('media_path'): self.preview_media(p))
                 
@@ -877,6 +857,7 @@ class TelegramFullGUI:
                 
                 row += 1
         
+        # 构建群聊@列表
         group_canvas = tk.Canvas(group_frame, highlightthickness=0)
         group_scrollbar = ttk.Scrollbar(group_frame, orient="vertical", command=group_canvas.yview)
         group_inner = ttk.Frame(group_canvas)
@@ -895,6 +876,7 @@ class TelegramFullGUI:
             group_canvas.itemconfig(group_window, width=event.width)
         group_canvas.bind("<Configure>", on_group_canvas_configure)
         
+        # 填充群聊@
         g_row = 0
         if phone in self.message_cache and 'group_mention' in self.message_cache[phone]:
             for group_key, data in self.message_cache[phone]['group_mention'].items():
@@ -911,6 +893,7 @@ class TelegramFullGUI:
                     msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('from_user')}: {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600, cursor="hand2" if msg.get('has_media') else "")
                     msg_label.pack(fill="x", padx=5, pady=2)
                     
+                    # 绑定双击事件预览图片
                     if msg.get('has_media') and msg.get('media_path') and os.path.exists(msg.get('media_path')):
                         msg_label.bind("<Double-Button-1>", lambda e, p=msg.get('media_path'): self.preview_media(p))
                 
@@ -1024,7 +1007,7 @@ class TelegramFullGUI:
             image_path_var.set(file_path)
     
     def send_reply_message(self, phone, target_id, data, msg_type, reply_text, image_path):
-        """发送回复消息（使用已有client或新建）"""
+        """发送回复消息（带重试机制和异步锁）"""
         acc = None
         for a in self.accounts:
             if a.get('phone') == phone:
@@ -1044,17 +1027,9 @@ class TelegramFullGUI:
             
             async with lock:
                 client = None
-                should_disconnect = False
                 try:
-                    # 优先使用已有的client
-                    existing_client = self.get_existing_client(phone)
-                    if existing_client and existing_client.is_connected():
-                        client = existing_client
-                    else:
-                        client = TelegramClient(session_path, api_id, api_hash)
-                        await client.connect()
-                        should_disconnect = True
-                    
+                    client = TelegramClient(session_path, api_id, api_hash)
+                    await client.connect()
                     if not await client.is_user_authorized():
                         self.log("多账号管理", f"[{phone}] 未登录")
                         return
@@ -1130,6 +1105,7 @@ class TelegramFullGUI:
                                     continue
                                 raise e
                     
+                    await client.disconnect()
                     self.show_centered_info("成功", "消息已发送")
                     
                 except Exception as e:
@@ -1141,7 +1117,7 @@ class TelegramFullGUI:
                     else:
                         self.show_centered_error("失败", f"发送失败: {error_msg[:50]}")
                 finally:
-                    if should_disconnect and client:
+                    if client:
                         try:
                             await client.disconnect()
                         except:
@@ -1170,6 +1146,7 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(dialog)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
+        # 筛选栏
         filter_frame = ttk.Frame(main_frame)
         filter_frame.pack(fill="x", pady=5)
         
@@ -1183,9 +1160,11 @@ class TelegramFullGUI:
         status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "销号", "封禁"], width=12)
         status_combo.pack(side="left", padx=5)
         
+        # 全选按钮
         select_all_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(filter_frame, text="全选", variable=select_all_var).pack(side="left", padx=20)
         
+        # 账号列表（带复选框）- 使用Treeview带复选框
         listbox_frame = ttk.Frame(main_frame)
         listbox_frame.pack(fill="both", expand=True, pady=5)
         
@@ -1211,7 +1190,8 @@ class TelegramFullGUI:
         tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        check_vars = {}
+        # 存储复选框状态
+        check_vars = {}  # {phone: BooleanVar}
         
         def refresh_account_list():
             for item in tree.get_children():
@@ -1505,92 +1485,85 @@ class TelegramFullGUI:
         twofa = self.get_account_twofa(acc)
         
         async def do_check():
-            lock = self.get_client_lock(phone)
-            async with lock:
-                client = None
-                should_disconnect = False
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                
+                if not await client.is_user_authorized():
+                    acc['status'] = '未授权'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
+                    return
+                
+                me = await client.get_me()
+                nickname = me.first_name or me.username or phone
+                acc['nickname'] = nickname
+                
+                if hasattr(me, 'date'):
+                    reg_time = me.date.strftime("%Y-%m-%d")
+                    acc['register_time'] = reg_time
+                    days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
+                    self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
+                
                 try:
-                    # 优先使用已有的client
-                    existing_client = self.get_existing_client(phone)
-                    if existing_client and existing_client.is_connected():
-                        client = existing_client
-                    else:
-                        client = TelegramClient(session_path, api_id, api_hash)
-                        await client.connect()
-                        should_disconnect = True
-                    
-                    if not await client.is_user_authorized():
-                        acc['status'] = '未授权'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
-                        return
-                    
-                    me = await client.get_me()
-                    nickname = me.first_name or me.username or phone
-                    acc['nickname'] = nickname
-                    
-                    if hasattr(me, 'date'):
-                        reg_time = me.date.strftime("%Y-%m-%d")
-                        acc['register_time'] = reg_time
-                        days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
-                        self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
-                    
-                    try:
-                        await client.send_message('me', '状态检测')
-                        acc['status'] = '正常'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 正常")
-                    except UserNotMutualContactError:
-                        acc['status'] = '双向限制'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 双向限制(只能给双向联系人发消息)")
-                    except FloodWaitError as e:
-                        acc['status'] = f'频率限制({e.seconds}秒)'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 频率限制({e.seconds}秒)")
-                    except PeerFloodError:
-                        acc['status'] = '风控限制'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 风控限制")
-                    except ChatWriteForbiddenError:
-                        acc['status'] = '被禁言'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 被禁言")
-                    except ChatAdminRequiredError:
-                        acc['status'] = '需管理员权限'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 需管理员权限")
-                    except Exception as e:
-                        error_msg = str(e).lower()
-                        if "flood" in error_msg:
-                            acc['status'] = '频率限制'
-                            self.log("多账号管理", f"[{phone}] 检测结果: 频率限制")
-                        elif "mutual" in error_msg:
-                            acc['status'] = '双向限制'
-                            self.log("多账号管理", f"[{phone}] 检测结果: 双向限制")
-                        else:
-                            acc['status'] = '正常'
-                            self.log("多账号管理", f"[{phone}] 检测结果: 正常")
-                    
-                except UserDeactivatedError:
-                    acc['status'] = '销号'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 销号")
-                except PhoneNumberBannedError:
-                    acc['status'] = '封禁'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
-                except SessionPasswordNeededError:
-                    acc['status'] = '需要2FA'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA")
+                    await client.send_message('me', '状态检测')
+                    acc['status'] = '正常'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 正常")
+                except UserNotMutualContactError:
+                    acc['status'] = '双向限制'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 双向限制(只能给双向联系人发消息)")
+                except FloodWaitError as e:
+                    acc['status'] = f'频率限制({e.seconds}秒)'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 频率限制({e.seconds}秒)")
+                except PeerFloodError:
+                    acc['status'] = '风控限制'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 风控限制")
+                except ChatWriteForbiddenError:
+                    acc['status'] = '被禁言'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 被禁言")
+                except ChatAdminRequiredError:
+                    acc['status'] = '需管理员权限'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 需管理员权限")
                 except Exception as e:
                     error_msg = str(e).lower()
-                    if "deactivated" in error_msg:
-                        acc['status'] = '销号'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 销号")
-                    elif "banned" in error_msg:
-                        acc['status'] = '封禁'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                    if "flood" in error_msg:
+                        acc['status'] = '频率限制'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 频率限制")
+                    elif "mutual" in error_msg:
+                        acc['status'] = '双向限制'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 双向限制")
                     else:
-                        acc['status'] = '检测失败'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 检测失败 - {str(e)[:50]}")
-                finally:
-                    if should_disconnect and client:
-                        try:
-                            await client.disconnect()
-                        except:
-                            pass
+                        acc['status'] = '正常'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 正常")
+                
+                await client.disconnect()
+                
+            except UserDeactivatedError:
+                acc['status'] = '销号'
+                self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+            except PhoneNumberBannedError:
+                acc['status'] = '封禁'
+                self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+            except SessionPasswordNeededError:
+                acc['status'] = '需要2FA'
+                self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA")
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "deactivated" in error_msg:
+                    acc['status'] = '销号'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+                elif "banned" in error_msg:
+                    acc['status'] = '封禁'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                else:
+                    acc['status'] = '检测失败'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 检测失败 - {str(e)[:50]}")
+            finally:
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -1789,64 +1762,56 @@ class TelegramFullGUI:
         api_id, api_hash = self.get_account_api_credentials(acc)
         
         async def do_edit():
-            lock = self.get_client_lock(phone)
-            async with lock:
-                client = None
-                should_disconnect = False
-                try:
-                    existing_client = self.get_existing_client(phone)
-                    if existing_client and existing_client.is_connected():
-                        client = existing_client
-                    else:
-                        client = TelegramClient(session_path, api_id, api_hash)
-                        await client.connect()
-                        should_disconnect = True
-                    
-                    if not await client.is_user_authorized():
-                        self.log("多账号管理", f"[{phone}] 账号未登录")
-                        return
-                    
-                    if username:
-                        try:
-                            await client(UpdateUsernameRequest(username=username))
-                            self.log("多账号管理", f"[{phone}] 用户名修改成功: {username}")
-                        except Exception as e:
-                            self.log("多账号管理", f"[{phone}] 用户名修改失败: {str(e)}")
-                    
-                    if first_name:
-                        try:
-                            await client(UpdateProfileRequest(first_name=first_name, last_name=""))
-                            self.log("多账号管理", f"[{phone}] 昵称修改成功: {first_name}")
-                            acc['nickname'] = first_name
-                        except Exception as e:
-                            self.log("多账号管理", f"[{phone}] 昵称修改失败: {str(e)}")
-                    
-                    if bio:
-                        try:
-                            await client(UpdateProfileRequest(about=bio))
-                            self.log("多账号管理", f"[{phone}] 简介修改成功")
-                        except Exception as e:
-                            self.log("多账号管理", f"[{phone}] 简介修改失败: {str(e)}")
-                    
-                    if photo_path and os.path.exists(photo_path):
-                        try:
-                            photos = await client.get_profile_photos('me')
-                            if photos:
-                                await client(DeletePhotosRequest(id=[photos[0]]))
-                            await client(UploadProfilePhotoRequest(file=await client.upload_file(photo_path)))
-                            self.log("多账号管理", f"[{phone}] 头像修改成功")
-                        except Exception as e:
-                            self.log("多账号管理", f"[{phone}] 头像修改失败: {str(e)}")
-                    
-                    self.root.after(0, self.refresh_account_list_filter)
-                except Exception as e:
-                    self.log("多账号管理", f"[{phone}] 修改资料失败: {str(e)}")
-                finally:
-                    if should_disconnect and client:
-                        try:
-                            await client.disconnect()
-                        except:
-                            pass
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.log("多账号管理", f"[{phone}] 账号未登录")
+                    return
+                
+                if username:
+                    try:
+                        await client(UpdateUsernameRequest(username=username))
+                        self.log("多账号管理", f"[{phone}] 用户名修改成功: {username}")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 用户名修改失败: {str(e)}")
+                
+                if first_name:
+                    try:
+                        await client(UpdateProfileRequest(first_name=first_name, last_name=""))
+                        self.log("多账号管理", f"[{phone}] 昵称修改成功: {first_name}")
+                        acc['nickname'] = first_name
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 昵称修改失败: {str(e)}")
+                
+                if bio:
+                    try:
+                        await client(UpdateProfileRequest(about=bio))
+                        self.log("多账号管理", f"[{phone}] 简介修改成功")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 简介修改失败: {str(e)}")
+                
+                if photo_path and os.path.exists(photo_path):
+                    try:
+                        photos = await client.get_profile_photos('me')
+                        if photos:
+                            await client(DeletePhotosRequest(id=[photos[0]]))
+                        await client(UploadProfilePhotoRequest(file=await client.upload_file(photo_path)))
+                        self.log("多账号管理", f"[{phone}] 头像修改成功")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 头像修改失败: {str(e)}")
+                
+                await client.disconnect()
+                self.root.after(0, self.refresh_account_list_filter)
+            except Exception as e:
+                self.log("多账号管理", f"[{phone}] 修改资料失败: {str(e)}")
+            finally:
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -2164,6 +2129,7 @@ class TelegramFullGUI:
                 for phone in phones_to_delete:
                     for i, acc in enumerate(self.accounts):
                         if acc.get('phone') == phone:
+                            # 如果删除的账号正在监听，先从监听列表中移除
                             if phone in self.monitored_accounts:
                                 self.monitored_accounts.remove(phone)
                             self.accounts.pop(i)
@@ -2199,6 +2165,7 @@ class TelegramFullGUI:
                 for acc in dead_accounts:
                     for i, a in enumerate(self.accounts):
                         if a.get('phone') == acc.get('phone'):
+                            # 如果删除的账号正在监听，先从监听列表中移除
                             phone = a.get('phone')
                             if phone in self.monitored_accounts:
                                 self.monitored_accounts.remove(phone)
@@ -2948,553 +2915,549 @@ class TelegramFullGUI:
         self.update_account_task(account_phone, "采集群成员", True)
         
         async def do_scrape():
-            lock = self.get_client_lock(account_phone)
-            async with lock:
-                client = None
-                admin_ids = set()
-                all_results = []
-                all_collected_ids = set()
-                total_count = 0
-                should_disconnect = False
+            client = None
+            admin_ids = set()
+            all_results = []
+            all_collected_ids = set()
+            total_count = 0
+            
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.log("采集群成员", "账号未登录")
+                    return
                 
-                try:
-                    existing_client = self.get_existing_client(account_phone)
-                    if existing_client and existing_client.is_connected():
-                        client = existing_client
-                    else:
-                        client = TelegramClient(session_path, api_id, api_hash)
-                        await client.connect()
-                        should_disconnect = True
-                    
-                    if not await client.is_user_authorized():
-                        self.log("采集群成员", "账号未登录")
-                        return
-                    
-                    if self.filter_admin.get():
-                        try:
-                            if scrape_mode == "多讨论组采集(多个子群)":
-                                sub_groups_text = self.sub_groups_text.get("1.0", tk.END).strip()
-                                sub_group_links = [link.strip() for link in sub_groups_text.split('\n') if link.strip()]
-                                for link in sub_group_links:
-                                    try:
-                                        sub_username, sub_topic = self.parse_group_link(link)
-                                        if sub_username:
-                                            entity = await client.get_entity(sub_username)
-                                            async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
-                                                admin_ids.add(user.id)
-                                    except:
-                                        pass
+                if self.filter_admin.get():
+                    try:
+                        if scrape_mode == "多讨论组采集(多个子群)":
+                            sub_groups_text = self.sub_groups_text.get("1.0", tk.END).strip()
+                            sub_group_links = [link.strip() for link in sub_groups_text.split('\n') if link.strip()]
+                            for link in sub_group_links:
+                                try:
+                                    sub_username, sub_topic = self.parse_group_link(link)
+                                    if sub_username:
+                                        entity = await client.get_entity(sub_username)
+                                        async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
+                                            admin_ids.add(user.id)
+                                except:
+                                    pass
+                        else:
+                            if group_username.isdigit():
+                                entity = await client.get_entity(int(group_username))
                             else:
-                                if group_username.isdigit():
-                                    entity = await client.get_entity(int(group_username))
-                                else:
-                                    entity = await client.get_entity(group_username)
-                                async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
-                                    admin_ids.add(user.id)
-                            self.log("采集群成员", f"获取到 {len(admin_ids)} 个管理员")
-                        except Exception as e:
-                            self.log("采集群成员", f"获取管理员列表失败: {str(e)}")
-                    
-                    if scrape_mode == "获取全部成员(公开群)":
-                        self.log("采集群成员", "开始采集成员（获取全部成员）...")
-                        if group_username.isdigit():
-                            entity = await client.get_entity(int(group_username))
-                        else:
-                            entity = await client.get_entity(group_username)
-                        async for user in client.iter_participants(entity):
-                            if not self.is_scraping:
-                                break
-                            while self.is_paused:
-                                await asyncio.sleep(0.5)
-                            if not self.is_scraping:
-                                break
-                            if not user.username:
-                                continue
-                            if user.id in all_collected_ids:
-                                continue
-                            all_collected_ids.add(user.id)
-                            if self.filter_admin.get() and user.id in admin_ids:
-                                continue
-                            if self.filter_bot.get() and user.bot:
-                                continue
-                            if self.filter_deleted.get() and user.deleted:
-                                continue
-                            if ad_keywords:
-                                name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
-                                if any(kw in name_lower for kw in ad_keywords):
-                                    continue
-                            if online_days is not None:
-                                if not self.check_online_days(user.status, online_days):
-                                    continue
-                            online_status = self.get_online_status_text(user.status)
-                            member_info = {
-                                'id': user.id, 'username': user.username,
-                                'first_name': user.first_name or "", 'last_name': user.last_name or "",
-                                'phone': user.phone if hasattr(user, 'phone') and user.phone else "",
-                                'online_status': online_status,
-                                'is_admin': user.id in admin_ids,
-                                'is_bot': user.bot if hasattr(user, 'bot') else False,
-                                'deleted': user.deleted if hasattr(user, 'deleted') else False
-                            }
-                            all_results.append(member_info)
-                            self.scraped_members = all_results.copy()
-                            total_count += 1
-                            if total_count % 10 == 0:
-                                self.root.after(0, lambda: self.batch_update_preview([]))
-                            await asyncio.sleep(0.05)
-                    
-                    elif scrape_mode == "获取发言用户(隐藏群)":
-                        self.log("采集群成员", "开始采集发言用户（极速模式）...")
-                        if group_username.isdigit():
-                            entity = await client.get_entity(int(group_username))
-                        else:
-                            entity = await client.get_entity(group_username)
-                        
-                        offset_id = 0
-                        batch_size = 3000
-                        input_peer = InputPeerChannel(entity.id, entity.access_hash)
-                        pending_infos = []
-                        last_ui_update = time.time()
-                        
-                        while self.is_scraping:
-                            while self.is_paused:
-                                await asyncio.sleep(0.5)
-                            if not self.is_scraping:
-                                break
-                            try:
-                                if topic_id:
-                                    messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
-                                    messages_list = messages
-                                else:
-                                    request_args = {
-                                        "peer": input_peer,
-                                        "offset_id": offset_id,
-                                        "offset_date": None,
-                                        "add_offset": 0,
-                                        "limit": batch_size,
-                                        "max_id": 0,
-                                        "min_id": 0,
-                                        "hash": 0
-                                    }
-                                    history = await client(GetHistoryRequest(**request_args))
-                                    messages_list = history.messages
-                                    users_map = {u.id: u for u in history.users}
-                                
-                                if not messages_list:
-                                    break
-                                
-                                for msg in messages_list:
-                                    if not self.is_scraping:
-                                        break
-                                    while self.is_paused:
-                                        await asyncio.sleep(0.5)
-                                    if not self.is_scraping:
-                                        break
-                                    if not msg.sender_id:
-                                        continue
-                                    if 'users_map' in locals() and msg.sender_id in users_map:
-                                        sender = users_map.get(msg.sender_id)
-                                    elif hasattr(msg, 'sender') and msg.sender:
-                                        sender = msg.sender
-                                    else:
-                                        try:
-                                            sender = await client.get_input_entity(msg.sender_id)
-                                        except:
-                                            continue
-                                    if not sender:
-                                        continue
-                                    if not hasattr(sender, 'username') or not sender.username:
-                                        continue
-                                    if sender.id in all_collected_ids:
-                                        continue
-                                    if self.filter_admin.get() and sender.id in admin_ids:
-                                        continue
-                                    if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
-                                        continue
-                                    if self.filter_deleted.get() and getattr(sender, 'deleted', False):
-                                        continue
-                                    if ad_keywords:
-                                        name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
-                                        if any(kw in name_lower for kw in ad_keywords):
-                                            continue
-                                    all_collected_ids.add(sender.id)
-                                    member_info = {
-                                        'id': sender.id, 'username': sender.username,
-                                        'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
-                                        'phone': "", 'online_status': "未知",
-                                        'is_admin': sender.id in admin_ids,
-                                        'is_bot': sender.bot,
-                                        'deleted': getattr(sender, 'deleted', False)
-                                    }
-                                    all_results.append(member_info)
-                                    self.scraped_members = all_results.copy()
-                                    pending_infos.append(member_info)
-                                    total_count += 1
-                                current_time = time.time()
-                                if current_time - last_ui_update >= 1.0 and pending_infos:
-                                    self.root.after(0, lambda: self.batch_update_preview([]))
-                                    pending_infos.clear()
-                                    last_ui_update = current_time
-                                if messages_list:
-                                    offset_id = messages_list[-1].id
-                                else:
-                                    break
-                            except FloodWaitError as e:
-                                self.log("采集群成员", f"等待 {e.seconds} 秒...")
-                                await asyncio.sleep(e.seconds)
-                            except Exception as e:
-                                self.log("采集群成员", f"错误: {str(e)}")
-                                break
-                        if pending_infos:
-                            self.root.after(0, lambda: self.batch_update_preview([]))
-                    
-                    elif scrape_mode == "隐私群采集(仅邀请链接)":
-                        self.log("采集群成员", "开始隐私群采集（通过聊天记录获取发言用户）...")
-                        if group_username.isdigit():
-                            entity = await client.get_entity(int(group_username))
-                        else:
-                            entity = await client.get_entity(group_username)
-                        
-                        offset_id = 0
-                        batch_size = 3000
-                        input_peer = InputPeerChannel(entity.id, entity.access_hash)
-                        pending_infos = []
-                        last_ui_update = time.time()
-                        
-                        while self.is_scraping:
-                            while self.is_paused:
-                                await asyncio.sleep(0.5)
-                            if not self.is_scraping:
-                                break
-                            try:
-                                if topic_id:
-                                    messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
-                                    messages_list = messages
-                                else:
-                                    request_args = {
-                                        "peer": input_peer,
-                                        "offset_id": offset_id,
-                                        "offset_date": None,
-                                        "add_offset": 0,
-                                        "limit": batch_size,
-                                        "max_id": 0,
-                                        "min_id": 0,
-                                        "hash": 0
-                                    }
-                                    history = await client(GetHistoryRequest(**request_args))
-                                    messages_list = history.messages
-                                    users_map = {u.id: u for u in history.users}
-                                
-                                if not messages_list:
-                                    break
-                                
-                                for msg in messages_list:
-                                    if not self.is_scraping:
-                                        break
-                                    while self.is_paused:
-                                        await asyncio.sleep(0.5)
-                                    if not self.is_scraping:
-                                        break
-                                    if not msg.sender_id:
-                                        continue
-                                    if 'users_map' in locals() and msg.sender_id in users_map:
-                                        sender = users_map.get(msg.sender_id)
-                                    elif hasattr(msg, 'sender') and msg.sender:
-                                        sender = msg.sender
-                                    else:
-                                        try:
-                                            sender = await client.get_input_entity(msg.sender_id)
-                                        except:
-                                            continue
-                                    if not sender:
-                                        continue
-                                    if not hasattr(sender, 'username') or not sender.username:
-                                        continue
-                                    if sender.id in all_collected_ids:
-                                        continue
-                                    if self.filter_admin.get() and sender.id in admin_ids:
-                                        continue
-                                    if self.filter_bot.get() and sender.bot:
-                                        continue
-                                    if self.filter_deleted.get() and getattr(sender, 'deleted', False):
-                                        continue
-                                    if ad_keywords:
-                                        name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
-                                        if any(kw in name_lower for kw in ad_keywords):
-                                            continue
-                                    all_collected_ids.add(sender.id)
-                                    member_info = {
-                                        'id': sender.id, 'username': sender.username,
-                                        'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
-                                        'phone': "", 'online_status': "未知",
-                                        'is_admin': sender.id in admin_ids,
-                                        'is_bot': sender.bot,
-                                        'deleted': getattr(sender, 'deleted', False)
-                                    }
-                                    all_results.append(member_info)
-                                    self.scraped_members = all_results.copy()
-                                    pending_infos.append(member_info)
-                                    total_count += 1
-                                current_time = time.time()
-                                if current_time - last_ui_update >= 1.0 and pending_infos:
-                                    self.root.after(0, lambda: self.batch_update_preview([]))
-                                    pending_infos.clear()
-                                    last_ui_update = current_time
-                                if messages_list:
-                                    offset_id = messages_list[-1].id
-                                else:
-                                    break
-                            except FloodWaitError as e:
-                                self.log("采集群成员", f"等待 {e.seconds} 秒...")
-                                await asyncio.sleep(e.seconds)
-                            except Exception as e:
-                                self.log("采集群成员", f"错误: {str(e)}")
-                                break
-                        if pending_infos:
-                            self.root.after(0, lambda: self.batch_update_preview([]))
-                    
-                    elif scrape_mode == "多讨论组采集(多个子群)":
-                        self.log("采集群成员", "开始多讨论组采集...")
-                        sub_groups_text = self.sub_groups_text.get("1.0", tk.END).strip()
-                        sub_group_links = [link.strip() for link in sub_groups_text.split('\n') if link.strip()]
-                        if not sub_group_links:
-                            self.log("采集群成员", "请填写子群链接列表")
-                            return
-                        self.log("采集群成员", f"共 {len(sub_group_links)} 个子群待采集")
-                        for idx, link in enumerate(sub_group_links, 1):
-                            if not self.is_scraping:
-                                break
-                            while self.is_paused:
-                                await asyncio.sleep(0.5)
-                            if not self.is_scraping:
-                                break
-                            self.log("采集群成员", f"正在采集第 {idx}/{len(sub_group_links)} 个子群: {link}")
-                            try:
-                                sub_username, sub_topic = self.parse_group_link(link)
-                                if not sub_username:
-                                    self.log("采集群成员", f"无效的子群链接: {link}")
-                                    continue
-                                entity = await client.get_entity(sub_username)
-                                offset_id = 0
-                                batch_size = 3000
-                                input_peer = InputPeerChannel(entity.id, entity.access_hash)
-                                sub_pending = []
-                                sub_count = 0
-                                while self.is_scraping:
-                                    while self.is_paused:
-                                        await asyncio.sleep(0.5)
-                                    if not self.is_scraping:
-                                        break
-                                    try:
-                                        if sub_topic:
-                                            messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=sub_topic)
-                                            messages_list = messages
-                                        else:
-                                            request_args = {
-                                                "peer": input_peer,
-                                                "offset_id": offset_id,
-                                                "offset_date": None,
-                                                "add_offset": 0,
-                                                "limit": batch_size,
-                                                "max_id": 0,
-                                                "min_id": 0,
-                                                "hash": 0
-                                            }
-                                            history = await client(GetHistoryRequest(**request_args))
-                                            messages_list = history.messages
-                                            users_map = {u.id: u for u in history.users}
-                                        if not messages_list:
-                                            break
-                                        for msg in messages_list:
-                                            if not self.is_scraping:
-                                                break
-                                            while self.is_paused:
-                                                await asyncio.sleep(0.5)
-                                            if not self.is_scraping:
-                                                break
-                                            if not msg.sender_id:
-                                                continue
-                                            if 'users_map' in locals() and msg.sender_id in users_map:
-                                                sender = users_map.get(msg.sender_id)
-                                            elif hasattr(msg, 'sender') and msg.sender:
-                                                sender = msg.sender
-                                            else:
-                                                try:
-                                                    sender = await client.get_input_entity(msg.sender_id)
-                                                except:
-                                                    continue
-                                            if not sender:
-                                                continue
-                                            if not hasattr(sender, 'username') or not sender.username:
-                                                continue
-                                            if sender.id in all_collected_ids:
-                                                continue
-                                            if self.filter_admin.get() and sender.id in admin_ids:
-                                                continue
-                                            if self.filter_bot.get() and sender.bot:
-                                                continue
-                                            if self.filter_deleted.get() and getattr(sender, 'deleted', False):
-                                                continue
-                                            if ad_keywords:
-                                                name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
-                                                if any(kw in name_lower for kw in ad_keywords):
-                                                    continue
-                                            all_collected_ids.add(sender.id)
-                                            member_info = {
-                                                'id': sender.id, 'username': sender.username,
-                                                'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
-                                                'phone': "", 'online_status': "未知",
-                                                'is_admin': sender.id in admin_ids,
-                                                'is_bot': sender.bot,
-                                                'deleted': getattr(sender, 'deleted', False)
-                                            }
-                                            all_results.append(member_info)
-                                            self.scraped_members = all_results.copy()
-                                            sub_pending.append(member_info)
-                                            total_count += 1
-                                            sub_count += 1
-                                        if messages_list:
-                                            offset_id = messages_list[-1].id
-                                        else:
-                                            break
-                                    except FloodWaitError as e:
-                                        self.log("采集群成员", f"等待 {e.seconds} 秒...")
-                                        await asyncio.sleep(e.seconds)
-                                    except Exception as e:
-                                        self.log("采集群成员", f"子群采集错误: {str(e)}")
-                                        break
-                                self.log("采集群成员", f"子群 {link} 采集完成，本群采集 {sub_count} 人，当前累计 {total_count} 人")
-                            except Exception as e:
-                                self.log("采集群成员", f"获取子群 {link} 失败: {str(e)}")
-                        if total_count > 0:
-                            self.root.after(0, lambda: self.batch_update_preview([]))
-                    
-                    elif scrape_mode == "频道评论采集":
-                        self.log("采集群成员", "开始频道评论采集...")
-                        if group_username.isdigit():
-                            entity = await client.get_entity(int(group_username))
-                        else:
-                            entity = await client.get_entity(group_username)
-                        
-                        offset_id = 0
-                        batch_size = 3000
-                        input_peer = InputPeerChannel(entity.id, entity.access_hash)
-                        pending_infos = []
-                        last_ui_update = time.time()
-                        
-                        while self.is_scraping:
-                            while self.is_paused:
-                                await asyncio.sleep(0.5)
-                            if not self.is_scraping:
-                                break
-                            try:
-                                if topic_id:
-                                    messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
-                                    messages_list = messages
-                                else:
-                                    request_args = {
-                                        "peer": input_peer,
-                                        "offset_id": offset_id,
-                                        "offset_date": None,
-                                        "add_offset": 0,
-                                        "limit": batch_size,
-                                        "max_id": 0,
-                                        "min_id": 0,
-                                        "hash": 0
-                                    }
-                                    history = await client(GetHistoryRequest(**request_args))
-                                    messages_list = history.messages
-                                    users_map = {u.id: u for u in history.users}
-                                
-                                if not messages_list:
-                                    break
-                                
-                                for msg in messages_list:
-                                    if not self.is_scraping:
-                                        break
-                                    while self.is_paused:
-                                        await asyncio.sleep(0.5)
-                                    if not self.is_scraping:
-                                        break
-                                    if not msg.sender_id:
-                                        continue
-                                    if 'users_map' in locals() and msg.sender_id in users_map:
-                                        sender = users_map.get(msg.sender_id)
-                                    elif hasattr(msg, 'sender') and msg.sender:
-                                        sender = msg.sender
-                                    else:
-                                        try:
-                                            sender = await client.get_input_entity(msg.sender_id)
-                                        except:
-                                            continue
-                                    if not sender:
-                                        continue
-                                    if not hasattr(sender, 'username') or not sender.username:
-                                        continue
-                                    if sender.id in all_collected_ids:
-                                        continue
-                                    if self.filter_admin.get() and sender.id in admin_ids:
-                                        continue
-                                    if self.filter_bot.get() and sender.bot:
-                                        continue
-                                    if self.filter_deleted.get() and getattr(sender, 'deleted', False):
-                                        continue
-                                    if ad_keywords:
-                                        name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
-                                        if any(kw in name_lower for kw in ad_keywords):
-                                            continue
-                                    all_collected_ids.add(sender.id)
-                                    member_info = {
-                                        'id': sender.id, 'username': sender.username,
-                                        'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
-                                        'phone': "", 'online_status': "未知",
-                                        'is_admin': sender.id in admin_ids,
-                                        'is_bot': sender.bot,
-                                        'deleted': getattr(sender, 'deleted', False)
-                                    }
-                                    all_results.append(member_info)
-                                    self.scraped_members = all_results.copy()
-                                    pending_infos.append(member_info)
-                                    total_count += 1
-                                
-                                current_time = time.time()
-                                if current_time - last_ui_update >= 1.0 and pending_infos:
-                                    self.root.after(0, lambda: self.batch_update_preview([]))
-                                    pending_infos.clear()
-                                    last_ui_update = current_time
-                                
-                                if messages_list:
-                                    offset_id = messages_list[-1].id
-                                else:
-                                    break
-                            except FloodWaitError as e:
-                                self.log("采集群成员", f"等待 {e.seconds} 秒...")
-                                await asyncio.sleep(e.seconds)
-                            except Exception as e:
-                                self.log("采集群成员", f"错误: {str(e)}")
-                                break
-                        if pending_infos:
-                            self.root.after(0, lambda: self.batch_update_preview([]))
-                    
-                    self.scraped_members = all_results
-                    self.log("采集群成员", f"采集完成！累计 {total_count} 人")
-                    
-                    if self.scraped_members:
-                        is_stop = not self.is_scraping
-                        self.save_scraped_members(group_username if group else "multi_groups", is_stop)
-                        self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
+                                entity = await client.get_entity(group_username)
+                            async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
+                                admin_ids.add(user.id)
+                        self.log("采集群成员", f"获取到 {len(admin_ids)} 个管理员")
+                    except Exception as e:
+                        self.log("采集群成员", f"获取管理员列表失败: {str(e)}")
+                
+                if scrape_mode == "获取全部成员(公开群)":
+                    self.log("采集群成员", "开始采集成员（获取全部成员）...")
+                    if group_username.isdigit():
+                        entity = await client.get_entity(int(group_username))
                     else:
-                        self.log("采集群成员", "没有采集到任何成员")
-                except Exception as e:
-                    self.log("采集群成员", f"采集失败: {str(e)}")
-                    if self.scraped_members:
-                        self.save_scraped_members(group_username if group else "multi_groups", True)
-                finally:
-                    if should_disconnect and client:
+                        entity = await client.get_entity(group_username)
+                    async for user in client.iter_participants(entity):
+                        if not self.is_scraping:
+                            break
+                        while self.is_paused:
+                            await asyncio.sleep(0.5)
+                        if not self.is_scraping:
+                            break
+                        if not user.username:
+                            continue
+                        if user.id in all_collected_ids:
+                            continue
+                        all_collected_ids.add(user.id)
+                        if self.filter_admin.get() and user.id in admin_ids:
+                            continue
+                        if self.filter_bot.get() and user.bot:
+                            continue
+                        if self.filter_deleted.get() and user.deleted:
+                            continue
+                        if ad_keywords:
+                            name_lower = f"{user.first_name or ''} {user.last_name or ''}".lower()
+                            if any(kw in name_lower for kw in ad_keywords):
+                                continue
+                        if online_days is not None:
+                            if not self.check_online_days(user.status, online_days):
+                                continue
+                        online_status = self.get_online_status_text(user.status)
+                        member_info = {
+                            'id': user.id, 'username': user.username,
+                            'first_name': user.first_name or "", 'last_name': user.last_name or "",
+                            'phone': user.phone if hasattr(user, 'phone') and user.phone else "",
+                            'online_status': online_status,
+                            'is_admin': user.id in admin_ids,
+                            'is_bot': user.bot if hasattr(user, 'bot') else False,
+                            'deleted': user.deleted if hasattr(user, 'deleted') else False
+                        }
+                        all_results.append(member_info)
+                        self.scraped_members = all_results.copy()
+                        total_count += 1
+                        if total_count % 10 == 0:
+                            self.root.after(0, lambda: self.batch_update_preview([]))
+                        await asyncio.sleep(0.05)
+                
+                elif scrape_mode == "获取发言用户(隐藏群)":
+                    self.log("采集群成员", "开始采集发言用户（极速模式）...")
+                    if group_username.isdigit():
+                        entity = await client.get_entity(int(group_username))
+                    else:
+                        entity = await client.get_entity(group_username)
+                    
+                    offset_id = 0
+                    batch_size = 3000
+                    input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                    pending_infos = []
+                    last_ui_update = time.time()
+                    
+                    while self.is_scraping:
+                        while self.is_paused:
+                            await asyncio.sleep(0.5)
+                        if not self.is_scraping:
+                            break
                         try:
-                            await client.disconnect()
-                        except:
-                            pass
+                            if topic_id:
+                                messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
+                                messages_list = messages
+                            else:
+                                request_args = {
+                                    "peer": input_peer,
+                                    "offset_id": offset_id,
+                                    "offset_date": None,
+                                    "add_offset": 0,
+                                    "limit": batch_size,
+                                    "max_id": 0,
+                                    "min_id": 0,
+                                    "hash": 0
+                                }
+                                history = await client(GetHistoryRequest(**request_args))
+                                messages_list = history.messages
+                                users_map = {u.id: u for u in history.users}
+                            
+                            if not messages_list:
+                                break
+                            
+                            for msg in messages_list:
+                                if not self.is_scraping:
+                                    break
+                                while self.is_paused:
+                                    await asyncio.sleep(0.5)
+                                if not self.is_scraping:
+                                    break
+                                if not msg.sender_id:
+                                    continue
+                                if 'users_map' in locals() and msg.sender_id in users_map:
+                                    sender = users_map.get(msg.sender_id)
+                                elif hasattr(msg, 'sender') and msg.sender:
+                                    sender = msg.sender
+                                else:
+                                    try:
+                                        sender = await client.get_input_entity(msg.sender_id)
+                                    except:
+                                        continue
+                                if not sender:
+                                    continue
+                                if not hasattr(sender, 'username') or not sender.username:
+                                    continue
+                                if sender.id in all_collected_ids:
+                                    continue
+                                if self.filter_admin.get() and sender.id in admin_ids:
+                                    continue
+                                if self.filter_bot.get() and hasattr(sender, 'bot') and sender.bot:
+                                    continue
+                                if self.filter_deleted.get() and getattr(sender, 'deleted', False):
+                                    continue
+                                if ad_keywords:
+                                    name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                    if any(kw in name_lower for kw in ad_keywords):
+                                        continue
+                                all_collected_ids.add(sender.id)
+                                member_info = {
+                                    'id': sender.id, 'username': sender.username,
+                                    'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
+                                    'phone': "", 'online_status': "未知",
+                                    'is_admin': sender.id in admin_ids,
+                                    'is_bot': sender.bot,
+                                    'deleted': getattr(sender, 'deleted', False)
+                                }
+                                all_results.append(member_info)
+                                self.scraped_members = all_results.copy()
+                                pending_infos.append(member_info)
+                                total_count += 1
+                            current_time = time.time()
+                            if current_time - last_ui_update >= 1.0 and pending_infos:
+                                self.root.after(0, lambda: self.batch_update_preview([]))
+                                pending_infos.clear()
+                                last_ui_update = current_time
+                            if messages_list:
+                                offset_id = messages_list[-1].id
+                            else:
+                                break
+                        except FloodWaitError as e:
+                            self.log("采集群成员", f"等待 {e.seconds} 秒...")
+                            await asyncio.sleep(e.seconds)
+                        except Exception as e:
+                            self.log("采集群成员", f"错误: {str(e)}")
+                            break
+                    if pending_infos:
+                        self.root.after(0, lambda: self.batch_update_preview([]))
+                
+                elif scrape_mode == "隐私群采集(仅邀请链接)":
+                    self.log("采集群成员", "开始隐私群采集（通过聊天记录获取发言用户）...")
+                    if group_username.isdigit():
+                        entity = await client.get_entity(int(group_username))
+                    else:
+                        entity = await client.get_entity(group_username)
+                    
+                    offset_id = 0
+                    batch_size = 3000
+                    input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                    pending_infos = []
+                    last_ui_update = time.time()
+                    
+                    while self.is_scraping:
+                        while self.is_paused:
+                            await asyncio.sleep(0.5)
+                        if not self.is_scraping:
+                            break
+                        try:
+                            if topic_id:
+                                messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
+                                messages_list = messages
+                            else:
+                                request_args = {
+                                    "peer": input_peer,
+                                    "offset_id": offset_id,
+                                    "offset_date": None,
+                                    "add_offset": 0,
+                                    "limit": batch_size,
+                                    "max_id": 0,
+                                    "min_id": 0,
+                                    "hash": 0
+                                }
+                                history = await client(GetHistoryRequest(**request_args))
+                                messages_list = history.messages
+                                users_map = {u.id: u for u in history.users}
+                            
+                            if not messages_list:
+                                break
+                            
+                            for msg in messages_list:
+                                if not self.is_scraping:
+                                    break
+                                while self.is_paused:
+                                    await asyncio.sleep(0.5)
+                                if not self.is_scraping:
+                                    break
+                                if not msg.sender_id:
+                                    continue
+                                if 'users_map' in locals() and msg.sender_id in users_map:
+                                    sender = users_map.get(msg.sender_id)
+                                elif hasattr(msg, 'sender') and msg.sender:
+                                    sender = msg.sender
+                                else:
+                                    try:
+                                        sender = await client.get_input_entity(msg.sender_id)
+                                    except:
+                                        continue
+                                if not sender:
+                                    continue
+                                if not hasattr(sender, 'username') or not sender.username:
+                                    continue
+                                if sender.id in all_collected_ids:
+                                    continue
+                                if self.filter_admin.get() and sender.id in admin_ids:
+                                    continue
+                                if self.filter_bot.get() and sender.bot:
+                                    continue
+                                if self.filter_deleted.get() and getattr(sender, 'deleted', False):
+                                    continue
+                                if ad_keywords:
+                                    name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                    if any(kw in name_lower for kw in ad_keywords):
+                                        continue
+                                all_collected_ids.add(sender.id)
+                                member_info = {
+                                    'id': sender.id, 'username': sender.username,
+                                    'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
+                                    'phone': "", 'online_status': "未知",
+                                    'is_admin': sender.id in admin_ids,
+                                    'is_bot': sender.bot,
+                                    'deleted': getattr(sender, 'deleted', False)
+                                }
+                                all_results.append(member_info)
+                                self.scraped_members = all_results.copy()
+                                pending_infos.append(member_info)
+                                total_count += 1
+                            current_time = time.time()
+                            if current_time - last_ui_update >= 1.0 and pending_infos:
+                                self.root.after(0, lambda: self.batch_update_preview([]))
+                                pending_infos.clear()
+                                last_ui_update = current_time
+                            if messages_list:
+                                offset_id = messages_list[-1].id
+                            else:
+                                break
+                        except FloodWaitError as e:
+                            self.log("采集群成员", f"等待 {e.seconds} 秒...")
+                            await asyncio.sleep(e.seconds)
+                        except Exception as e:
+                            self.log("采集群成员", f"错误: {str(e)}")
+                            break
+                    if pending_infos:
+                        self.root.after(0, lambda: self.batch_update_preview([]))
+                
+                elif scrape_mode == "多讨论组采集(多个子群)":
+                    self.log("采集群成员", "开始多讨论组采集...")
+                    sub_groups_text = self.sub_groups_text.get("1.0", tk.END).strip()
+                    sub_group_links = [link.strip() for link in sub_groups_text.split('\n') if link.strip()]
+                    if not sub_group_links:
+                        self.log("采集群成员", "请填写子群链接列表")
+                        return
+                    self.log("采集群成员", f"共 {len(sub_group_links)} 个子群待采集")
+                    for idx, link in enumerate(sub_group_links, 1):
+                        if not self.is_scraping:
+                            break
+                        while self.is_paused:
+                            await asyncio.sleep(0.5)
+                        if not self.is_scraping:
+                            break
+                        self.log("采集群成员", f"正在采集第 {idx}/{len(sub_group_links)} 个子群: {link}")
+                        try:
+                            sub_username, sub_topic = self.parse_group_link(link)
+                            if not sub_username:
+                                self.log("采集群成员", f"无效的子群链接: {link}")
+                                continue
+                            entity = await client.get_entity(sub_username)
+                            offset_id = 0
+                            batch_size = 3000
+                            input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                            sub_pending = []
+                            sub_count = 0
+                            while self.is_scraping:
+                                while self.is_paused:
+                                    await asyncio.sleep(0.5)
+                                if not self.is_scraping:
+                                    break
+                                try:
+                                    if sub_topic:
+                                        messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=sub_topic)
+                                        messages_list = messages
+                                    else:
+                                        request_args = {
+                                            "peer": input_peer,
+                                            "offset_id": offset_id,
+                                            "offset_date": None,
+                                            "add_offset": 0,
+                                            "limit": batch_size,
+                                            "max_id": 0,
+                                            "min_id": 0,
+                                            "hash": 0
+                                        }
+                                        history = await client(GetHistoryRequest(**request_args))
+                                        messages_list = history.messages
+                                        users_map = {u.id: u for u in history.users}
+                                    if not messages_list:
+                                        break
+                                    for msg in messages_list:
+                                        if not self.is_scraping:
+                                            break
+                                        while self.is_paused:
+                                            await asyncio.sleep(0.5)
+                                        if not self.is_scraping:
+                                            break
+                                        if not msg.sender_id:
+                                            continue
+                                        if 'users_map' in locals() and msg.sender_id in users_map:
+                                            sender = users_map.get(msg.sender_id)
+                                        elif hasattr(msg, 'sender') and msg.sender:
+                                            sender = msg.sender
+                                        else:
+                                            try:
+                                                sender = await client.get_input_entity(msg.sender_id)
+                                            except:
+                                                continue
+                                        if not sender:
+                                            continue
+                                        if not hasattr(sender, 'username') or not sender.username:
+                                            continue
+                                        if sender.id in all_collected_ids:
+                                            continue
+                                        if self.filter_admin.get() and sender.id in admin_ids:
+                                            continue
+                                        if self.filter_bot.get() and sender.bot:
+                                            continue
+                                        if self.filter_deleted.get() and getattr(sender, 'deleted', False):
+                                            continue
+                                        if ad_keywords:
+                                            name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                            if any(kw in name_lower for kw in ad_keywords):
+                                                continue
+                                        all_collected_ids.add(sender.id)
+                                        member_info = {
+                                            'id': sender.id, 'username': sender.username,
+                                            'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
+                                            'phone': "", 'online_status': "未知",
+                                            'is_admin': sender.id in admin_ids,
+                                            'is_bot': sender.bot,
+                                            'deleted': getattr(sender, 'deleted', False)
+                                        }
+                                        all_results.append(member_info)
+                                        self.scraped_members = all_results.copy()
+                                        sub_pending.append(member_info)
+                                        total_count += 1
+                                        sub_count += 1
+                                    if messages_list:
+                                        offset_id = messages_list[-1].id
+                                    else:
+                                        break
+                                except FloodWaitError as e:
+                                    self.log("采集群成员", f"等待 {e.seconds} 秒...")
+                                    await asyncio.sleep(e.seconds)
+                                except Exception as e:
+                                    self.log("采集群成员", f"子群采集错误: {str(e)}")
+                                    break
+                            self.log("采集群成员", f"子群 {link} 采集完成，本群采集 {sub_count} 人，当前累计 {total_count} 人")
+                        except Exception as e:
+                            self.log("采集群成员", f"获取子群 {link} 失败: {str(e)}")
+                    if total_count > 0:
+                        self.root.after(0, lambda: self.batch_update_preview([]))
+                
+                elif scrape_mode == "频道评论采集":
+                    self.log("采集群成员", "开始频道评论采集...")
+                    if group_username.isdigit():
+                        entity = await client.get_entity(int(group_username))
+                    else:
+                        entity = await client.get_entity(group_username)
+                    
+                    offset_id = 0
+                    batch_size = 3000
+                    input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                    pending_infos = []
+                    last_ui_update = time.time()
+                    
+                    while self.is_scraping:
+                        while self.is_paused:
+                            await asyncio.sleep(0.5)
+                        if not self.is_scraping:
+                            break
+                        try:
+                            if topic_id:
+                                messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=topic_id)
+                                messages_list = messages
+                            else:
+                                request_args = {
+                                    "peer": input_peer,
+                                    "offset_id": offset_id,
+                                    "offset_date": None,
+                                    "add_offset": 0,
+                                    "limit": batch_size,
+                                    "max_id": 0,
+                                    "min_id": 0,
+                                    "hash": 0
+                                }
+                                history = await client(GetHistoryRequest(**request_args))
+                                messages_list = history.messages
+                                users_map = {u.id: u for u in history.users}
+                            
+                            if not messages_list:
+                                break
+                            
+                            for msg in messages_list:
+                                if not self.is_scraping:
+                                    break
+                                while self.is_paused:
+                                    await asyncio.sleep(0.5)
+                                if not self.is_scraping:
+                                    break
+                                if not msg.sender_id:
+                                    continue
+                                if 'users_map' in locals() and msg.sender_id in users_map:
+                                    sender = users_map.get(msg.sender_id)
+                                elif hasattr(msg, 'sender') and msg.sender:
+                                    sender = msg.sender
+                                else:
+                                    try:
+                                        sender = await client.get_input_entity(msg.sender_id)
+                                    except:
+                                        continue
+                                if not sender:
+                                    continue
+                                if not hasattr(sender, 'username') or not sender.username:
+                                    continue
+                                if sender.id in all_collected_ids:
+                                    continue
+                                if self.filter_admin.get() and sender.id in admin_ids:
+                                    continue
+                                if self.filter_bot.get() and sender.bot:
+                                    continue
+                                if self.filter_deleted.get() and getattr(sender, 'deleted', False):
+                                    continue
+                                if ad_keywords:
+                                    name_lower = f"{sender.first_name or ''} {sender.last_name or ''}".lower()
+                                    if any(kw in name_lower for kw in ad_keywords):
+                                        continue
+                                all_collected_ids.add(sender.id)
+                                member_info = {
+                                    'id': sender.id, 'username': sender.username,
+                                    'first_name': sender.first_name or "", 'last_name': sender.last_name or "",
+                                    'phone': "", 'online_status': "未知",
+                                    'is_admin': sender.id in admin_ids,
+                                    'is_bot': sender.bot,
+                                    'deleted': getattr(sender, 'deleted', False)
+                                }
+                                all_results.append(member_info)
+                                self.scraped_members = all_results.copy()
+                                pending_infos.append(member_info)
+                                total_count += 1
+                            
+                            current_time = time.time()
+                            if current_time - last_ui_update >= 1.0 and pending_infos:
+                                self.root.after(0, lambda: self.batch_update_preview([]))
+                                pending_infos.clear()
+                                last_ui_update = current_time
+                            
+                            if messages_list:
+                                offset_id = messages_list[-1].id
+                            else:
+                                break
+                        except FloodWaitError as e:
+                            self.log("采集群成员", f"等待 {e.seconds} 秒...")
+                            await asyncio.sleep(e.seconds)
+                        except Exception as e:
+                            self.log("采集群成员", f"错误: {str(e)}")
+                            break
+                    if pending_infos:
+                        self.root.after(0, lambda: self.batch_update_preview([]))
+                
+                self.scraped_members = all_results
+                self.log("采集群成员", f"采集完成！累计 {total_count} 人")
+                
+                if self.scraped_members:
+                    is_stop = not self.is_scraping
+                    self.save_scraped_members(group_username if group else "multi_groups", is_stop)
+                    self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
+                else:
+                    self.log("采集群成员", "没有采集到任何成员")
+                await client.disconnect()
+            except Exception as e:
+                self.log("采集群成员", f"采集失败: {str(e)}")
+                if self.scraped_members:
+                    self.save_scraped_members(group_username if group else "multi_groups", True)
+            finally:
+                self.is_scraping = False
+                self.is_paused = False
+                self.update_account_task(account_phone, "", False)
+                self.update_account_task(account_phone, "采集群成员", False)
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
         
         def run_scrape():
             loop = asyncio.new_event_loop()
@@ -3986,117 +3949,105 @@ class TelegramFullGUI:
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         
-        async def do_invite():
-            lock = self.get_client_lock(phone)
-            async with lock:
-                client = None
-                account_invited_count = 0
-                should_disconnect = False
-                
-                try:
-                    existing_client = self.get_existing_client(phone)
-                    if existing_client and existing_client.is_connected():
-                        client = existing_client
-                    else:
-                        client = TelegramClient(session_path, api_id, api_hash)
-                        await client.connect()
-                        should_disconnect = True
-                    
-                    if not await client.is_user_authorized():
-                        self.log("批量拉人", f"[{phone[-6:]}] 未登录")
-                        return
-                    
-                    target_entities = []
-                    for target in targets:
-                        try:
-                            entity = None
-                            
-                            if 't.me/+' in target or 't.me/joinchat' in target:
-                                if '/+' in target:
-                                    invite_hash = target.split('/+')[-1].split('?')[0]
-                                else:
-                                    invite_hash = target.split('/joinchat/')[-1].split('?')[0]
-                                try:
-                                    result = await client(ImportChatInviteRequest(invite_hash))
-                                    if result.chats:
-                                        entity = result.chats[0]
-                                        self.log("批量拉人", f"[{phone[-6:]}] 加入群组成功")
-                                except UserAlreadyParticipantError:
-                                    self.log("批量拉人", f"[{phone[-6:]}] 已是群成员")
-                                    try:
-                                        entity = await client.get_entity(target)
-                                    except:
-                                        pass
-                                except Exception as e:
-                                    self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {str(e)[:30]}")
-                                if not entity:
-                                    try:
-                                        entity = await client.get_entity(target)
-                                    except:
-                                        pass
-                            else:
-                                if 't.me/' in target:
-                                    username = target.split('t.me/')[-1]
-                                elif target.isdigit():
-                                    username = int(target)
-                                else:
-                                    username = target
-                                
-                                entity = await client.get_entity(username)
-                                
-                                self.log("批量拉人", f"[{phone[-6:]}] 加入群组: {getattr(entity, 'title', target)[:20]}")
-                                try:
-                                    await client(JoinChannelRequest(entity))
-                                    self.log("批量拉人", f"[{phone[-6:]}] 加入成功")
-                                    await asyncio.sleep(1)
-                                except UserAlreadyParticipantError:
-                                    self.log("批量拉人", f"[{phone[-6:]}] 已是成员")
-                                except Exception as e:
-                                    self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {str(e)[:30]}")
-                                    continue
-                            
-                            if entity:
-                                target_entities.append((target, entity))
-                        except Exception as e:
-                            self.log("批量拉人", f"[{phone[-6:]}] 解析失败: {str(e)[:30]}")
-                    
-                    if not target_entities:
-                        self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
-                        return
-                    
-                    for username in users:
-                        if self.invite_stop_flag:
-                            break
-                        if per_account_max > 0 and account_invited_count >= per_account_max:
-                            break
-                        
-                        for target, entity in target_entities:
-                            if self.invite_stop_flag:
-                                break
-                            if per_account_limit > 0 and account_invited_count >= per_account_limit:
-                                break
-                            
-                            success, log_msg = await self.invite_user(
-                                client, phone, entity, username
-                            )
-                            
-                            self.log("批量拉人", log_msg)
-                            
-                            self.remove_user_from_file(username)
-                            
-                            if success:
-                                account_invited_count += 1
-                            
-                            await asyncio.sleep(invite_wait)
-                            break
-                        
-                except Exception as e:
-                    self.log("批量拉人", f"[{phone[-6:]}] 异常: {str(e)[:50]}")
-                finally:
-                    if should_disconnect and client:
-                        await client.disconnect()
+        client = None
+        account_invited_count = 0
         
-        await do_invite()
+        try:
+            client = TelegramClient(session_path, api_id, api_hash)
+            await client.connect()
+            if not await client.is_user_authorized():
+                self.log("批量拉人", f"[{phone[-6:]}] 未登录")
+                return
+            
+            target_entities = []
+            for target in targets:
+                try:
+                    entity = None
+                    
+                    if 't.me/+' in target or 't.me/joinchat' in target:
+                        if '/+' in target:
+                            invite_hash = target.split('/+')[-1].split('?')[0]
+                        else:
+                            invite_hash = target.split('/joinchat/')[-1].split('?')[0]
+                        try:
+                            result = await client(ImportChatInviteRequest(invite_hash))
+                            if result.chats:
+                                entity = result.chats[0]
+                                self.log("批量拉人", f"[{phone[-6:]}] 加入群组成功")
+                        except UserAlreadyParticipantError:
+                            self.log("批量拉人", f"[{phone[-6:]}] 已是群成员")
+                            try:
+                                entity = await client.get_entity(target)
+                            except:
+                                pass
+                        except Exception as e:
+                            self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {str(e)[:30]}")
+                        if not entity:
+                            try:
+                                entity = await client.get_entity(target)
+                            except:
+                                pass
+                    else:
+                        if 't.me/' in target:
+                            username = target.split('t.me/')[-1]
+                        elif target.isdigit():
+                            username = int(target)
+                        else:
+                            username = target
+                        
+                        entity = await client.get_entity(username)
+                        
+                        self.log("批量拉人", f"[{phone[-6:]}] 加入群组: {getattr(entity, 'title', target)[:20]}")
+                        try:
+                            await client(JoinChannelRequest(entity))
+                            self.log("批量拉人", f"[{phone[-6:]}] 加入成功")
+                            await asyncio.sleep(1)
+                        except UserAlreadyParticipantError:
+                            self.log("批量拉人", f"[{phone[-6:]}] 已是成员")
+                        except Exception as e:
+                            self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {str(e)[:30]}")
+                            continue
+                    
+                    if entity:
+                        target_entities.append((target, entity))
+                except Exception as e:
+                    self.log("批量拉人", f"[{phone[-6:]}] 解析失败: {str(e)[:30]}")
+            
+            if not target_entities:
+                self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
+                return
+            
+            for username in users:
+                if self.invite_stop_flag:
+                    break
+                if per_account_max > 0 and account_invited_count >= per_account_max:
+                    break
+                
+                for target, entity in target_entities:
+                    if self.invite_stop_flag:
+                        break
+                    if per_account_limit > 0 and account_invited_count >= per_account_limit:
+                        break
+                    
+                    success, log_msg = await self.invite_user(
+                        client, phone, entity, username
+                    )
+                    
+                    self.log("批量拉人", log_msg)
+                    
+                    self.remove_user_from_file(username)
+                    
+                    if success:
+                        account_invited_count += 1
+                    
+                    await asyncio.sleep(invite_wait)
+                    break
+                
+        except Exception as e:
+            self.log("批量拉人", f"[{phone[-6:]}] 异常: {str(e)[:50]}")
+        finally:
+            if client:
+                await client.disconnect()
     
     def stop_invite(self):
         if self.is_inviting:
@@ -4548,90 +4499,78 @@ class TelegramFullGUI:
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
             
-            async def do_send():
-                lock = self.get_client_lock(phone)
-                async with lock:
-                    client = None
-                    should_disconnect = False
-                    try:
-                        existing_client = self.get_existing_client(phone)
-                        if existing_client and existing_client.is_connected():
-                            client = existing_client
-                        else:
-                            client = TelegramClient(session_path, api_id, api_hash)
-                            await client.connect()
-                            should_disconnect = True
-                        
-                        if not await client.is_user_authorized():
-                            self.private_log_insert(f"[{phone}] 未登录")
-                            return False
-                        
-                        try:
-                            clean_username = username.lstrip('@')
-                            user_entity = await client.get_entity(clean_username)
-                            
-                            if ad_text.strip().startswith('@PostBot'):
-                                parts = ad_text.strip().split(' ')
-                                if len(parts) >= 2:
-                                    command = parts[1]
-                                    try:
-                                        postbot_entity = await client.get_entity('PostBot')
-                                        result = await client(GetInlineBotResultsRequest(
-                                            bot=postbot_entity,
-                                            peer=user_entity.id,
-                                            query=command,
-                                            offset=''
-                                        ))
-                                        if result.results:
-                                            await client(SendInlineBotResultRequest(
-                                                peer=user_entity.id,
-                                                query_id=result.query_id,
-                                                id=result.results[0].id
-                                            ))
-                                            self.private_log_insert(f"[{phone}] 发送PostBot广告成功 | {clean_username}")
-                                        else:
-                                            self.private_log_insert(f"[{phone}] PostBot无结果 | {clean_username}")
-                                            return False
-                                    except Exception as e:
-                                        self.private_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
-                                        return False
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.private_log_insert(f"[{phone}] 未登录")
+                    return False
+                
+                try:
+                    clean_username = username.lstrip('@')
+                    user_entity = await client.get_entity(clean_username)
+                    
+                    if ad_text.strip().startswith('@PostBot'):
+                        parts = ad_text.strip().split(' ')
+                        if len(parts) >= 2:
+                            command = parts[1]
+                            try:
+                                postbot_entity = await client.get_entity('PostBot')
+                                result = await client(GetInlineBotResultsRequest(
+                                    bot=postbot_entity,
+                                    peer=user_entity.id,
+                                    query=command,
+                                    offset=''
+                                ))
+                                if result.results:
+                                    await client(SendInlineBotResultRequest(
+                                        peer=user_entity.id,
+                                        query_id=result.query_id,
+                                        id=result.results[0].id
+                                    ))
+                                    self.private_log_insert(f"[{phone}] 发送PostBot广告成功 | {clean_username}")
                                 else:
-                                    self.private_log_insert(f"[{phone}] PostBot命令格式错误")
+                                    self.private_log_insert(f"[{phone}] PostBot无结果 | {clean_username}")
                                     return False
-                            elif image_path and os.path.exists(image_path):
-                                file = await client.upload_file(image_path)
-                                if ad_text:
-                                    await client.send_file(user_entity.id, file, caption=ad_text)
-                                else:
-                                    await client.send_file(user_entity.id, file)
-                                self.private_log_insert(f"[{phone}] 发送图片成功 | {clean_username}")
-                            else:
-                                await client.send_message(user_entity.id, ad_text)
-                                self.private_log_insert(f"[{phone}] 发送文本成功 | {clean_username}")
-                            
-                            if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-                                self.remove_user_from_file(username, self.private_user_file_path)
-                                self.private_log_insert(f"[{phone}] 已从文件删除用户: {clean_username}")
-                            
-                            await asyncio.sleep(interval)
-                            return True
-                            
-                        except FloodWaitError as e:
-                            self.private_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
-                            await asyncio.sleep(e.seconds)
+                            except Exception as e:
+                                self.private_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
+                                return False
+                        else:
+                            self.private_log_insert(f"[{phone}] PostBot命令格式错误")
                             return False
-                        except Exception as e:
-                            self.private_log_insert(f"[{phone}] 发送失败 {username}: {str(e)[:50]}")
-                            return False
-                            
-                    except Exception as e:
-                        self.private_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
-                        return False
-                    finally:
-                        if should_disconnect and client:
-                            await client.disconnect()
-            
-            return await do_send()
+                    elif image_path and os.path.exists(image_path):
+                        file = await client.upload_file(image_path)
+                        if ad_text:
+                            await client.send_file(user_entity.id, file, caption=ad_text)
+                        else:
+                            await client.send_file(user_entity.id, file)
+                        self.private_log_insert(f"[{phone}] 发送图片成功 | {clean_username}")
+                    else:
+                        await client.send_message(user_entity.id, ad_text)
+                        self.private_log_insert(f"[{phone}] 发送文本成功 | {clean_username}")
+                    
+                    if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                        self.remove_user_from_file(username, self.private_user_file_path)
+                        self.private_log_insert(f"[{phone}] 已从文件删除用户: {clean_username}")
+                    
+                    await asyncio.sleep(interval)
+                    return True
+                    
+                except FloodWaitError as e:
+                    self.private_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
+                    await asyncio.sleep(e.seconds)
+                    return False
+                except Exception as e:
+                    self.private_log_insert(f"[{phone}] 发送失败 {username}: {str(e)[:50]}")
+                    return False
+                    
+            except Exception as e:
+                self.private_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
+                return False
+            finally:
+                if client:
+                    await client.disconnect()
         
         tasks = []
         for acc, username in paired_list:
@@ -4726,159 +4665,147 @@ class TelegramFullGUI:
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
             
-            async def do_send():
-                lock = self.get_client_lock(phone)
-                async with lock:
-                    client = None
-                    sent_count = 0
-                    joined_groups = []
-                    should_disconnect = False
-                    
-                    try:
-                        existing_client = self.get_existing_client(phone)
-                        if existing_client and existing_client.is_connected():
-                            client = existing_client
-                        else:
-                            client = TelegramClient(session_path, api_id, api_hash)
-                            await client.connect()
-                            should_disconnect = True
-                        
-                        if not await client.is_user_authorized():
-                            self.group_log_insert(f"[{phone}] 未登录")
-                            return
-                        
-                        for target in targets:
-                            try:
-                                entity = None
-                                if 't.me/+' in target or 't.me/joinchat' in target:
-                                    if '/+' in target:
-                                        invite_hash = target.split('/+')[-1].split('?')[0]
-                                    else:
-                                        invite_hash = target.split('/joinchat/')[-1].split('?')[0]
-                                    try:
-                                        result = await client(ImportChatInviteRequest(invite_hash))
-                                        if result.chats:
-                                            entity = result.chats[0]
-                                            self.group_log_insert(f"[{phone}] 加入群组成功")
-                                    except UserAlreadyParticipantError:
-                                        self.group_log_insert(f"[{phone}] 已是群成员")
-                                        try:
-                                            entity = await client.get_entity(target)
-                                        except:
-                                            pass
-                                    except Exception as e:
-                                        self.group_log_insert(f"[{phone}] 加入失败: {str(e)[:30]}")
-                                    if not entity:
-                                        try:
-                                            entity = await client.get_entity(target)
-                                        except:
-                                            pass
-                                else:
-                                    if 't.me/' in target:
-                                        username = target.split('t.me/')[-1]
-                                    elif target.isdigit():
-                                        username = int(target)
-                                    else:
-                                        username = target
-                                    entity = await client.get_entity(username)
-                                    try:
-                                        await client(JoinChannelRequest(entity))
-                                        self.group_log_insert(f"[{phone}] 加入群组成功")
-                                    except UserAlreadyParticipantError:
-                                        self.group_log_insert(f"[{phone}] 已是群成员")
-                                
-                                if entity:
-                                    joined_groups.append(entity)
-                            except Exception as e:
-                                self.group_log_insert(f"[{phone}] 解析群组失败: {str(e)[:30]}")
-                        
-                        if not joined_groups:
-                            self.group_log_insert(f"[{phone}] 无有效目标群组")
-                            return
-                        
-                        group_index = 0
-                        while sent_count < per_account_limit or per_account_limit == 0:
-                            if self.group_stop_flag:
-                                break
-                            while self.group_send_paused:
-                                await asyncio.sleep(1)
-                            
-                            target_groups = []
-                            for i in range(concurrent):
-                                if group_index >= len(joined_groups):
-                                    group_index = 0
-                                target_groups.append(joined_groups[group_index])
-                                group_index += 1
-                            
-                            for entity in target_groups:
-                                if self.group_stop_flag:
-                                    break
-                                try:
-                                    if ad_text.strip().startswith('@PostBot'):
-                                        parts = ad_text.strip().split(' ')
-                                        if len(parts) >= 2:
-                                            command = parts[1]
-                                            try:
-                                                postbot_entity = await client.get_entity('PostBot')
-                                                result = await client(GetInlineBotResultsRequest(
-                                                    bot=postbot_entity,
-                                                    peer=entity,
-                                                    query=command,
-                                                    offset=''
-                                                ))
-                                                if result.results:
-                                                    await client(SendInlineBotResultRequest(
-                                                        peer=entity,
-                                                        query_id=result.query_id,
-                                                        id=result.results[0].id
-                                                    ))
-                                                    self.group_log_insert(f"[{phone}] 群发PostBot广告成功")
-                                                else:
-                                                    self.group_log_insert(f"[{phone}] PostBot无结果")
-                                            except Exception as e:
-                                                self.group_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
-                                        else:
-                                            self.group_log_insert(f"[{phone}] PostBot命令格式错误")
-                                    elif image_path and os.path.exists(image_path):
-                                        file = await client.upload_file(image_path)
-                                        if ad_text:
-                                            await client.send_file(entity, file, caption=ad_text)
-                                        else:
-                                            await client.send_file(entity, file)
-                                        self.group_log_insert(f"[{phone}] 群发图片成功")
-                                    else:
-                                        await client.send_message(entity, ad_text)
-                                        self.group_log_insert(f"[{phone}] 群发文本成功")
-                                    
-                                    sent_count += 1
-                                    group_title = getattr(entity, 'title', str(entity))[:20]
-                                    self.group_log_insert(f"[{phone}] 群发成功 | {group_title} ({sent_count}/{per_account_limit if per_account_limit>0 else '不限'})")
-                                    await asyncio.sleep(interval)
-                                except FloodWaitError as e:
-                                    self.group_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
-                                    await asyncio.sleep(e.seconds)
-                                except Exception as e:
-                                    error_msg = str(e).lower()
-                                    if "banned" in error_msg:
-                                        self.group_log_insert(f"[{phone}] 群发失败: 账号被禁言")
-                                    else:
-                                        self.group_log_insert(f"[{phone}] 群发失败: {str(e)[:50]}")
-                                    if auto_skip:
-                                        continue
-                                    await asyncio.sleep(interval)
-                            
-                            if per_account_limit > 0 and sent_count >= per_account_limit:
-                                break
-                            
-                            await asyncio.sleep(1)
-                        
-                    except Exception as e:
-                        self.group_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
-                    finally:
-                        if should_disconnect and client:
-                            await client.disconnect()
+            client = None
+            sent_count = 0
+            joined_groups = []
             
-            await do_send()
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    self.group_log_insert(f"[{phone}] 未登录")
+                    return
+                
+                for target in targets:
+                    try:
+                        entity = None
+                        if 't.me/+' in target or 't.me/joinchat' in target:
+                            if '/+' in target:
+                                invite_hash = target.split('/+')[-1].split('?')[0]
+                            else:
+                                invite_hash = target.split('/joinchat/')[-1].split('?')[0]
+                            try:
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                if result.chats:
+                                    entity = result.chats[0]
+                                    self.group_log_insert(f"[{phone}] 加入群组成功")
+                            except UserAlreadyParticipantError:
+                                self.group_log_insert(f"[{phone}] 已是群成员")
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
+                            except Exception as e:
+                                self.group_log_insert(f"[{phone}] 加入失败: {str(e)[:30]}")
+                            if not entity:
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    pass
+                        else:
+                            if 't.me/' in target:
+                                username = target.split('t.me/')[-1]
+                            elif target.isdigit():
+                                username = int(target)
+                            else:
+                                username = target
+                            entity = await client.get_entity(username)
+                            try:
+                                await client(JoinChannelRequest(entity))
+                                self.group_log_insert(f"[{phone}] 加入群组成功")
+                            except UserAlreadyParticipantError:
+                                self.group_log_insert(f"[{phone}] 已是群成员")
+                        
+                        if entity:
+                            joined_groups.append(entity)
+                    except Exception as e:
+                        self.group_log_insert(f"[{phone}] 解析群组失败: {str(e)[:30]}")
+                
+                if not joined_groups:
+                    self.group_log_insert(f"[{phone}] 无有效目标群组")
+                    return
+                
+                group_index = 0
+                while sent_count < per_account_limit or per_account_limit == 0:
+                    if self.group_stop_flag:
+                        break
+                    while self.group_send_paused:
+                        await asyncio.sleep(1)
+                    
+                    target_groups = []
+                    for i in range(concurrent):
+                        if group_index >= len(joined_groups):
+                            group_index = 0
+                        target_groups.append(joined_groups[group_index])
+                        group_index += 1
+                    
+                    for entity in target_groups:
+                        if self.group_stop_flag:
+                            break
+                        try:
+                            if ad_text.strip().startswith('@PostBot'):
+                                parts = ad_text.strip().split(' ')
+                                if len(parts) >= 2:
+                                    command = parts[1]
+                                    try:
+                                        postbot_entity = await client.get_entity('PostBot')
+                                        result = await client(GetInlineBotResultsRequest(
+                                            bot=postbot_entity,
+                                            peer=entity,
+                                            query=command,
+                                            offset=''
+                                        ))
+                                        if result.results:
+                                            await client(SendInlineBotResultRequest(
+                                                peer=entity,
+                                                query_id=result.query_id,
+                                                id=result.results[0].id
+                                            ))
+                                            self.group_log_insert(f"[{phone}] 群发PostBot广告成功")
+                                        else:
+                                            self.group_log_insert(f"[{phone}] PostBot无结果")
+                                    except Exception as e:
+                                        self.group_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
+                                else:
+                                    self.group_log_insert(f"[{phone}] PostBot命令格式错误")
+                            elif image_path and os.path.exists(image_path):
+                                file = await client.upload_file(image_path)
+                                if ad_text:
+                                    await client.send_file(entity, file, caption=ad_text)
+                                else:
+                                    await client.send_file(entity, file)
+                                self.group_log_insert(f"[{phone}] 群发图片成功")
+                            else:
+                                await client.send_message(entity, ad_text)
+                                self.group_log_insert(f"[{phone}] 群发文本成功")
+                            
+                            sent_count += 1
+                            group_title = getattr(entity, 'title', str(entity))[:20]
+                            self.group_log_insert(f"[{phone}] 群发成功 | {group_title} ({sent_count}/{per_account_limit if per_account_limit>0 else '不限'})")
+                            await asyncio.sleep(interval)
+                        except FloodWaitError as e:
+                            self.group_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
+                            await asyncio.sleep(e.seconds)
+                        except Exception as e:
+                            error_msg = str(e).lower()
+                            if "banned" in error_msg:
+                                self.group_log_insert(f"[{phone}] 群发失败: 账号被禁言")
+                            else:
+                                self.group_log_insert(f"[{phone}] 群发失败: {str(e)[:50]}")
+                            if auto_skip:
+                                continue
+                            await asyncio.sleep(interval)
+                    
+                    if per_account_limit > 0 and sent_count >= per_account_limit:
+                        break
+                    
+                    await asyncio.sleep(1)
+                
+            except Exception as e:
+                self.group_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
+            finally:
+                if client:
+                    await client.disconnect()
         
         tasks = []
         for acc in accounts[:thread_cnt]:
@@ -5277,105 +5204,92 @@ class TelegramFullGUI:
             if not target_groups:
                 return None
             
-            async def do_init():
-                lock = self.get_client_lock(phone)
-                async with lock:
-                    client = None
-                    should_disconnect = False
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    return None
+                
+                async def join_single_group(group_link):
                     try:
-                        existing_client = self.get_existing_client(phone)
-                        if existing_client and existing_client.is_connected():
-                            client = existing_client
-                        else:
-                            client = TelegramClient(session_path, api_id, api_hash)
-                            await client.connect()
-                            should_disconnect = True
-                        
-                        if not await client.is_user_authorized():
-                            return None
-                        
-                        async def join_single_group(group_link):
+                        entity = None
+                        if 't.me/+' in group_link or 't.me/joinchat' in group_link:
+                            if '/+' in group_link:
+                                invite_hash = group_link.split('/+')[-1].split('?')[0]
+                            else:
+                                invite_hash = group_link.split('/joinchat/')[-1].split('?')[0]
                             try:
-                                entity = None
-                                if 't.me/+' in group_link or 't.me/joinchat' in group_link:
-                                    if '/+' in group_link:
-                                        invite_hash = group_link.split('/+')[-1].split('?')[0]
-                                    else:
-                                        invite_hash = group_link.split('/joinchat/')[-1].split('?')[0]
-                                    try:
-                                        result = await client(ImportChatInviteRequest(invite_hash))
-                                        if result.chats:
-                                            entity = result.chats[0]
-                                    except UserAlreadyParticipantError:
-                                        try:
-                                            if 't.me/' in group_link:
-                                                username = group_link.split('t.me/')[-1].split('?')[0]
-                                                entity = await client.get_entity(username)
-                                            else:
-                                                entity = await client.get_entity(group_link)
-                                        except:
-                                            pass
-                                    except Exception:
-                                        pass
-                                else:
+                                result = await client(ImportChatInviteRequest(invite_hash))
+                                if result.chats:
+                                    entity = result.chats[0]
+                            except UserAlreadyParticipantError:
+                                try:
                                     if 't.me/' in group_link:
                                         username = group_link.split('t.me/')[-1].split('?')[0]
-                                    else:
-                                        username = group_link
-                                    try:
                                         entity = await client.get_entity(username)
-                                        try:
-                                            await client(JoinChannelRequest(entity))
-                                        except UserAlreadyParticipantError:
-                                            pass
-                                        except Exception:
-                                            pass
-                                    except Exception:
-                                        pass
-                                return entity
-                            except Exception:
-                                return None
-                        
-                        join_tasks = [join_single_group(gl) for gl in target_groups]
-                        entities = await asyncio.gather(*join_tasks)
-                        group_entities = [e for e in entities if e is not None]
-                        
-                        if not group_entities:
-                            return None
-                        
-                        for entity in group_entities:
-                            @client.on(events.NewMessage(chats=entity))
-                            async def message_handler(event):
-                                if event.message.out:
-                                    return
-                                if not event.sender_id:
-                                    return
-                                try:
-                                    sender = await event.client.get_entity(event.sender_id)
-                                    sender_phone = getattr(sender, 'phone', None)
-                                    if sender_phone:
-                                        group_id = event.chat_id
-                                        if group_id not in self.chat_message_cache:
-                                            self.chat_message_cache[group_id] = {}
-                                        self.chat_message_cache[group_id][sender_phone] = {
-                                            'msg_id': event.message.id,
-                                            'content': event.message.text or '',
-                                            'timestamp': time.time()
-                                        }
+                                    else:
+                                        entity = await client.get_entity(group_link)
                                 except:
                                     pass
-                        
-                        return {
-                            'client': client,
-                            'groups': group_entities,
-                            'phone': phone,
-                            'should_disconnect': should_disconnect
-                        }
-                    except Exception as e:
-                        self.log("自动群聊", f"[{phone[-6:]}] 初始化失败: {str(e)[:50]}")
+                            except Exception:
+                                pass
+                        else:
+                            if 't.me/' in group_link:
+                                username = group_link.split('t.me/')[-1].split('?')[0]
+                            else:
+                                username = group_link
+                            try:
+                                entity = await client.get_entity(username)
+                                try:
+                                    await client(JoinChannelRequest(entity))
+                                except UserAlreadyParticipantError:
+                                    pass
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                        return entity
+                    except Exception:
                         return None
-            
-            return await do_init()
+                
+                join_tasks = [join_single_group(gl) for gl in target_groups]
+                entities = await asyncio.gather(*join_tasks)
+                group_entities = [e for e in entities if e is not None]
+                
+                if not group_entities:
+                    await client.disconnect()
+                    return None
+                
+                for entity in group_entities:
+                    @client.on(events.NewMessage(chats=entity))
+                    async def message_handler(event):
+                        if event.message.out:
+                            return
+                        if not event.sender_id:
+                            return
+                        try:
+                            sender = await event.client.get_entity(event.sender_id)
+                            sender_phone = getattr(sender, 'phone', None)
+                            if sender_phone:
+                                group_id = event.chat_id
+                                if group_id not in self.chat_message_cache:
+                                    self.chat_message_cache[group_id] = {}
+                                self.chat_message_cache[group_id][sender_phone] = {
+                                    'msg_id': event.message.id,
+                                    'content': event.message.text or '',
+                                    'timestamp': time.time()
+                                }
+                        except:
+                            pass
+                
+                return {
+                    'client': client,
+                    'groups': group_entities,
+                    'phone': phone
+                }
+            except Exception as e:
+                self.log("自动群聊", f"[{phone[-6:]}] 初始化失败: {str(e)[:50]}")
+                return None
         
         init_tasks = [init_account(acc) for acc in accounts]
         results = await asyncio.gather(*init_tasks)
@@ -5538,11 +5452,10 @@ class TelegramFullGUI:
             await asyncio.sleep(interval)
         
         for phone, info in account_clients.items():
-            if info.get('should_disconnect', False) and info['client']:
-                try:
-                    await info['client'].disconnect()
-                except:
-                    pass
+            try:
+                await info['client'].disconnect()
+            except:
+                pass
     
     def stop_auto_chat(self):
         self.chat_stop_flag = True
