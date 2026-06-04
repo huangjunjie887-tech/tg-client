@@ -545,7 +545,7 @@ class TelegramFullGUI:
         self.save_config()
     
     def start_single_monitor(self, acc):
-        """为单个账号启动消息监听"""
+        """为单个账号启动消息监听 - 确保每条消息都能被处理"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -561,22 +561,29 @@ class TelegramFullGUI:
                 
                 me = await client.get_me()
                 my_username = me.username
-                # 简洁启动日志
                 self.log("多账号管理", f"[{phone}] 监听已启动")
                 
                 @client.on(events.NewMessage(incoming=True))
                 async def message_handler(event):
+                    # 使用 try-except 包裹整个处理逻辑，确保单条消息出错不影响后续消息
                     try:
                         if event.message.out:
                             return
                         
-                        sender = await event.get_sender()
-                        if sender is None:
-                            return
+                        # 获取发送者信息 - 使用更安全的方式，失败时使用默认值
+                        sender_name = "未知用户"
+                        sender_username = ""
+                        sender_id = event.sender_id or 0
                         
-                        sender_name = getattr(sender, 'first_name', '') or getattr(sender, 'username', '') or str(sender.id)
-                        sender_username = getattr(sender, 'username', '')
-                        sender_id = sender.id
+                        try:
+                            sender = await event.get_sender()
+                            if sender is not None:
+                                sender_name = getattr(sender, 'first_name', '') or getattr(sender, 'username', '') or str(sender.id)
+                                sender_username = getattr(sender, 'username', '')
+                                sender_id = sender.id
+                        except Exception as e:
+                            # 获取发送者失败，使用默认值，不影响消息处理
+                            pass
                         
                         message_text = event.message.text or ""
                         is_image = bool(event.message.photo)
@@ -641,9 +648,15 @@ class TelegramFullGUI:
                                 is_mentioned = True
                             
                             if is_mentioned:
-                                chat = await event.get_chat()
-                                chat_name = getattr(chat, 'title', '未知群组')
-                                chat_id = chat.id
+                                chat_name = "未知群组"
+                                chat_id = event.chat_id or 0
+                                try:
+                                    chat = await event.get_chat()
+                                    if chat is not None:
+                                        chat_name = getattr(chat, 'title', '未知群组')
+                                        chat_id = chat.id
+                                except Exception as e:
+                                    pass
                                 
                                 with self.message_cache_lock:
                                     if phone not in self.message_cache:
