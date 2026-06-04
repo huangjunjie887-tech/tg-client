@@ -908,7 +908,7 @@ class TelegramFullGUI:
         async def send_with_retry():
             lock = self.get_client_lock(phone)
             
-            async with lock:  # 使用异步锁确保同一账号不会同时操作数据库
+            async with lock:
                 client = None
                 try:
                     client = TelegramClient(session_path, api_id, api_hash)
@@ -920,7 +920,6 @@ class TelegramFullGUI:
                     if msg_type == 'private':
                         target_entity = await client.get_entity(target_id)
                         
-                        # 带重试的发送
                         for retry in range(3):
                             try:
                                 if image_path and os.path.exists(image_path):
@@ -1058,7 +1057,6 @@ class TelegramFullGUI:
         check_vars = {}  # {phone: BooleanVar}
         
         def refresh_account_list():
-            # 清空tree
             for item in tree.get_children():
                 tree.delete(item)
             check_vars.clear()
@@ -1084,11 +1082,9 @@ class TelegramFullGUI:
                 var = tk.BooleanVar(value=False)
                 check_vars[phone] = var
                 
-                # 设置状态颜色标记
                 status_display = status
                 tree.insert("", "end", iid=phone, values=("", idx, phone, nickname, group, status_display))
                 
-                # 根据状态设置行颜色
                 if status == "正常":
                     tree.tag_configure('normal', background='#e8f5e9')
                     tree.item(phone, tags=('normal',))
@@ -1103,7 +1099,7 @@ class TelegramFullGUI:
             region = tree.identify_region(event.x, event.y)
             if region == "cell":
                 column = tree.identify_column(event.x)
-                if column == "#1":  # 选择列
+                if column == "#1":
                     item = tree.identify_row(event.y)
                     if item:
                         current = check_vars.get(item, tk.BooleanVar(value=False))
@@ -1127,7 +1123,6 @@ class TelegramFullGUI:
         
         refresh_account_list()
         
-        # 按钮区域
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill="x", pady=10)
         
@@ -1202,7 +1197,6 @@ class TelegramFullGUI:
         frame = ttk.LabelFrame(main_frame, text="账号列表")
         frame.pack(fill="both", expand=True, pady=5)
         
-        # 删除了"上一次操作"列，新增"消息"列
         columns = ("序号", "手机号", "分组", "昵称", "当前任务", "账号状态", "注册时长", "代理IP", "消息")
         self.account_tree = ttk.Treeview(frame, columns=columns, show="headings", height=12)
         for col in columns:
@@ -2537,8 +2531,6 @@ class TelegramFullGUI:
         self.preview_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         preview_scrollbar.pack(side="right", fill="y")
         
-        # 删除"已采集: X 人"标签
-        
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=2)
@@ -2682,7 +2674,6 @@ class TelegramFullGUI:
                 display_name, info.get('online_status', '未知'),
                 "是" if info.get('is_admin', False) else "否", "是" if is_bot else "否"
             ))
-        # 不再更新"已采集"标签
         
     def parse_group_link(self, link):
         topic_id = None
@@ -3340,11 +3331,9 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
         
-        # 主容器 - 垂直布局
         main_container = ttk.Frame(page)
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上方内容区域（可滚动，占据所有剩余空间）
         top_frame = ttk.Frame(main_container)
         top_frame.pack(fill="both", expand=True, pady=(0, 5))
         
@@ -3369,8 +3358,6 @@ class TelegramFullGUI:
         def on_mousewheel(event):
             settings_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         settings_canvas.bind("<MouseWheel>", on_mousewheel)
-        
-        # ========== 以下所有设置内容都在 settings_frame 中 ==========
         
         mode_frame = ttk.LabelFrame(settings_frame, text="拉人模式")
         mode_frame.pack(fill="x", pady=5, padx=5)
@@ -3431,7 +3418,6 @@ class TelegramFullGUI:
         ttk.Label(file_frame, text="执行后自动删除已处理的用户", font=("微软雅黑", 8), foreground="red").pack(side="left", padx=10)
         current_row += 1
         
-        # 账号选择（删除分组筛选，只保留选择账号按钮）
         account_select_frame = ttk.Frame(self.settings_panel)
         account_select_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
         ttk.Button(account_select_frame, text="选择账号", command=self.select_invite_accounts, width=12).pack(side="left", padx=5)
@@ -3439,7 +3425,6 @@ class TelegramFullGUI:
         self.selected_invite_accounts_label.pack(side="left", padx=10)
         current_row += 1
         
-        # 存储选中的账号
         self.selected_invite_accounts = []
         
         param_frame = ttk.LabelFrame(self.settings_panel, text="拉人参数")
@@ -3488,7 +3473,6 @@ class TelegramFullGUI:
         
         self.settings_panel.columnconfigure(0, weight=1)
         
-        # 按钮区域
         btn_frame = ttk.Frame(settings_frame)
         btn_frame.pack(fill="x", pady=10)
         self.start_invite_btn = ttk.Button(btn_frame, text="开始拉人", command=self.start_invite_advanced, width=12)
@@ -3496,7 +3480,6 @@ class TelegramFullGUI:
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
         
-        # ========== 运行日志区域 - 放在最底部，固定高度 ==========
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=24)
@@ -3506,35 +3489,30 @@ class TelegramFullGUI:
         self.invite_stop_flag = False
     
     def select_invite_accounts(self):
-        """选择拉人账号的弹窗"""
         selected = self.show_account_selector("选择拉人账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_invite_accounts = selected
         self.selected_invite_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("批量拉人", f"已选择 {len(selected)} 个账号")
     
     def select_private_accounts(self):
-        """选择私发账号的弹窗"""
         selected = self.show_account_selector("选择私发账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_private_accounts = selected
         self.selected_private_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("群发广告", f"已选择 {len(selected)} 个私发账号")
     
     def select_group_accounts(self):
-        """选择群发账号的弹窗"""
         selected = self.show_account_selector("选择群发账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_group_accounts = selected
         self.selected_group_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("群发广告", f"已选择 {len(selected)} 个群发账号")
     
     def select_chat_accounts(self):
-        """选择自动群聊账号的弹窗"""
         selected = self.show_account_selector("选择自动群聊账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_chat_accounts = selected
         self.selected_chat_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("自动群聊", f"已选择 {len(selected)} 个账号")
     
     def refresh_invite_account_listbox(self, event=None):
-        # 保留方法以兼容，但不再使用
         pass
     
     def get_selected_invite_accounts(self):
@@ -3593,103 +3571,103 @@ class TelegramFullGUI:
             return None
     
     def start_invite_advanced(self):
-    if self.is_inviting:
-        self.log("批量拉人", "任务进行中")
-        return
-    
-    users = self.load_user_list()
-    if not users:
-        self.log("批量拉人", "请先选择用户列表文件")
-        self.show_centered_warning("提示", "请先选择用户列表文件")
-        return
-    
-    selected_accounts = self.get_selected_invite_accounts()
-    if not selected_accounts:
-        self.log("批量拉人", "请至少选择一个账号")
-        self.show_centered_warning("提示", "请至少选择一个账号")
-        return
-    
-    try:
-        per_batch = int(self.invite_per_batch.get())
-        per_account_max = int(self.invite_per_account_max.get())
-        total_limit = int(self.total_limit.get())
-        thread_cnt = int(self.thread_count.get())
-        thread_wait = float(self.thread_interval.get())
-        invite_wait = float(self.invite_interval.get())
-        auto_switch = self.auto_switch_account.get()
-    except ValueError as e:
-        self.log("批量拉人", f"参数错误: {str(e)}")
-        self.show_centered_warning("提示", "请检查参数格式")
-        return
-    
-    if per_batch <= 0:
-        self.log("批量拉人", "每次拉人数必须大于0")
-        return
-    if thread_cnt <= 0:
-        thread_cnt = 1
-    
-    mode = self.invite_mode.get()
-    targets = []
-    if mode == "single":
-        target = self.single_target_group.get().strip()
-        if not target:
-            self.log("批量拉人", "请输入目标群组")
+        if self.is_inviting:
+            self.log("批量拉人", "任务进行中")
             return
-        targets = [target]
-        per_account_limit = 0
-    elif mode == "multi":
-        target_text = self.multi_target_groups.get().strip()
-        if not target_text:
-            self.log("批量拉人", "请输入目标群组列表")
+        
+        users = self.load_user_list()
+        if not users:
+            self.log("批量拉人", "请先选择用户列表文件")
+            self.show_centered_warning("提示", "请先选择用户列表文件")
             return
-        targets = [t.strip() for t in target_text.split(',') if t.strip()]
+        
+        selected_accounts = self.get_selected_invite_accounts()
+        if not selected_accounts:
+            self.log("批量拉人", "请至少选择一个账号")
+            self.show_centered_warning("提示", "请至少选择一个账号")
+            return
+        
         try:
-            per_account_limit = int(self.multi_per_account_limit.get())
-        except:
-            per_account_limit = 0
-    else:
-        target = self.admin_target_group.get().strip()
-        if not target:
-            self.log("批量拉人", "请输入目标群组或频道")
+            per_batch = int(self.invite_per_batch.get())
+            per_account_max = int(self.invite_per_account_max.get())
+            total_limit = int(self.total_limit.get())
+            thread_cnt = int(self.thread_count.get())
+            thread_wait = float(self.thread_interval.get())
+            invite_wait = float(self.invite_interval.get())
+            auto_switch = self.auto_switch_account.get()
+        except ValueError as e:
+            self.log("批量拉人", f"参数错误: {str(e)}")
+            self.show_centered_warning("提示", "请检查参数格式")
             return
-        targets = [target]
-        try:
-            per_account_limit = int(self.admin_per_account_limit.get())
-        except:
+        
+        if per_batch <= 0:
+            self.log("批量拉人", "每次拉人数必须大于0")
+            return
+        if thread_cnt <= 0:
+            thread_cnt = 1
+        
+        mode = self.invite_mode.get()
+        targets = []
+        if mode == "single":
+            target = self.single_target_group.get().strip()
+            if not target:
+                self.log("批量拉人", "请输入目标群组")
+                return
+            targets = [target]
             per_account_limit = 0
-    
-    if total_limit > 0 and total_limit < len(users):
-        users = users[:total_limit]
-    
-    self.log("批量拉人", f"========== 开始拉人 ==========")
-    self.log("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
-    
-    self.is_inviting = True
-    self.invite_stop_flag = False
-    self.total_success = 0
-    self.total_fail = 0
-    self.total_processed = 0
-    self.processed_usernames = set()
-    
-    for acc in selected_accounts:
-        self.update_account_task(acc.get('phone'), "批量拉人", True)
-    
-    def run_invite_task():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.run_invite_advanced_multi_accounts(
-            selected_accounts, users, targets, per_batch, per_account_max, 
-            per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch
-        ))
-        loop.close()
-        self.is_inviting = False
+        elif mode == "multi":
+            target_text = self.multi_target_groups.get().strip()
+            if not target_text:
+                self.log("批量拉人", "请输入目标群组列表")
+                return
+            targets = [t.strip() for t in target_text.split(',') if t.strip()]
+            try:
+                per_account_limit = int(self.multi_per_account_limit.get())
+            except:
+                per_account_limit = 0
+        else:
+            target = self.admin_target_group.get().strip()
+            if not target:
+                self.log("批量拉人", "请输入目标群组或频道")
+                return
+            targets = [target]
+            try:
+                per_account_limit = int(self.admin_per_account_limit.get())
+            except:
+                per_account_limit = 0
+        
+        if total_limit > 0 and total_limit < len(users):
+            users = users[:total_limit]
+        
+        self.log("批量拉人", f"========== 开始拉人 ==========")
+        self.log("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
+        
+        self.is_inviting = True
+        self.invite_stop_flag = False
+        self.total_success = 0
+        self.total_fail = 0
+        self.total_processed = 0
+        self.processed_usernames = set()
+        
         for acc in selected_accounts:
-            self.update_account_task(acc.get('phone'), "", False)
-            self.update_account_task(acc.get('phone'), "批量拉人", False)
-        self.log("批量拉人", f"========== 拉人完成 ==========")
-        self.log("批量拉人", f"总统计 | 成功:{self.total_success} | 失败:{self.total_fail} | 总处理:{self.total_processed}")
-    
-    threading.Thread(target=run_invite_task, daemon=True).start()
+            self.update_account_task(acc.get('phone'), "批量拉人", True)
+        
+        def run_invite_task():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.run_invite_advanced_multi_accounts(
+                selected_accounts, users, targets, per_batch, per_account_max, 
+                per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch
+            ))
+            loop.close()
+            self.is_inviting = False
+            for acc in selected_accounts:
+                self.update_account_task(acc.get('phone'), "", False)
+                self.update_account_task(acc.get('phone'), "批量拉人", False)
+            self.log("批量拉人", f"========== 拉人完成 ==========")
+            self.log("批量拉人", f"总统计 | 成功:{self.total_success} | 失败:{self.total_fail} | 总处理:{self.total_processed}")
+        
+        threading.Thread(target=run_invite_task, daemon=True).start()
     
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
         account_users = [[] for _ in range(len(accounts))]
@@ -3945,22 +3923,18 @@ class TelegramFullGUI:
         send_notebook = ttk.Notebook(main_frame)
         send_notebook.pack(fill="both", expand=True)
         
-        # ==================== 私发标签页 ====================
         private_frame = ttk.Frame(send_notebook)
         send_notebook.add(private_frame, text="私发(私聊)")
         
-        # 使用垂直布局，确保日志铺满
         private_main = ttk.Frame(private_frame)
         private_main.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上方内容区域（不扩展，随内容大小）
         private_top = ttk.Frame(private_main)
         private_top.pack(fill="x", pady=(0, 5))
         
         account_frame = ttk.LabelFrame(private_top, text="选择任务账号")
         account_frame.pack(fill="x", pady=5)
         
-        # 删除分组筛选和状态筛选，只保留选择账号按钮
         filter_row = ttk.Frame(account_frame)
         filter_row.pack(fill="x", padx=5, pady=5)
         
@@ -4034,21 +4008,17 @@ class TelegramFullGUI:
         self.private_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_private_send, width=10)
         self.private_resume_btn.pack(side="left", padx=5)
         
-        # 运行日志区域 - 自动铺满剩余空间
         private_log_frame = ttk.LabelFrame(private_main, text="运行日志")
         private_log_frame.pack(fill="both", expand=True, pady=5)
         self.private_log = scrolledtext.ScrolledText(private_log_frame, width=100, height=8)
         self.private_log.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # ==================== 群发标签页 ====================
         group_frame_tab = ttk.Frame(send_notebook)
         send_notebook.add(group_frame_tab, text="群发(群聊)")
         
-        # 使用垂直布局，确保日志铺满
         group_main = ttk.Frame(group_frame_tab)
         group_main.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上方内容区域（不扩展，随内容大小）
         group_top = ttk.Frame(group_main)
         group_top.pack(fill="x", pady=(0, 5))
         
@@ -4070,7 +4040,6 @@ class TelegramFullGUI:
         group_account_frame = ttk.LabelFrame(group_top, text="选择任务账号")
         group_account_frame.pack(fill="x", pady=5)
         
-        # 删除分组筛选和状态筛选，只保留选择账号按钮
         group_filter_row = ttk.Frame(group_account_frame)
         group_filter_row.pack(fill="x", padx=5, pady=5)
         
@@ -4134,7 +4103,6 @@ class TelegramFullGUI:
         self.group_resume_btn = ttk.Button(group_btn_frame, text="继续", command=self.resume_group_send, width=10)
         self.group_resume_btn.pack(side="left", padx=5)
         
-        # 运行日志区域 - 自动铺满剩余空间
         group_log_frame = ttk.LabelFrame(group_main, text="运行日志")
         group_log_frame.pack(fill="both", expand=True, pady=5)
         self.group_log = scrolledtext.ScrolledText(group_log_frame, width=100, height=8)
@@ -4150,11 +4118,9 @@ class TelegramFullGUI:
         self.group_stop_flag = False
     
     def refresh_private_account_list(self, event=None):
-        # 保留方法以兼容
         pass
     
     def refresh_group_account_list(self, event=None):
-        # 保留方法以兼容
         pass
     
     def import_private_user_txt(self):
@@ -4721,11 +4687,9 @@ class TelegramFullGUI:
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
         
-        # 主容器 - 垂直布局
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 上方内容区域（可滚动，占据所有剩余空间）
         top_frame = ttk.Frame(main_frame)
         top_frame.pack(fill="both", expand=True, pady=(0, 5))
         
@@ -4751,9 +4715,6 @@ class TelegramFullGUI:
             chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         chat_canvas.bind("<MouseWheel>", on_chat_mousewheel)
         
-        # ========== 以下所有设置内容都在 chat_inner 中 ==========
-        
-        # 群聊模式 - 一排显示
         mode_frame = ttk.LabelFrame(chat_inner, text="群聊模式")
         mode_frame.pack(fill="x", padx=10, pady=5)
         
@@ -4764,7 +4725,6 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_row, text="全账号全群", variable=self.chat_mode, value="all").pack(side="left", padx=20)
         ttk.Radiobutton(mode_row, text="分组对应群", variable=self.chat_mode, value="group").pack(side="left", padx=20)
         
-        # 目标群组区域
         group_frame = ttk.LabelFrame(chat_inner, text="目标群组列表")
         group_frame.pack(fill="x", padx=10, pady=5)
         
@@ -4779,7 +4739,6 @@ class TelegramFullGUI:
         self.chat_group_count_label = ttk.Label(group_frame, text="已加载: 0 个群组", foreground="blue")
         self.chat_group_count_label.pack(anchor="w", padx=5, pady=2)
         
-        # 账号选择区域（删除分组筛选和状态筛选，只保留选择账号按钮）
         account_frame = ttk.LabelFrame(chat_inner, text="选择任务账号")
         account_frame.pack(fill="x", padx=10, pady=5)
         
@@ -4792,7 +4751,6 @@ class TelegramFullGUI:
         
         self.selected_chat_accounts = []
         
-        # 话术设置区域
         script_frame = ttk.LabelFrame(chat_inner, text="话术设置")
         script_frame.pack(fill="x", padx=10, pady=5)
         
@@ -4807,7 +4765,6 @@ class TelegramFullGUI:
         self.chat_script_count_label = ttk.Label(script_frame, text="已加载: 0 条话术", foreground="blue")
         self.chat_script_count_label.pack(anchor="w", padx=5, pady=2)
         
-        # 参数设置区域
         param_frame = ttk.LabelFrame(chat_inner, text="发言参数")
         param_frame.pack(fill="x", padx=10, pady=5)
         
@@ -4824,7 +4781,6 @@ class TelegramFullGUI:
         self.chat_max_interval.insert(0, "60")
         self.chat_max_interval.pack(side="left", padx=5)
         
-        # 新增：从第几行话术开始
         ttk.Label(param_row, text="从第几行话术开始:").pack(side="left", padx=20)
         self.chat_start_line = ttk.Entry(param_row, width=10)
         self.chat_start_line.insert(0, "1")
@@ -4834,7 +4790,6 @@ class TelegramFullGUI:
         self.chat_loop_enabled = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_row, text="无限循环", variable=self.chat_loop_enabled).pack(side="left", padx=20)
         
-        # 按钮区域
         btn_frame = ttk.Frame(chat_inner)
         btn_frame.pack(pady=15)
         self.chat_start_btn = ttk.Button(btn_frame, text="启动炒群", command=self.start_auto_chat, width=12)
@@ -4846,14 +4801,12 @@ class TelegramFullGUI:
         self.chat_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_auto_chat, width=12)
         self.chat_resume_btn.pack(side="left", padx=5)
         
-        # ========== 运行日志区域 - 放在最底部，固定高度 ==========
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=24)
         self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 初始化变量
-        self.chat_groups = []  # 存储 (group_name, group_link) 元组
+        self.chat_groups = []
         self.chat_scripts = []
         self.chat_script_items = []
         self.chat_running = False
@@ -4886,7 +4839,6 @@ class TelegramFullGUI:
                     if not line:
                         continue
                     
-                    # 解析格式：支持 "分组名 - 链接" 或直接 "链接"
                     group_name = None
                     group_link = line
                     
@@ -4903,7 +4855,6 @@ class TelegramFullGUI:
                 self.chat_groups = groups
                 self.chat_group_count_label.config(text=f"已加载: {len(groups)} 个群组")
                 self.log("自动群聊", f"导入群组链接: {file_path}, 共 {len(groups)} 个群组")
-                # 解析分组名用于日志
                 group_names = [g['name'] for g in groups if g['name']]
                 if group_names:
                     self.log("自动群聊", f"检测到分组绑定: {', '.join(set(group_names))}")
@@ -4983,7 +4934,6 @@ class TelegramFullGUI:
         self.log("自动群聊", f"话术解析完成，共 {len(self.chat_script_items)} 条有效话术")
     
     def refresh_chat_account_list(self, event=None):
-        # 保留方法以兼容
         pass
     
     def get_selected_chat_accounts(self):
@@ -5047,7 +4997,6 @@ class TelegramFullGUI:
         self.chat_stop_flag = False
         self.chat_current_script_index = {}
         
-        # 清空消息缓存
         self.chat_message_cache = {}
         
         self.log("自动群聊", f"========== 启动自动群聊 ==========")
@@ -5076,25 +5025,20 @@ class TelegramFullGUI:
         threading.Thread(target=run_auto_chat, daemon=True).start()
     
     async def do_auto_chat(self, accounts, groups, script_items, min_interval, max_interval, loop_enabled, start_line):
-        # 构建账号到群组的映射
         account_groups = {}
         
         if self.chat_mode.get() == "group":
-            # 分组对应群模式：根据群链接前的分组名分配
             for acc in accounts:
                 acc_group = acc.get('group', '默认分组')
                 target_links = []
                 for g in groups:
-                    # 如果群有指定的分组名，且匹配账号分组
                     if g.get('name') and g.get('name') == acc_group:
                         target_links.append(g.get('link'))
-                    # 如果没有指定分组名，则所有账号都加入
                     elif not g.get('name'):
                         target_links.append(g.get('link'))
                 if target_links:
                     account_groups[acc.get('phone')] = target_links
         else:
-            # 全账号全群模式：所有账号加入所有群组
             for acc in accounts:
                 account_groups[acc.get('phone')] = [g.get('link') for g in groups]
         
@@ -5104,7 +5048,6 @@ class TelegramFullGUI:
         
         self.log("自动群聊", "正在初始化账号并加入群组...")
         
-        # 并行初始化所有账号
         async def init_account(acc):
             phone = acc.get('phone', '')
             if phone not in account_groups:
@@ -5123,7 +5066,6 @@ class TelegramFullGUI:
                 if not await client.is_user_authorized():
                     return None
                 
-                # 并行加入所有目标群组
                 async def join_single_group(group_link):
                     try:
                         entity = None
@@ -5166,7 +5108,6 @@ class TelegramFullGUI:
                     except Exception:
                         return None
                 
-                # 并行执行所有加入操作
                 join_tasks = [join_single_group(gl) for gl in target_groups]
                 entities = await asyncio.gather(*join_tasks)
                 group_entities = [e for e in entities if e is not None]
@@ -5175,7 +5116,6 @@ class TelegramFullGUI:
                     await client.disconnect()
                     return None
                 
-                # 为每个群组添加消息监听器来更新缓存
                 for entity in group_entities:
                     @client.on(events.NewMessage(chats=entity))
                     async def message_handler(event):
@@ -5207,7 +5147,6 @@ class TelegramFullGUI:
                 self.log("自动群聊", f"[{phone[-6:]}] 初始化失败: {str(e)[:50]}")
                 return None
         
-        # 并行初始化所有账号
         init_tasks = [init_account(acc) for acc in accounts]
         results = await asyncio.gather(*init_tasks)
         account_clients = {}
@@ -5221,11 +5160,9 @@ class TelegramFullGUI:
         
         self.log("自动群聊", f"初始化完成，成功 {len(account_clients)} 个账号")
         
-        # 构建话术执行队列 - 按原始顺序，每个话术项关联对应的账号
         script_queue = []
         for script_item in script_items:
             sender_idx = script_item['sender_idx']
-            # 找到对应序号的账号
             target_acc = None
             for i, a in enumerate(accounts):
                 if i + 1 == sender_idx:
@@ -5242,7 +5179,6 @@ class TelegramFullGUI:
             self.log("自动群聊", "没有可执行的话术队列")
             return
         
-        # 从指定行开始
         if start_line > 0 and start_line < len(script_queue):
             script_queue = script_queue[start_line:]
             self.log("自动群聊", f"从第 {start_line + 1} 行话术开始，剩余 {len(script_queue)} 条")
@@ -5250,7 +5186,7 @@ class TelegramFullGUI:
         self.log("自动群聊", f"话术队列共 {len(script_queue)} 条，将按顺序依次发言")
         
         script_pointer = 0
-        last_phone = None  # 记录上一条话术的账号
+        last_phone = None
         
         while self.chat_running and not self.chat_stop_flag:
             if self.chat_paused:
@@ -5276,14 +5212,12 @@ class TelegramFullGUI:
             client = info['client']
             group_entities = info['groups']
             
-            # 向所有群组发送这条话术
             for entity in group_entities:
                 if self.chat_stop_flag:
                     break
                 
                 try:
                     if script_item['reply_to_idx'] > 0:
-                        # 回复模式：查找目标账号在群组中发送的最新消息
                         target_account = None
                         for i, a in enumerate(accounts):
                             if i + 1 == script_item['reply_to_idx']:
@@ -5295,7 +5229,6 @@ class TelegramFullGUI:
                             found_msg = None
                             group_id = entity.id
                             
-                            # 先从缓存中查找
                             if group_id in self.chat_message_cache:
                                 cache = self.chat_message_cache[group_id]
                                 if target_phone in cache:
@@ -5367,7 +5300,6 @@ class TelegramFullGUI:
                 
                 await asyncio.sleep(2)
             
-            # 话术间隔：如果连续两条话术是同一个账号，则不等待
             if script_pointer < len(script_queue) and script_queue[script_pointer]['phone'] == phone:
                 self.log("自动群聊", f"同一账号连续发言，跳过间隔等待")
                 continue
@@ -5375,7 +5307,6 @@ class TelegramFullGUI:
             interval = random.randint(min_interval, max_interval)
             await asyncio.sleep(interval)
         
-        # 断开所有客户端
         for phone, info in account_clients.items():
             try:
                 await info['client'].disconnect()
@@ -5487,7 +5418,6 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 基本信息区域
         info_frame = ttk.LabelFrame(main_frame, text="账号信息")
         info_frame.pack(fill="x", padx=10, pady=5)
         
@@ -5510,7 +5440,6 @@ class TelegramFullGUI:
         self.direct_save_path.grid(row=3, column=1, padx=5, pady=5)
         ttk.Button(info_frame, text="浏览", command=self.select_direct_save_path, width=10).grid(row=3, column=2, padx=5)
         
-        # 验证码区域
         code_frame = ttk.LabelFrame(main_frame, text="验证码")
         code_frame.pack(fill="x", padx=10, pady=5)
         
@@ -5521,7 +5450,6 @@ class TelegramFullGUI:
         self.direct_status = ttk.Label(code_frame, text="", foreground="blue")
         self.direct_status.grid(row=0, column=2, padx=10, pady=10)
         
-        # 2FA密码区域
         twofa_frame = ttk.LabelFrame(main_frame, text="两步验证（如有）")
         twofa_frame.pack(fill="x", padx=10, pady=5)
         
@@ -5529,7 +5457,6 @@ class TelegramFullGUI:
         self.direct_twofa = ttk.Entry(twofa_frame, width=20, font=("微软雅黑", 11), show="●")
         self.direct_twofa.grid(row=0, column=1, padx=5, pady=10)
         
-        # 按钮区域
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(pady=20)
         
@@ -5539,13 +5466,11 @@ class TelegramFullGUI:
         self.direct_login_btn = ttk.Button(btn_frame, text="登录并保存", command=self.direct_login, width=15)
         self.direct_login_btn.pack(side="left", padx=10)
         
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
         self.log_widgets["直登转协议"] = scrolledtext.ScrolledText(log_frame, width=100, height=15)
         self.log_widgets["直登转协议"].pack(fill="both", expand=True, padx=5, pady=5)
         
-        # 状态变量
         self.direct_client = None
         self.direct_phone_code_hash = None
     
@@ -5683,7 +5608,6 @@ class TelegramFullGUI:
         threading.Thread(target=do_login, daemon=True).start()
     
     async def save_direct_account(self, phone, save_path):
-        """保存账号到指定路径"""
         try:
             me = await self.direct_client.get_me()
             
