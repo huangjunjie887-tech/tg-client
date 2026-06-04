@@ -561,7 +561,8 @@ class TelegramFullGUI:
                 
                 me = await client.get_me()
                 my_username = me.username
-                self.log("多账号管理", f"[{phone}] 消息监听已启动 (用户名: @{my_username if my_username else '无'})")
+                # 简洁启动日志
+                self.log("多账号管理", f"[{phone}] 监听已启动")
                 
                 @client.on(events.NewMessage(incoming=True))
                 async def message_handler(event):
@@ -676,6 +677,7 @@ class TelegramFullGUI:
                                 self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @{media_info}")
                     
                     except Exception as e:
+                        # 捕获异常但不中断监听，继续处理下一条消息
                         self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:100]}")
                 
                 self.monitoring_clients[phone] = {'client': client, 'running': True}
@@ -920,18 +922,17 @@ class TelegramFullGUI:
         close_btn.pack(pady=10)
     
     def preview_media(self, media_path):
-        """预览图片媒体文件 - 使用系统默认图片查看器（无需Pillow）"""
+        """预览图片媒体文件 - 使用系统默认图片查看器"""
         if not media_path or not os.path.exists(media_path):
             self.show_centered_warning("提示", "媒体文件不存在")
             return
         
         try:
-            # 使用系统默认程序打开图片
             if platform.system() == 'Windows':
                 os.startfile(media_path)
-            elif platform.system() == 'Darwin':  # macOS
+            elif platform.system() == 'Darwin':
                 os.system(f'open "{media_path}"')
-            else:  # Linux
+            else:
                 os.system(f'xdg-open "{media_path}"')
             self.log("多账号管理", f"打开图片: {os.path.basename(media_path)}")
         except Exception as e:
@@ -1036,7 +1037,6 @@ class TelegramFullGUI:
                     if msg_type == 'private':
                         target_entity = await client.get_entity(target_id)
                         
-                        # 带重试的发送
                         for retry in range(5):
                             try:
                                 if image_path and os.path.exists(image_path):
@@ -1058,7 +1058,6 @@ class TelegramFullGUI:
                                     continue
                                 raise e
                     else:
-                        # 群聊回复
                         group_id = data.get('group_id')
                         if not group_id:
                             self.log("多账号管理", f"[{phone}] 无法获取群组ID")
