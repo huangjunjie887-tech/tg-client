@@ -584,6 +584,18 @@ class TelegramFullGUI:
                         
                         message_time = datetime.now().strftime("%H:%M:%S")
                         
+                        # 保存媒体文件路径（用于预览）
+                        media_path = None
+                        if is_image or is_document:
+                            try:
+                                media_dir = os.path.join(os.path.dirname(session_path) if session_path else ".", "media_cache")
+                                os.makedirs(media_dir, exist_ok=True)
+                                file_name = f"{phone}_{sender_id}_{event.message.id}_{int(time.time())}.jpg"
+                                media_path = os.path.join(media_dir, file_name)
+                                await event.message.download_media(media_path)
+                            except:
+                                media_path = None
+                        
                         if event.is_private:
                             with self.message_cache_lock:
                                 if phone not in self.message_cache:
@@ -604,7 +616,9 @@ class TelegramFullGUI:
                                     'time': message_time,
                                     'is_read': False,
                                     'has_media': has_media,
-                                    'media_info': media_info
+                                    'media_info': media_info,
+                                    'media_path': media_path,
+                                    'msg_id': event.message.id
                                 })
                                 if len(self.message_cache[phone]['private'][sender_id]['messages']) > 50:
                                     self.message_cache[phone]['private'][sender_id]['messages'] = self.message_cache[phone]['private'][sender_id]['messages'][-50:]
@@ -639,7 +653,8 @@ class TelegramFullGUI:
                                     'is_read': False,
                                     'msg_id': event.message.id,
                                     'has_media': has_media,
-                                    'media_info': media_info
+                                    'media_info': media_info,
+                                    'media_path': media_path
                                 })
                                 if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
                                     self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
@@ -798,8 +813,17 @@ class TelegramFullGUI:
                     display_text = msg.get('text', '')
                     if msg.get('has_media'):
                         display_text = f"📷 {display_text}" if msg.get('media_info') == " [图片]" else f"📎 {display_text}"
-                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600)
+                    
+                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600, cursor="hand2" if msg.get('has_media') else "")
                     msg_label.pack(fill="x", padx=5, pady=2)
+                    
+                    # 绑定双击事件预览图片
+                    if msg.get('has_media') and msg.get('media_path') and os.path.exists(msg.get('media_path')):
+                        def make_preview_cb(path):
+                            def preview():
+                                self.preview_media(path)
+                            return preview
+                        msg_label.bind("<Double-Button-1>", lambda e, p=msg.get('media_path'): self.preview_media(p))
                 
                 btn_frame = ttk.Frame(msg_frame)
                 btn_frame.pack(fill="x", pady=5)
@@ -854,8 +878,17 @@ class TelegramFullGUI:
                     display_text = msg.get('text', '')
                     if msg.get('has_media'):
                         display_text = f"📷 {display_text}" if msg.get('media_info') == " [图片]" else f"📎 {display_text}"
-                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('from_user')}: {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600)
+                    
+                    msg_label = tk.Label(msg_frame, text=f"[{msg.get('time')}] {msg.get('from_user')}: {display_text}", anchor="w", justify="left", fg=text_color, wraplength=600, cursor="hand2" if msg.get('has_media') else "")
                     msg_label.pack(fill="x", padx=5, pady=2)
+                    
+                    # 绑定双击事件预览图片
+                    if msg.get('has_media') and msg.get('media_path') and os.path.exists(msg.get('media_path')):
+                        def make_preview_cb(path):
+                            def preview():
+                                self.preview_media(path)
+                            return preview
+                        msg_label.bind("<Double-Button-1>", lambda e, p=msg.get('media_path'): self.preview_media(p))
                 
                 btn_frame = ttk.Frame(msg_frame)
                 btn_frame.pack(fill="x", pady=5)
@@ -880,6 +913,42 @@ class TelegramFullGUI:
         
         close_btn = ttk.Button(main_frame, text="关闭", command=dialog.destroy)
         close_btn.pack(pady=10)
+    
+    def preview_media(self, media_path):
+        """预览图片媒体文件"""
+        if not media_path or not os.path.exists(media_path):
+            self.show_centered_warning("提示", "媒体文件不存在")
+            return
+        
+        try:
+            from PIL import Image, ImageTk
+            preview_window = tk.Toplevel(self.root)
+            preview_window.title("图片预览")
+            preview_window.geometry("500x500")
+            preview_window.transient(self.root)
+            preview_window.grab_set()
+            self.center_window(preview_window, 500, 500)
+            
+            img = Image.open(media_path)
+            # 缩放图片以适应窗口
+            img.thumbnail((450, 450))
+            photo = ImageTk.PhotoImage(img)
+            
+            label = tk.Label(preview_window, image=photo)
+            label.image = photo
+            label.pack(expand=True, fill="both", padx=10, pady=10)
+            
+            info_label = tk.Label(preview_window, text=f"文件: {os.path.basename(media_path)}", font=("微软雅黑", 9), fg="gray")
+            info_label.pack(pady=5)
+            
+            btn_frame = ttk.Frame(preview_window)
+            btn_frame.pack(pady=10)
+            ttk.Button(btn_frame, text="关闭", command=preview_window.destroy, width=10).pack(side="left", padx=5)
+            ttk.Button(btn_frame, text="打开文件位置", command=lambda: os.startfile(os.path.dirname(media_path)), width=15).pack(side="left", padx=5)
+        except ImportError:
+            self.show_centered_warning("提示", "请先安装Pillow库: pip install Pillow")
+        except Exception as e:
+            self.show_centered_error("错误", f"无法预览图片: {str(e)[:50]}")
     
     def open_reply_window(self, phone, target_id, data, msg_type):
         """打开回复窗口"""
@@ -1002,7 +1071,7 @@ class TelegramFullGUI:
                                     continue
                                 raise e
                     else:
-                        # 群聊回复 - 修复逻辑
+                        # 群聊回复 - 不添加@前缀，使用reply_to引用原消息
                         group_id = data.get('group_id')
                         if not group_id:
                             self.log("多账号管理", f"[{phone}] 无法获取群组ID")
@@ -1011,23 +1080,13 @@ class TelegramFullGUI:
                         
                         last_messages = data.get('messages', [])
                         reply_to_msg_id = None
-                        mentioned_user = None
                         
-                        # 查找需要回复的消息ID和被@的用户
+                        # 查找需要回复的消息ID
                         if last_messages:
                             last_msg = last_messages[-1]
                             msg_id = last_msg.get('msg_id')
                             if msg_id:
                                 reply_to_msg_id = msg_id
-                            
-                            from_user = last_msg.get('from_user', '').lstrip('@')
-                            if from_user:
-                                mentioned_user = from_user
-                        
-                        # 构建回复内容
-                        final_reply_text = reply_text if reply_text else ""
-                        if mentioned_user and final_reply_text and not final_reply_text.startswith('@'):
-                            final_reply_text = f"@{mentioned_user} {final_reply_text}"
                         
                         target_entity = await client.get_entity(group_id)
                         
@@ -1035,11 +1094,11 @@ class TelegramFullGUI:
                             try:
                                 if image_path and os.path.exists(image_path):
                                     file = await client.upload_file(image_path)
-                                    if final_reply_text:
+                                    if reply_text:
                                         if reply_to_msg_id:
-                                            await client.send_file(target_entity, file, caption=final_reply_text, reply_to=reply_to_msg_id)
+                                            await client.send_file(target_entity, file, caption=reply_text, reply_to=reply_to_msg_id)
                                         else:
-                                            await client.send_file(target_entity, file, caption=final_reply_text)
+                                            await client.send_file(target_entity, file, caption=reply_text)
                                     else:
                                         if reply_to_msg_id:
                                             await client.send_file(target_entity, file, reply_to=reply_to_msg_id)
@@ -1047,9 +1106,9 @@ class TelegramFullGUI:
                                             await client.send_file(target_entity, file)
                                 else:
                                     if reply_to_msg_id:
-                                        await client.send_message(target_entity, final_reply_text if final_reply_text else " ", reply_to=reply_to_msg_id)
+                                        await client.send_message(target_entity, reply_text if reply_text else " ", reply_to=reply_to_msg_id)
                                     else:
-                                        await client.send_message(target_entity, final_reply_text if final_reply_text else " ")
+                                        await client.send_message(target_entity, reply_text if reply_text else " ")
                                 self.log("多账号管理", f"[{phone}] 群聊回复成功")
                                 break
                             except Exception as e:
