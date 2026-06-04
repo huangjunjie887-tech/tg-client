@@ -565,12 +565,12 @@ class TelegramFullGUI:
                 
                 @client.on(events.NewMessage(incoming=True))
                 async def message_handler(event):
-                    # 使用 try-except 包裹整个处理逻辑，确保单条消息出错不影响后续消息
+                    # 最外层异常捕获 - 确保任何异常都不会导致后续消息被跳过
                     try:
                         if event.message.out:
                             return
                         
-                        # 获取发送者信息 - 使用更安全的方式，失败时使用默认值
+                        # 获取发送者信息 - 使用安全的默认值
                         sender_name = "未知用户"
                         sender_username = ""
                         sender_id = event.sender_id or 0
@@ -610,88 +610,98 @@ class TelegramFullGUI:
                             except Exception as e:
                                 media_path = None
                         
-                        # 判断消息类型
+                        # 判断消息类型 - 私信
                         if event.is_private:
-                            with self.message_cache_lock:
-                                if phone not in self.message_cache:
-                                    self.message_cache[phone] = {'private': {}, 'group_mention': {}}
-                                
-                                if sender_id not in self.message_cache[phone]['private']:
-                                    self.message_cache[phone]['private'][sender_id] = {
-                                        'username': f"@{sender_username}" if sender_username else sender_name,
-                                        'first_name': sender_name,
-                                        'unread': 0,
-                                        'messages': []
-                                    }
-                                
-                                self.message_cache[phone]['private'][sender_id]['unread'] += 1
-                                display_text = message_text if message_text else (f"[媒体消息{media_info}]" if has_media else "[非文本消息]")
-                                self.message_cache[phone]['private'][sender_id]['messages'].append({
-                                    'text': display_text,
-                                    'time': message_time,
-                                    'is_read': False,
-                                    'has_media': has_media,
-                                    'media_info': media_info,
-                                    'media_path': media_path,
-                                    'msg_id': event.message.id
-                                })
-                                if len(self.message_cache[phone]['private'][sender_id]['messages']) > 50:
-                                    self.message_cache[phone]['private'][sender_id]['messages'] = self.message_cache[phone]['private'][sender_id]['messages'][-50:]
-                            
-                            self.root.after(0, self.refresh_account_list_filter)
-                            self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}{media_info}")
-                        
-                        elif event.is_group:
-                            # 检查是否被@
-                            is_mentioned = event.message.mentioned
-                            if my_username and f"@{my_username}" in message_text:
-                                is_mentioned = True
-                            
-                            if is_mentioned:
-                                chat_name = "未知群组"
-                                chat_id = event.chat_id or 0
-                                try:
-                                    chat = await event.get_chat()
-                                    if chat is not None:
-                                        chat_name = getattr(chat, 'title', '未知群组')
-                                        chat_id = chat.id
-                                except Exception as e:
-                                    pass
-                                
+                            try:
                                 with self.message_cache_lock:
                                     if phone not in self.message_cache:
                                         self.message_cache[phone] = {'private': {}, 'group_mention': {}}
                                     
-                                    group_key = f"group_{chat_id}"
-                                    if group_key not in self.message_cache[phone]['group_mention']:
-                                        self.message_cache[phone]['group_mention'][group_key] = {
-                                            'group_name': chat_name,
-                                            'group_id': chat_id,
+                                    if sender_id not in self.message_cache[phone]['private']:
+                                        self.message_cache[phone]['private'][sender_id] = {
+                                            'username': f"@{sender_username}" if sender_username else sender_name,
+                                            'first_name': sender_name,
                                             'unread': 0,
                                             'messages': []
                                         }
                                     
-                                    self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
+                                    self.message_cache[phone]['private'][sender_id]['unread'] += 1
                                     display_text = message_text if message_text else (f"[媒体消息{media_info}]" if has_media else "[非文本消息]")
-                                    self.message_cache[phone]['group_mention'][group_key]['messages'].append({
-                                        'from_user': f"@{sender_username}" if sender_username else sender_name,
+                                    self.message_cache[phone]['private'][sender_id]['messages'].append({
                                         'text': display_text,
                                         'time': message_time,
                                         'is_read': False,
-                                        'msg_id': event.message.id,
                                         'has_media': has_media,
                                         'media_info': media_info,
-                                        'media_path': media_path
+                                        'media_path': media_path,
+                                        'msg_id': event.message.id
                                     })
-                                    if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
-                                        self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
+                                    if len(self.message_cache[phone]['private'][sender_id]['messages']) > 50:
+                                        self.message_cache[phone]['private'][sender_id]['messages'] = self.message_cache[phone]['private'][sender_id]['messages'][-50:]
                                 
                                 self.root.after(0, self.refresh_account_list_filter)
-                                self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @{media_info}")
+                                self.log("多账号管理", f"[{phone}] 收到私信: {sender_name}{media_info}")
+                            except Exception as e:
+                                self.log("多账号管理", f"[{phone}] 私信缓存错误: {str(e)[:100]}")
+                        
+                        # 判断消息类型 - 群聊@
+                        elif event.is_group:
+                            try:
+                                # 检查是否被@
+                                is_mentioned = event.message.mentioned
+                                if my_username and f"@{my_username}" in message_text:
+                                    is_mentioned = True
+                                
+                                if is_mentioned:
+                                    chat_name = "未知群组"
+                                    chat_id = event.chat_id or 0
+                                    try:
+                                        chat = await event.get_chat()
+                                        if chat is not None:
+                                            chat_name = getattr(chat, 'title', '未知群组')
+                                            chat_id = chat.id
+                                    except Exception as e:
+                                        pass
+                                    
+                                    with self.message_cache_lock:
+                                        if phone not in self.message_cache:
+                                            self.message_cache[phone] = {'private': {}, 'group_mention': {}}
+                                        
+                                        group_key = f"group_{chat_id}"
+                                        if group_key not in self.message_cache[phone]['group_mention']:
+                                            self.message_cache[phone]['group_mention'][group_key] = {
+                                                'group_name': chat_name,
+                                                'group_id': chat_id,
+                                                'unread': 0,
+                                                'messages': []
+                                            }
+                                        
+                                        self.message_cache[phone]['group_mention'][group_key]['unread'] += 1
+                                        display_text = message_text if message_text else (f"[媒体消息{media_info}]" if has_media else "[非文本消息]")
+                                        self.message_cache[phone]['group_mention'][group_key]['messages'].append({
+                                            'from_user': f"@{sender_username}" if sender_username else sender_name,
+                                            'text': display_text,
+                                            'time': message_time,
+                                            'is_read': False,
+                                            'msg_id': event.message.id,
+                                            'has_media': has_media,
+                                            'media_info': media_info,
+                                            'media_path': media_path
+                                        })
+                                        if len(self.message_cache[phone]['group_mention'][group_key]['messages']) > 50:
+                                            self.message_cache[phone]['group_mention'][group_key]['messages'] = self.message_cache[phone]['group_mention'][group_key]['messages'][-50:]
+                                    
+                                    self.root.after(0, self.refresh_account_list_filter)
+                                    self.log("多账号管理", f"[{phone}] 在群聊 {chat_name} 中被 @{media_info}")
+                            except Exception as e:
+                                self.log("多账号管理", f"[{phone}] 群聊消息缓存错误: {str(e)[:100]}")
+                        
+                        # 消息处理完成日志
+                        self.log("多账号管理", f"[{phone}] 消息处理完成")
                     
                     except Exception as e:
-                        # 捕获异常但不中断监听，继续处理下一条消息
-                        self.log("多账号管理", f"[{phone}] 消息处理错误: {str(e)[:100]}")
+                        # 捕获所有未预期的异常，记录日志但不中断监听
+                        self.log("多账号管理", f"[{phone}] 消息处理异常: {str(e)[:100]}")
                 
                 self.monitoring_clients[phone] = {'client': client, 'running': True}
                 await client.run_until_disconnected()
