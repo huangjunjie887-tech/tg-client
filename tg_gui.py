@@ -920,7 +920,7 @@ class TelegramFullGUI:
                     if msg_type == 'private':
                         target_entity = await client.get_entity(target_id)
                         
-                        # 带重试的发送，增加等待时间
+                        # 带重试的发送
                         for retry in range(5):
                             try:
                                 if image_path and os.path.exists(image_path):
@@ -930,25 +930,30 @@ class TelegramFullGUI:
                                     else:
                                         await client.send_file(target_entity, file)
                                 else:
-                                    await client.send_message(target_entity, reply_text)
+                                    await client.send_message(target_entity, reply_text if reply_text else " ")
                                 self.log("多账号管理", f"[{phone}] 私信回复成功")
                                 break
                             except Exception as e:
                                 error_msg = str(e).lower()
                                 if 'database is locked' in error_msg and retry < 4:
-                                    wait_time = 2 * (retry + 1)  # 2, 4, 6, 8 秒
+                                    wait_time = 2 * (retry + 1)
                                     self.log("多账号管理", f"[{phone}] 数据库繁忙，等待 {wait_time} 秒后重试...")
                                     await asyncio.sleep(wait_time)
                                     continue
                                 raise e
                     else:
+                        # 群聊回复
                         group_id = data.get('group_id')
                         last_messages = data.get('messages', [])
+                        
+                        # 构建回复内容
+                        final_reply_text = reply_text if reply_text else ""
+                        
                         if last_messages:
                             last_msg = last_messages[-1]
                             from_user = last_msg.get('from_user', '').lstrip('@')
-                            if from_user and reply_text and not reply_text.startswith('@'):
-                                reply_text = f"@{from_user} {reply_text}"
+                            if from_user and final_reply_text and not final_reply_text.startswith('@'):
+                                final_reply_text = f"@{from_user} {final_reply_text}"
                         
                         target_entity = await client.get_entity(group_id)
                         
@@ -956,12 +961,12 @@ class TelegramFullGUI:
                             try:
                                 if image_path and os.path.exists(image_path):
                                     file = await client.upload_file(image_path)
-                                    if reply_text:
-                                        await client.send_file(target_entity, file, caption=reply_text)
+                                    if final_reply_text:
+                                        await client.send_file(target_entity, file, caption=final_reply_text)
                                     else:
                                         await client.send_file(target_entity, file)
                                 else:
-                                    await client.send_message(target_entity, reply_text)
+                                    await client.send_message(target_entity, final_reply_text if final_reply_text else " ")
                                 self.log("多账号管理", f"[{phone}] 群聊回复成功")
                                 break
                             except Exception as e:
