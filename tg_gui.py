@@ -575,16 +575,17 @@ class TelegramFullGUI:
                         elif event.is_group and event.message.mentioned:
                             chat = await event.get_chat()
                             chat_name = getattr(chat, 'title', '未知群组')
+                            chat_id = chat.id
                             
                             with self.message_cache_lock:
                                 if phone not in self.message_cache:
                                     self.message_cache[phone] = {'private': {}, 'group_mention': {}}
                                 
-                                group_key = f"group_{chat.id}"
+                                group_key = f"group_{chat_id}"
                                 if group_key not in self.message_cache[phone]['group_mention']:
                                     self.message_cache[phone]['group_mention'][group_key] = {
                                         'group_name': chat_name,
-                                        'group_id': chat.id,
+                                        'group_id': chat_id,
                                         'unread': 0,
                                         'messages': []
                                     }
@@ -944,6 +945,11 @@ class TelegramFullGUI:
                     else:
                         # 群聊回复
                         group_id = data.get('group_id')
+                        if not group_id:
+                            self.log("多账号管理", f"[{phone}] 无法获取群组ID")
+                            self.show_centered_warning("提示", "无法获取群组ID，请重新打开消息窗口")
+                            return
+                        
                         last_messages = data.get('messages', [])
                         
                         # 构建回复内容
