@@ -65,7 +65,7 @@ class TelegramFullGUI:
         
         # 消息监听相关变量
         self.message_cache = {}  # {phone: {type: {sender_id: {...}}}}
-        self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'thread': thread}}
+        self.monitoring_clients = {}  # {phone: {'client': client, 'running': True, 'thread': thread, 'loop': None}}
         self.message_cache_lock = threading.Lock()
         self.monitored_accounts = []  # 保存需要监听的账号列表
         
@@ -507,11 +507,16 @@ class TelegramFullGUI:
             return self.client_locks[phone]
     
     def get_existing_client(self, phone):
-        """获取已存在的客户端实例（复用已有连接）"""
+        """获取已存在的客户端实例（必须在当前事件循环中使用）"""
         if phone in self.monitoring_clients:
             client_info = self.monitoring_clients[phone]
             if client_info and client_info.get('client'):
-                return client_info.get('client')
+                client = client_info.get('client')
+                try:
+                    if client.is_connected():
+                        return client
+                except:
+                    pass
         return None
     
     # ==================== 消息监听功能 ====================
@@ -706,27 +711,34 @@ class TelegramFullGUI:
         def run_monitor():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            self.monitoring_clients[phone] = {'client': None, 'running': True, 'thread': threading.current_thread(), 'loop': loop}
             loop.run_until_complete(monitor())
             loop.close()
         
         thread = threading.Thread(target=run_monitor, daemon=True)
         thread.start()
-        self.monitoring_clients[phone] = {'client': None, 'running': True, 'thread': thread}
     
     def stop_message_monitor(self, phone=None):
         """停止消息监听"""
         if phone:
             if phone in self.monitoring_clients:
+                client_info = self.monitoring_clients[phone]
                 async def disconnect():
-                    if self.monitoring_clients[phone].get('client'):
-                        await self.monitoring_clients[phone]['client'].disconnect()
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(disconnect())
-                    loop.close()
-                except:
-                    pass
+                    if client_info.get('client'):
+                        await client_info['client'].disconnect()
+                
+                loop = client_info.get('loop')
+                if loop and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(disconnect(), loop)
+                else:
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(disconnect())
+                        loop.close()
+                    except:
+                        pass
+                
                 del self.monitoring_clients[phone]
                 if phone in self.monitored_accounts:
                     self.monitored_accounts.remove(phone)
