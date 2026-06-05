@@ -3810,7 +3810,7 @@ class TelegramFullGUI:
         self.private_user_file_path = self.private_user_list_file.get()
         
         self.private_log_insert(f"========== 开始私发 ==========")
-        self.private_log_insert(f"目标用户: {len(self.private_users)} | 账号: {len(selected_accounts)} | 每号限: {per_account_limit}人")
+        self.private_log_insert(f"目标用户: {len(self.private_users)} | 账号: {len(selected_accounts)} | 每号限: {per_account_limit}人 | 线程数: {thread_cnt} | 间隔: {interval}秒")
         
         def run_private_send():
             loop = asyncio.new_event_loop()
@@ -3823,107 +3823,245 @@ class TelegramFullGUI:
         threading.Thread(target=run_private_send, daemon=True).start()
     
     async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
-        import random
+        """修复版私发函数 - 支持每账号发送数量、线程控制、间隔控制"""
         
-        paired_list = []
-        for i, acc in enumerate(accounts):
-            if i < len(users):
-                paired_list.append((acc, users[i]))
-            else:
-                break
-        
-        if not paired_list:
-            self.private_log_insert("账号数量多于用户数量，请增加用户数量")
+        if not accounts or not users:
+            self.private_log_insert("账号或用户列表为空")
             return
         
-        self.private_log_insert(f"一对一配对完成: {len(paired_list)} 对")
+        if per_account_limit <= 0:
+            self.private_log_insert("每账号发送数量必须大于0")
+            return
         
-        async def send_for_pair(acc, username):
+        # ========== 1. 正确分配用户：每个账号分配 per_account_limit 个用户 ==========
+        account_tasks = []  # [(acc, [user1, user2, ...]), ...]
+        user_index = 0
+        total_users_to_send = len(accounts) * per_account_limit
+        
+        if total_users_to_send > len(users):
+            self.private_log_insert(f"用户数量({len(users)})不足，将只发送前{total_users_to_send}个用户")
+        
+        for acc in accounts:
+            user_list = []
+            for _ in range(per_account_limit):
+                if user_index >= len(users):
+                    break
+                user_list.append(users[user_index])
+                user_index += 1
+            if user_list:
+                account_tasks.append((acc, user_list))
+        
+        if not account_tasks:
+            self.private_log_insert("没有分配任何用户")
+            return
+        
+        self.private_log_insert(f"分配完成: {len(account_tasks)}个账号, 共{sum(len(t[1]) for t in account_tasks)}个用户, 每账号{per_account_limit}人")
+        
+        # ========== 2. 统计变量 ==========
+        send_stats = {
+            'success': 0,
+            'fail': 0,
+            'total': 0
+        }
+        
+        # ========== 3. 信号量控制并发线程数 ==========
+        semaphore = asyncio.Semaphore(max(1, thread_cnt))
+        
+        # ========== 4. 更新账号状态的函数 ==========
+        def update_account_status(phone, error_type, error_detail=""):
+            for acc in self.accounts:
+                if acc.get('phone') == phone:
+                    old_status = acc.get('status', '正常')
+                    # 只有更严重的状态才覆盖
+                    if error_type == '封禁':
+                        acc['status'] = '封禁'
+                    elif error_type == '销号':
+                        acc['status'] = '销号'
+                    elif error_type == '频率限制' and old_status not in ['封禁', '销号']:
+                        acc['status'] = '频率限制'
+                    elif error_type == '风控限制' and old_status not in ['封禁', '销号', '频率限制']:
+                        acc['status'] = '风控限制'
+                    elif error_type == '双向限制' and old_status not in ['封禁', '销号', '频率限制', '风控限制']:
+                        acc['status'] = '双向限制'
+                    break
+            self.refresh_account_list_filter()
+        
+        # ========== 5. 发送函数（单个账号，按顺序发送多个用户） ==========
+        async def send_for_account(acc, user_list):
             phone = acc.get('phone', '')
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
             
-            client = None
-            try:
-                client = TelegramClient(session_path, api_id, api_hash)
-                await client.connect()
-                if not await client.is_user_authorized():
-                    self.private_log_insert(f"[{phone}] 未登录")
-                    return False
+            # 使用信号量控制并发
+            async with semaphore:
+                self.private_log_insert(f"[{phone}] 开始任务，需发送 {len(user_list)} 个用户")
+                
+                client = None
+                success_count = 0
+                fail_count = 0
                 
                 try:
-                    clean_username = username.lstrip('@')
-                    user_entity = await client.get_entity(clean_username)
+                    client = TelegramClient(session_path, api_id, api_hash)
+                    await client.connect()
                     
-                    if ad_text.strip().startswith('@PostBot'):
-                        parts = ad_text.strip().split(' ')
-                        if len(parts) >= 2:
-                            command = parts[1]
-                            try:
-                                postbot_entity = await client.get_entity('PostBot')
-                                result = await client(GetInlineBotResultsRequest(
-                                    bot=postbot_entity,
-                                    peer=user_entity.id,
-                                    query=command,
-                                    offset=''
-                                ))
-                                if result.results:
-                                    await client(SendInlineBotResultRequest(
-                                        peer=user_entity.id,
-                                        query_id=result.query_id,
-                                        id=result.results[0].id
-                                    ))
-                                    self.private_log_insert(f"[{phone}] 发送PostBot广告成功 | {clean_username}")
+                    if not await client.is_user_authorized():
+                        self.private_log_insert(f"[{phone}] 账号未登录")
+                        update_account_status(phone, '未授权')
+                        return {'phone': phone, 'success': 0, 'fail': len(user_list)}
+                    
+                    # 依次发送每个用户
+                    for idx, username in enumerate(user_list, 1):
+                        # 检查停止标志
+                        if self.private_stop_flag:
+                            self.private_log_insert(f"[{phone}] 收到停止信号，停止发送")
+                            break
+                        
+                        # 检查暂停标志
+                        while self.private_send_paused:
+                            await asyncio.sleep(1)
+                            if self.private_stop_flag:
+                                break
+                        
+                        self.private_log_insert(f"[{phone}] 正在发送第 {idx}/{len(user_list)} 个: {username}")
+                        
+                        try:
+                            clean_username = username.lstrip('@')
+                            user_entity = await client.get_entity(clean_username)
+                            
+                            # 发送消息
+                            if ad_text.strip().startswith('@PostBot'):
+                                parts = ad_text.strip().split(' ')
+                                if len(parts) >= 2:
+                                    command = parts[1]
+                                    try:
+                                        postbot_entity = await client.get_entity('PostBot')
+                                        result = await client(GetInlineBotResultsRequest(
+                                            bot=postbot_entity,
+                                            peer=user_entity.id,
+                                            query=command,
+                                            offset=''
+                                        ))
+                                        if result.results:
+                                            await client(SendInlineBotResultRequest(
+                                                peer=user_entity.id,
+                                                query_id=result.query_id,
+                                                id=result.results[0].id
+                                            ))
+                                            self.private_log_insert(f"[{phone}] ✅发送PostBot广告成功 | {clean_username}")
+                                        else:
+                                            self.private_log_insert(f"[{phone}] ❌PostBot无结果 | {clean_username}")
+                                            fail_count += 1
+                                            continue
+                                    except Exception as e:
+                                        error_msg = str(e)
+                                        if "ALLOW_PAYMENT_REQUIRED" in error_msg or "PAYMENT_REQUIRED" in error_msg:
+                                            self.private_log_insert(f"[{phone}] ❌PostBot需要Premium会员 | {clean_username}")
+                                            update_account_status(phone, '需要Premium')
+                                        else:
+                                            self.private_log_insert(f"[{phone}] ❌PostBot发送失败: {error_msg[:50]} | {clean_username}")
+                                        fail_count += 1
+                                        continue
                                 else:
-                                    self.private_log_insert(f"[{phone}] PostBot无结果 | {clean_username}")
-                                    return False
-                            except Exception as e:
-                                self.private_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
-                                return False
-                        else:
-                            self.private_log_insert(f"[{phone}] PostBot命令格式错误")
-                            return False
-                    elif image_path and os.path.exists(image_path):
-                        file = await client.upload_file(image_path)
-                        if ad_text:
-                            await client.send_file(user_entity.id, file, caption=ad_text)
-                        else:
-                            await client.send_file(user_entity.id, file)
-                        self.private_log_insert(f"[{phone}] 发送图片成功 | {clean_username}")
-                    else:
-                        await client.send_message(user_entity.id, ad_text)
-                        self.private_log_insert(f"[{phone}] 发送文本成功 | {clean_username}")
+                                    self.private_log_insert(f"[{phone}] ❌PostBot命令格式错误")
+                                    fail_count += 1
+                                    continue
+                            elif image_path and os.path.exists(image_path):
+                                file = await client.upload_file(image_path)
+                                if ad_text:
+                                    await client.send_file(user_entity.id, file, caption=ad_text)
+                                else:
+                                    await client.send_file(user_entity.id, file)
+                                self.private_log_insert(f"[{phone}] ✅发送图片成功 | {clean_username}")
+                            else:
+                                await client.send_message(user_entity.id, ad_text)
+                                self.private_log_insert(f"[{phone}] ✅发送文本成功 | {clean_username}")
+                            
+                            # 发送成功，从文件删除用户
+                            if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                                self.remove_user_from_file(username, self.private_user_file_path)
+                            
+                            success_count += 1
+                            send_stats['success'] += 1
+                            
+                        except FloodWaitError as e:
+                            self.private_log_insert(f"[{phone}] ⚠️频率限制，需等待{e.seconds}秒 | {username}")
+                            update_account_status(phone, '频率限制', f'需等待{e.seconds}秒')
+                            fail_count += 1
+                            send_stats['fail'] += 1
+                            # 等待后继续下一个用户
+                            await asyncio.sleep(min(e.seconds, 300))
+                            
+                        except UserNotMutualContactError:
+                            self.private_log_insert(f"[{phone}] ❌双向限制(只能给联系人发) | {username}")
+                            update_account_status(phone, '双向限制')
+                            fail_count += 1
+                            send_stats['fail'] += 1
+                            
+                        except PeerFloodError:
+                            self.private_log_insert(f"[{phone}] ⚠️账号风控限制 | {username}")
+                            update_account_status(phone, '风控限制')
+                            fail_count += 1
+                            send_stats['fail'] += 1
+                            # 风控账号暂停使用
+                            break
+                            
+                        except UserPrivacyRestrictedError:
+                            self.private_log_insert(f"[{phone}] ❌用户隐私设置，无法私信 | {username}")
+                            fail_count += 1
+                            send_stats['fail'] += 1
+                            
+                        except UserDeactivatedError:
+                            self.private_log_insert(f"[{phone}] ❌用户账号已注销 | {username}")
+                            fail_count += 1
+                            send_stats['fail'] += 1
+                            
+                        except Exception as e:
+                            error_msg = str(e).lower()
+                            if "banned" in error_msg:
+                                self.private_log_insert(f"[{phone}] ⚠️账号被封禁 | {username}")
+                                update_account_status(phone, '封禁')
+                            elif "deactivated" in error_msg:
+                                self.private_log_insert(f"[{phone}] ⚠️账号已注销 | {username}")
+                                update_account_status(phone, '销号')
+                            else:
+                                self.private_log_insert(f"[{phone}] ❌发送失败: {str(e)[:50]} | {username}")
+                            fail_count += 1
+                            send_stats['fail'] += 1
+                        
+                        # 发送间隔等待（关键：每个用户发送后等待）
+                        if idx < len(user_list):  # 不是最后一个用户才等待
+                            self.private_log_insert(f"[{phone}] 等待 {interval} 秒后发送下一个用户...")
+                            await asyncio.sleep(interval)
                     
-                    if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-                        self.remove_user_from_file(username, self.private_user_file_path)
-                        self.private_log_insert(f"[{phone}] 已从文件删除用户: {clean_username}")
+                    self.private_log_insert(f"[{phone}] 任务完成: 成功{success_count}, 失败{fail_count}")
+                    send_stats['total'] += success_count + fail_count
                     
-                    await asyncio.sleep(interval)
-                    return True
-                    
-                except FloodWaitError as e:
-                    self.private_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
-                    await asyncio.sleep(e.seconds)
-                    return False
                 except Exception as e:
-                    self.private_log_insert(f"[{phone}] 发送失败 {username}: {str(e)[:50]}")
-                    return False
-                    
-            except Exception as e:
-                self.private_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
-                return False
-            finally:
-                if client:
-                    await client.disconnect()
+                    self.private_log_insert(f"[{phone}] 账号异常: {str(e)[:50]}")
+                    update_account_status(phone, '异常')
+                finally:
+                    if client:
+                        try:
+                            await client.disconnect()
+                        except:
+                            pass
+                
+                return {'phone': phone, 'success': success_count, 'fail': fail_count}
         
+        # ========== 6. 并发执行所有账号任务 ==========
         tasks = []
-        for acc, username in paired_list:
-            tasks.append(send_for_pair(acc, username))
+        for acc, user_list in account_tasks:
+            tasks.append(send_for_account(acc, user_list))
         
         results = await asyncio.gather(*tasks)
-        success_count = sum(1 for r in results if r)
-        self.private_log_insert(f"发送完成: 成功 {success_count} 个，失败 {len(paired_list) - success_count} 个")
         
+        # ========== 7. 输出统计 ==========
+        total_success = sum(r['success'] for r in results)
+        total_fail = sum(r['fail'] for r in results)
+        
+        self.private_log_insert(f"发送完成: 成功 {total_success} 个，失败 {total_fail} 个")
+        
+        # 更新用户列表计数
         if self.private_user_file_path and os.path.exists(self.private_user_file_path):
             try:
                 with open(self.private_user_file_path, 'r', encoding='utf-8') as f:
@@ -3934,6 +4072,9 @@ class TelegramFullGUI:
                 self.private_log_insert(f"用户列表已更新，剩余 {len(self.private_users)} 个用户")
             except:
                 pass
+        
+        # 刷新账号列表显示
+        self.refresh_account_list_filter()
     
     def stop_private_send(self):
         self.private_stop_flag = True
