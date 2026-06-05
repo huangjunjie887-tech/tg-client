@@ -773,7 +773,7 @@ class TelegramFullGUI:
             return
         
         self.log("多账号管理", f"开始深度检测 {len(filtered_accounts)} 个账号（当前筛选结果）...")
-        self.log("多账号管理", "检测项目: 登录状态 | 封禁/注销/限制/双向")
+        self.log("多账号管理", "检测项目: 登录状态 | 封禁/注销")
         
         def do_deep_check():
             for idx, acc in enumerate(filtered_accounts, 1):
@@ -813,36 +813,9 @@ class TelegramFullGUI:
                     days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
                     self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
                 
-                try:
-                    await client.send_message('me', '状态检测')
-                    acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 正常")
-                except UserNotMutualContactError:
-                    acc['status'] = '双向限制'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 双向限制(只能给双向联系人发消息)")
-                except FloodWaitError as e:
-                    acc['status'] = f'频率限制({e.seconds}秒)'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 频率限制({e.seconds}秒)")
-                except PeerFloodError:
-                    acc['status'] = '风控限制'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 风控限制")
-                except ChatWriteForbiddenError:
-                    acc['status'] = '被禁言'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 被禁言")
-                except ChatAdminRequiredError:
-                    acc['status'] = '需管理员权限'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 需管理员权限")
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if "flood" in error_msg:
-                        acc['status'] = '频率限制'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 频率限制")
-                    elif "mutual" in error_msg:
-                        acc['status'] = '双向限制'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 双向限制")
-                    else:
-                        acc['status'] = '正常'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 正常")
+                # 只检测基础状态，不发送任何消息
+                acc['status'] = '正常'
+                self.log("多账号管理", f"[{phone}] 检测结果: 正常(可登录)")
                 
                 await client.disconnect()
                 
