@@ -3823,7 +3823,7 @@ class TelegramFullGUI:
         threading.Thread(target=run_private_send, daemon=True).start()
     
     async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
-        """修复版私发函数 - 支持每账号发送数量、线程控制、间隔控制"""
+        """修复版私发函数 - 支持每账号发送数量、线程控制、间隔控制、中文日志、账号状态实时更新"""
         
         if not accounts or not users:
             self.private_log_insert("账号或用户列表为空")
@@ -3955,8 +3955,11 @@ class TelegramFullGUI:
                                     except Exception as e:
                                         error_msg = str(e)
                                         if "ALLOW_PAYMENT_REQUIRED" in error_msg or "PAYMENT_REQUIRED" in error_msg:
-                                            self.private_log_insert(f"[{phone}] ❌PostBot需要Premium会员 | {clean_username}")
+                                            self.private_log_insert(f"[{phone}] ❌PostBot需要Premium会员才能使用 | {clean_username}")
                                             update_account_status(phone, '需要Premium')
+                                        elif "Too many requests" in error_msg:
+                                            self.private_log_insert(f"[{phone}] ⚠️请求过于频繁，请稍后再试 | {clean_username}")
+                                            update_account_status(phone, '频率限制')
                                         else:
                                             self.private_log_insert(f"[{phone}] ❌PostBot发送失败: {error_msg[:50]} | {clean_username}")
                                         fail_count += 1
@@ -3992,13 +3995,13 @@ class TelegramFullGUI:
                             await asyncio.sleep(min(e.seconds, 300))
                             
                         except UserNotMutualContactError:
-                            self.private_log_insert(f"[{phone}] ❌双向限制(只能给联系人发) | {username}")
+                            self.private_log_insert(f"[{phone}] ❌双向限制(只能给联系人发消息) | {username}")
                             update_account_status(phone, '双向限制')
                             fail_count += 1
                             send_stats['fail'] += 1
                             
                         except PeerFloodError:
-                            self.private_log_insert(f"[{phone}] ⚠️账号风控限制 | {username}")
+                            self.private_log_insert(f"[{phone}] ⚠️账号被风控限制(无法拉人/私信) | {username}")
                             update_account_status(phone, '风控限制')
                             fail_count += 1
                             send_stats['fail'] += 1
@@ -4006,23 +4009,35 @@ class TelegramFullGUI:
                             break
                             
                         except UserPrivacyRestrictedError:
-                            self.private_log_insert(f"[{phone}] ❌用户隐私设置，无法私信 | {username}")
+                            self.private_log_insert(f"[{phone}] ❌对方设置了隐私保护，无法私信 | {username}")
                             fail_count += 1
                             send_stats['fail'] += 1
                             
                         except UserDeactivatedError:
-                            self.private_log_insert(f"[{phone}] ❌用户账号已注销 | {username}")
+                            self.private_log_insert(f"[{phone}] ❌对方账号已注销 | {username}")
                             fail_count += 1
                             send_stats['fail'] += 1
                             
                         except Exception as e:
                             error_msg = str(e).lower()
                             if "banned" in error_msg:
-                                self.private_log_insert(f"[{phone}] ⚠️账号被封禁 | {username}")
+                                self.private_log_insert(f"[{phone}] ⚠️账号已被封禁 | {username}")
                                 update_account_status(phone, '封禁')
                             elif "deactivated" in error_msg:
                                 self.private_log_insert(f"[{phone}] ⚠️账号已注销 | {username}")
                                 update_account_status(phone, '销号')
+                            elif "too many requests" in error_msg:
+                                self.private_log_insert(f"[{phone}] ⚠️请求过于频繁，请稍后再试 | {username}")
+                                update_account_status(phone, '频率限制')
+                            elif "flood" in error_msg:
+                                self.private_log_insert(f"[{phone}] ⚠️操作过于频繁，暂时被限制 | {username}")
+                                update_account_status(phone, '频率限制')
+                            elif "timeout" in error_msg:
+                                self.private_log_insert(f"[{phone}] ⚠️连接超时，请检查网络或代理 | {username}")
+                            elif "connection" in error_msg:
+                                self.private_log_insert(f"[{phone}] ⚠️网络连接失败 | {username}")
+                            elif "invalid" in error_msg:
+                                self.private_log_insert(f"[{phone}] ❌用户名无效或不存在 | {username}")
                             else:
                                 self.private_log_insert(f"[{phone}] ❌发送失败: {str(e)[:50]} | {username}")
                             fail_count += 1
