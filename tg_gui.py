@@ -3161,102 +3161,143 @@ class TelegramFullGUI:
         
         try:
             user_entity = await client.get_entity(clean_username)
-        except (UsernameInvalidError, ValueError):
+        except UsernameInvalidError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户不存在"
+            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户不存在(用户名无效)"
+        except ValueError as e:
+            self.total_fail += 1
+            self.total_processed += 1
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户不存在或ID无效"
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "invalid" in error_msg:
+                self.total_fail += 1
+                self.total_processed += 1
+                self.processed_usernames.add(clean_username)
+                return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户不存在"
+            raise e
         
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户已注销"
+            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 账号已注销"
         
         if hasattr(user_entity, 'bot') and user_entity.bot:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 机器人"
+            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 机器人账号"
         
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             self.total_success += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
+            return True, f"[{phone[-6:]}] ✅成功 | {clean_username[:15]}"
                 
         except UserPrivacyRestrictedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户隐私设置"
+            return False, f"[{phone[-6:]}] ❌用户隐私 | {clean_username[:15]} | 用户设置了隐私保护(无法被邀请)"
         except UserNotMutualContactError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 非双向联系人"
+            return False, f"[{phone[-6:]}] ❌用户隐私 | {clean_username[:15]} | 非双向联系人(需要对方先加你)"
         except UserAlreadyParticipantError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 跳过 | {clean_username[:15]} | 已在群"
+            return False, f"[{phone[-6:]}] ⚠️跳过 | {clean_username[:15]} | 用户已在群中"
         except UserKickedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 曾被踢出"
+            return False, f"[{phone[-6:]}] ❌用户限制 | {clean_username[:15]} | 用户曾被踢出该群"
         except UserBannedInChannelError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户在群黑名单"
+            return False, f"[{phone[-6:]}] ❌用户隐私 | {clean_username[:15]} | 用户拒绝被邀请(隐私设置/屏蔽群组)"
         except UserChannelsTooMuchError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 用户群组已满"
+            return False, f"[{phone[-6:]}] ❌用户限制 | {clean_username[:15]} | 用户加入的群组已达上限"
         except FloodWaitError as e:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号频率限制({e.seconds}s)"
+            return False, f"[{phone[-6:]}] ⚠️账号限制 | {clean_username[:15]} | 账号操作频繁(需等待{e.seconds}秒)"
         except PeerFloodError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号风控"
+            return False, f"[{phone[-6:]}] ⚠️账号风控 | {clean_username[:15]} | 账号被TG风控限制(建议更换代理/休息)"
         except ChatAdminRequiredError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号需管理员权限"
+            return False, f"[{phone[-6:]}] ⚠️群组限制 | {clean_username[:15]} | 账号在群组无管理员权限"
         except ChatWriteForbiddenError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号被禁言"
+            return False, f"[{phone[-6:]}] ⚠️账号限制 | {clean_username[:15]} | 账号被群组禁言"
         except PhoneNumberBannedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号已封禁"
+            return False, f"[{phone[-6:]}] ⚠️账号封禁 | {clean_username[:15]} | 账号已被TG封禁"
         except UserDeactivatedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号已注销"
+            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户账号已注销"
+        except InviteHashExpiredError:
+            self.total_fail += 1
+            self.total_processed += 1
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 邀请链接已过期"
+        except InviteHashInvalidError:
+            self.total_fail += 1
+            self.total_processed += 1
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 邀请链接无效"
+        except ChannelInvalidError:
+            self.total_fail += 1
+            self.total_processed += 1
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 群组/频道无效或不存在"
+        except ChannelPrivateError:
+            self.total_fail += 1
+            self.total_processed += 1
+            self.processed_usernames.add(clean_username)
+            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 群组为私有(无法加入)"
         except Exception as e:
             error_msg = str(e).lower()
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
+            
+            # 进一步细分常见错误
             if "banned" in error_msg:
-                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号封禁"
+                return False, f"[{phone[-6:]}] ⚠️账号封禁 | {clean_username[:15]} | 账号被封禁"
             elif "flood" in error_msg:
-                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | 账号频率限制"
+                return False, f"[{phone[-6:]}] ⚠️账号限制 | {clean_username[:15]} | 账号操作频繁"
+            elif "timeout" in error_msg or "timed out" in error_msg:
+                return False, f"[{phone[-6:]}] ⚠️网络问题 | {clean_username[:15]} | 连接超时(检查代理/网络)"
+            elif "proxy" in error_msg:
+                return False, f"[{phone[-6:]}] ⚠️网络问题 | {clean_username[:15]} | 代理连接失败"
+            elif "connection" in error_msg:
+                return False, f"[{phone[-6:]}] ⚠️网络问题 | {clean_username[:15]} | 网络连接异常"
             else:
-                return False, f"[{phone[-6:]}] 失败 | {clean_username[:15]} | {error_msg[:20]}"
+                return False, f"[{phone[-6:]}] ❓未知错误 | {clean_username[:15]} | {error_msg[:30]}"
     
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
         from telethon.tl.functions.channels import JoinChannelRequest
