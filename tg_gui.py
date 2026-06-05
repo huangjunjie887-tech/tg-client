@@ -29,12 +29,13 @@ from telethon.tl.types import ChannelParticipantsSearch
 from telethon.tl.functions.channels import GetParticipantsRequest, GetFullChannelRequest
 from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsAdmins, ChannelParticipantsBots, ChannelParticipantsRecent, Message, InputPeerChannel, InputPhoto
 from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
-from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline, InputFile
+from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest, GetPasswordRequest, UpdatePasswordSettingsRequest
+from telethon.tl.types import UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth, UserStatusOffline, UserStatusOnline, InputFile, PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlineBotResultRequest
 from telethon.tl.functions.auth import SendCodeRequest, SignInRequest, LogOutRequest
+from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
 
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
@@ -220,6 +221,19 @@ class TelegramFullGUI:
                     acc['status'] = '双向限制'
                 break
         self.refresh_account_list_filter()
+        self.update_status_filter_options()
+    
+    def update_status_filter_options(self):
+        """更新状态筛选下拉框的选项"""
+        statuses = set(["全部"])
+        for acc in self.accounts:
+            status = acc.get('status', '待检测')
+            statuses.add(status)
+        self.account_list_status_filter['values'] = list(statuses)
+        # 如果当前选中的状态不在新列表中，重置为"全部"
+        current = self.account_list_status_filter.get()
+        if current not in statuses and current != "全部":
+            self.account_list_status_filter.set("全部")
     
     def remove_user_from_file(self, username, file_path=None):
         target_file = file_path or self.private_user_list_file.get()
@@ -463,6 +477,8 @@ class TelegramFullGUI:
                 acc.get('register_time', '未知'), acc.get('proxy', '未设置')
             ))
             i += 1
+        
+        self.update_status_filter_options()
     
     # ==================== 通用账号选择弹窗 ====================
     def show_account_selector(self, title, group_filter_default="全部", status_filter_default="正常", multi_select=True):
@@ -643,6 +659,7 @@ class TelegramFullGUI:
         ttk.Button(toolbar, text="一键登录", command=self.login_filtered_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="深度检测", command=self.deep_check_filtered_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="修改资料", command=self.batch_edit_profile).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="踢出设备", command=self.kick_devices_filtered).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中账号", command=self.delete_selected_accounts).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除死号", command=self.delete_dead_accounts_filtered).pack(side="left", padx=2)
         ttk.Button(toolbar, text="刷新列表", command=self.refresh_account_list_filter).pack(side="left", padx=2)
@@ -736,6 +753,7 @@ class TelegramFullGUI:
                         self.log("多账号管理", f"[{phone}] 账号已注销(销号)")
                         acc['status'] = '销号'
                         await client.disconnect()
+                        self.update_status_filter_options()
                         return False
                     
                     nickname = me.first_name or me.username or phone
@@ -745,22 +763,27 @@ class TelegramFullGUI:
                     acc['status'] = '正常'
                     self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
                     await client.disconnect()
+                    self.update_status_filter_options()
                     return True
                 else:
                     self.log("多账号管理", f"[{phone}] session未授权")
                     acc['status'] = '未授权'
+                    self.update_status_filter_options()
                     return False
             except FloodWaitError as e:
                 self.log("多账号管理", f"[{phone}] 被限制，需等待{e.seconds}秒")
                 acc['status'] = f'限制({e.seconds}秒)'
+                self.update_status_filter_options()
                 return False
             except UserDeactivatedError:
                 self.log("多账号管理", f"[{phone}] 账号已注销")
                 acc['status'] = '销号'
+                self.update_status_filter_options()
                 return False
             except PhoneNumberBannedError:
                 self.log("多账号管理", f"[{phone}] 账号已被封禁")
                 acc['status'] = '封禁'
+                self.update_status_filter_options()
                 return False
             except SessionPasswordNeededError:
                 if twofa:
@@ -770,17 +793,21 @@ class TelegramFullGUI:
                         acc['nickname'] = me.first_name or phone
                         acc['status'] = '正常'
                         self.log("多账号管理", f"[{phone}] 2FA登录成功")
+                        self.update_status_filter_options()
                         return True
                     except:
                         self.log("多账号管理", f"[{phone}] 2FA密码错误")
                         acc['status'] = '2FA错误'
+                        self.update_status_filter_options()
                 else:
                     self.log("多账号管理", f"[{phone}] 需要2FA密码")
                     acc['status'] = '需要2FA'
+                    self.update_status_filter_options()
                 return False
             except Exception as e:
                 self.log("多账号管理", f"[{phone}] 登录失败 - {str(e)[:80]}")
                 acc['status'] = '登录失败'
+                self.update_status_filter_options()
                 return False
             finally:
                 if client:
@@ -835,6 +862,7 @@ class TelegramFullGUI:
                 if not await client.is_user_authorized():
                     acc['status'] = '未授权'
                     self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
+                    self.update_status_filter_options()
                     return
                 
                 me = await client.get_me()
@@ -844,6 +872,7 @@ class TelegramFullGUI:
                     acc['status'] = '销号'
                     self.log("多账号管理", f"[{phone}] 检测结果: 销号(账号已注销)")
                     await client.disconnect()
+                    self.update_status_filter_options()
                     return
                 
                 nickname = me.first_name or me.username or phone
@@ -860,16 +889,20 @@ class TelegramFullGUI:
                 self.log("多账号管理", f"[{phone}] 检测结果: 正常(可登录)")
                 
                 await client.disconnect()
+                self.update_status_filter_options()
                 
             except UserDeactivatedError:
                 acc['status'] = '销号'
                 self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+                self.update_status_filter_options()
             except PhoneNumberBannedError:
                 acc['status'] = '封禁'
                 self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                self.update_status_filter_options()
             except SessionPasswordNeededError:
                 acc['status'] = '需要2FA'
                 self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA")
+                self.update_status_filter_options()
             except Exception as e:
                 error_msg = str(e).lower()
                 if "deactivated" in error_msg:
@@ -881,6 +914,7 @@ class TelegramFullGUI:
                 else:
                     acc['status'] = '检测失败'
                     self.log("多账号管理", f"[{phone}] 检测结果: 检测失败 - {str(e)[:50]}")
+                self.update_status_filter_options()
             finally:
                 if client:
                     try:
@@ -895,20 +929,93 @@ class TelegramFullGUI:
         
         self.root.after(0, self.refresh_account_list_filter)
         self.root.after(0, self.refresh_scrape_accounts)
-        statuses = set(["全部"])
-        for acc in self.accounts:
-            status = acc.get('status', '待检测')
-            statuses.add(status)
-        self.account_list_status_filter['values'] = list(statuses)
+        self.update_status_filter_options()
+    
+    def kick_devices_filtered(self):
+        """将选中分组的所有账号踢出之前登录过的设备"""
+        filtered_accounts = self.get_filtered_accounts()
+        if not filtered_accounts:
+            self.log("多账号管理", "当前筛选条件下没有账号可操作")
+            self.show_centered_warning("提示", "当前筛选条件下没有账号可操作")
+            return
+        
+        # 确认对话框
+        def do_kick():
+            self.log("多账号管理", f"开始踢出 {len(filtered_accounts)} 个账号的所有设备...")
+            
+            def kick_thread():
+                for idx, acc in enumerate(filtered_accounts, 1):
+                    phone = acc.get('phone', '')
+                    self.log("多账号管理", f"[{idx}/{len(filtered_accounts)}] 正在踢出设备: {phone}")
+                    self.kick_single_account_devices(acc)
+                    time.sleep(2)
+                self.log("多账号管理", "踢出设备完成")
+                self.show_centered_info("完成", f"已完成 {len(filtered_accounts)} 个账号的设备踢出")
+            
+            threading.Thread(target=kick_thread, daemon=True).start()
+        
+        self.show_centered_yesno("确认", f"确定将当前筛选的 {len(filtered_accounts)} 个账号踢出所有设备吗？\n踢出后需要重新登录才能使用。", do_kick)
+    
+    def kick_single_account_devices(self, acc):
+        """踢出单个账号的所有设备"""
+        phone = acc.get('phone', '')
+        session_path = acc.get('session_path', '')
+        api_id, api_hash = self.get_account_api_credentials(acc)
+        
+        async def do_kick():
+            client = None
+            try:
+                client = TelegramClient(session_path, api_id, api_hash)
+                await client.connect()
+                
+                if not await client.is_user_authorized():
+                    self.log("多账号管理", f"[{phone}] 账号未登录，无需踢出")
+                    return
+                
+                # 获取所有会话
+                auths = await client(GetAuthorizationsRequest())
+                
+                for auth in auths.authorizations:
+                    if auth.current:
+                        continue
+                    # 踢出其他设备
+                    try:
+                        await client(ResetAuthorizationRequest(hash=auth.hash))
+                        self.log("多账号管理", f"[{phone}] 已踢出一个设备")
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 踢出设备失败: {str(e)[:50]}")
+                
+                # 注销当前会话，让账号完全退出
+                await client.log_out()
+                self.log("多账号管理", f"[{phone}] 已注销当前会话，账号已退出")
+                
+                # 更新账号状态
+                acc['status'] = '未授权'
+                self.update_status_filter_options()
+                self.refresh_account_list_filter()
+                
+            except Exception as e:
+                self.log("多账号管理", f"[{phone}] 踢出设备异常: {str(e)[:50]}")
+            finally:
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(do_kick())
+        loop.close()
     
     def batch_edit_profile(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("批量修改资料")
-        dialog.geometry("650x700")
+        dialog.geometry("700x800")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        self.center_window(dialog, 650, 700)
+        self.center_window(dialog, 700, 800)
         
         ttk.Label(dialog, text="批量修改资料", font=("微软雅黑", 12, "bold")).pack(pady=10)
         
@@ -987,6 +1094,27 @@ class TelegramFullGUI:
         ttk.Button(bio_row, text="导入TXT文件", command=self.select_bio_file, width=15).pack(side="left", padx=5)
         ttk.Label(bio_frame, text="每行一个简介，按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
         
+        # 2FA密码修改区域
+        twofa_frame = ttk.LabelFrame(dialog, text="两步验证密码(2FA)")
+        twofa_frame.pack(fill="x", padx=10, pady=5)
+        
+        twofa_row = ttk.Frame(twofa_frame)
+        twofa_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(twofa_row, text="原密码:").pack(side="left", padx=5)
+        self.twofa_old_password = ttk.Entry(twofa_row, width=20, show="●")
+        self.twofa_old_password.pack(side="left", padx=5)
+        
+        ttk.Label(twofa_row, text="新密码:").pack(side="left", padx=20)
+        self.twofa_new_password = ttk.Entry(twofa_row, width=20, show="●")
+        self.twofa_new_password.pack(side="left", padx=5)
+        
+        ttk.Label(twofa_row, text="确认新密码:").pack(side="left", padx=20)
+        self.twofa_confirm_password = ttk.Entry(twofa_row, width=20, show="●")
+        self.twofa_confirm_password.pack(side="left", padx=5)
+        
+        ttk.Label(twofa_frame, text="如果不修改2FA密码，请留空", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
+        
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=15)
         
@@ -1007,6 +1135,16 @@ class TelegramFullGUI:
             username_file = self.username_file_path.get().strip()
             firstname_file = self.firstname_file_path.get().strip()
             bio_file = self.bio_file_path.get().strip()
+            
+            # 读取2FA密码
+            old_twofa = self.twofa_old_password.get().strip()
+            new_twofa = self.twofa_new_password.get().strip()
+            confirm_twofa = self.twofa_confirm_password.get().strip()
+            
+            if new_twofa and new_twofa != confirm_twofa:
+                self.log("多账号管理", "新密码和确认密码不一致")
+                self.show_centered_warning("提示", "新密码和确认密码不一致")
+                return
             
             usernames, firstnames, bios, photos = [], [], [], []
             
@@ -1043,7 +1181,8 @@ class TelegramFullGUI:
                             username = usernames[i % len(usernames)] if usernames else None
                             firstname = firstnames[i % len(firstnames)] if firstnames else None
                             bio = bios[i % len(bios)] if bios else None
-                            self.edit_single_account_profile(acc, photo_path, username, firstname, bio)
+                            # 传递2FA密码
+                            self.edit_single_account_profile(acc, photo_path, username, firstname, bio, old_twofa, new_twofa)
                             self.update_account_task(phone, "", False)
                             self.update_account_task(phone, "修改资料", False)
                             break
@@ -1079,7 +1218,7 @@ class TelegramFullGUI:
             self.bio_file_path.set(file_path)
             self.log("多账号管理", f"选择简介文件: {file_path}")
     
-    def edit_single_account_profile(self, acc, photo_path, username, first_name, bio):
+    def edit_single_account_profile(self, acc, photo_path, username, first_name, bio, old_twofa=None, new_twofa=None):
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -1092,6 +1231,34 @@ class TelegramFullGUI:
                 if not await client.is_user_authorized():
                     self.log("多账号管理", f"[{phone}] 账号未登录")
                     return
+                
+                # 修改2FA密码
+                if old_twofa and new_twofa and old_twofa.strip() and new_twofa.strip():
+                    try:
+                        # 获取当前密码设置
+                        pwd = await client(GetPasswordRequest())
+                        
+                        if pwd.has_password:
+                            # 有原密码，需要验证后修改
+                            await client.edit_2fa(new_password=new_twofa, current_password=old_twofa)
+                            self.log("多账号管理", f"[{phone}] 2FA密码修改成功")
+                        else:
+                            # 没有2FA，直接设置
+                            await client.edit_2fa(new_password=new_twofa)
+                            self.log("多账号管理", f"[{phone}] 2FA密码设置成功")
+                        
+                        # 更新JSON文件中的2FA密码
+                        json_path = acc.get('json_path', '')
+                        if json_path and os.path.exists(json_path):
+                            with open(json_path, 'r', encoding='utf-8') as f:
+                                json_data = json.load(f)
+                            json_data['twoFA'] = new_twofa
+                            with open(json_path, 'w', encoding='utf-8') as f:
+                                json.dump(json_data, f, ensure_ascii=False, indent=2)
+                            if acc.get('account_info'):
+                                acc['account_info']['twoFA'] = new_twofa
+                    except Exception as e:
+                        self.log("多账号管理", f"[{phone}] 2FA密码修改失败: {str(e)}")
                 
                 if username:
                     try:
@@ -1127,6 +1294,7 @@ class TelegramFullGUI:
                 
                 await client.disconnect()
                 self.root.after(0, self.refresh_account_list_filter)
+                self.update_status_filter_options()
             except Exception as e:
                 self.log("多账号管理", f"[{phone}] 修改资料失败: {str(e)}")
             finally:
