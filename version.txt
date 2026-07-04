@@ -15,13 +15,13 @@ VSVersionInfo(
       [
         StringTable(
           u'040904B0',
-          [StringStruct(u'CompanyName', u'TianShiFu'),
+          [StringStruct(u'CompanyName', u'LIANGZI'),
           StringStruct(u'FileDescription', u'TG全能营销系统'),
           StringStruct(u'FileVersion', u'2.0.0.0'),
           StringStruct(u'InternalName', u'tg_gui'),
           StringStruct(u'LegalCopyright', u'Copyright (C) 2024'),
           StringStruct(u'OriginalFilename', u'tg_gui.exe'),
-          StringStruct(u'ProductName', u'天师府TG全能营销系统'),
+          StringStruct(u'ProductName', u'良子TG全能营销系统'),
           StringStruct(u'ProductVersion', u'2.0.0.0')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [0x0409, 0x04B0])])
