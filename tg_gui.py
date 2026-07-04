@@ -44,7 +44,7 @@ CONFIG_FILE = "tg_config.json"
 class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("天师府TG全能营销系统 联系@Tian2547")
+        self.root.title("良子TG全能营销系统 联系@Liangzi1952")
         self.root.geometry("1200x950")
         self.root.resizable(True, True)
         
@@ -266,14 +266,14 @@ class TelegramFullGUI:
     
     def show_card_login(self):
         login_window = tk.Toplevel(self.root)
-        login_window.title("卡密登录 - 天师府TG全能营销系统")
+        login_window.title("卡密登录 - 良子TG全能营销系统")
         login_window.geometry("450x350")
         login_window.resizable(False, False)
         login_window.transient(self.root)
         login_window.grab_set()
         self.center_window(login_window, 450, 350)
         
-        title_label = tk.Label(login_window, text="天师府TG全能营销系统", font=("微软雅黑", 18, "bold"))
+        title_label = tk.Label(login_window, text="良子TG全能营销系统", font=("微软雅黑", 18, "bold"))
         title_label.pack(pady=20)
         sub_label = tk.Label(login_window, text="请输入卡密激活", font=("微软雅黑", 10))
         sub_label.pack()
@@ -293,7 +293,7 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="激活", command=lambda: self.verify_card(login_window), width=12).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="购买卡密", command=self.buy_card, width=12).pack(side="left", padx=10)
         
-        tip_label = tk.Label(login_window, text="购买卡密请联系 @Tian2547", font=("微软雅黑", 9), foreground="gray")
+        tip_label = tk.Label(login_window, text="购买卡密请联系 @Liangzi1952", font=("微软雅黑", 9), foreground="gray")
         tip_label.pack(side="bottom", pady=10)
         self.card_entry.bind("<Return>", lambda event: self.verify_card(login_window))
     
@@ -323,7 +323,7 @@ class TelegramFullGUI:
     
     def buy_card(self):
         import webbrowser
-        webbrowser.open("https://t.me/Tian2547")
+        webbrowser.open("https://t.me/Liangzi1952")
     
     def on_login_success(self, login_window):
         login_window.destroy()
@@ -344,7 +344,7 @@ class TelegramFullGUI:
         self.create_monitor_page()
         self.create_direct_login_page()
         
-        self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 联系@Tian2547", relief="sunken")
+        self.status_bar = ttk.Label(self.root, text=f"已激活 | 有效期: {self.card_info.get('expire_date', '永久')} | 联系@Liangzi1952", relief="sunken")
         self.status_bar.pack(side="bottom", fill="x")
         
         self.refresh_invite_group_filter()
@@ -397,7 +397,7 @@ class TelegramFullGUI:
     
     def show_card_info(self):
         if self.card_info:
-            info_text = f"天师府TG全能营销系统\n\n卡密状态: 已激活\n有效期至: {self.card_info.get('expire_date', '永久')}\n设备绑定: 已绑定\n\n联系客服: @Tian2547"
+            info_text = f"良子TG全能营销系统\n\n卡密状态: 已激活\n有效期至: {self.card_info.get('expire_date', '永久')}\n设备绑定: 已绑定\n\n联系客服: @Liangzi1952"
             self.show_centered_info("卡密信息", info_text)
     
     def read_account_from_json(self, json_path):
@@ -5620,7 +5620,7 @@ class TelegramFullGUI:
             self.log("多账号管理", "配置已导入")
     
     def about(self):
-        self.show_centered_info("关于", "天师府TG全能营销系统\n联系@Tian2547\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊+回复\n- 自动注册\n- 监听群组\n- 直登转协议")
+        self.show_centered_info("关于", "良子TG全能营销系统\n联系@Liangzi1952\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊+回复\n- 自动注册\n- 监听群组\n- 直登转协议")
 
 if __name__ == "__main__":
     root = tk.Tk()
