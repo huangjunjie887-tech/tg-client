@@ -24,14 +24,14 @@ jobs:
     
     - name: Build EXE
       run: |
-        pyinstaller --onefile --name "天师府TG全能营销系统" --windowed --noconsole tg_gui.py
+        pyinstaller --onefile --name "良子TG全能营销系统" --windowed --noconsole tg_gui.py
     
     - name: Create encrypted archive
       run: |
-        7z a -p"tg2024" -tzip "天师府TG全能营销系统.zip" "dist/天师府TG全能营销系统.exe"
+        7z a -p"tg2024" -tzip "良子TG全能营销系统.zip" "dist/良子TG全能营销系统.exe"
     
     - name: Upload ZIP
       uses: actions/upload-artifact@v4
       with:
-        name: 天师府TG全能营销系统
-        path: 天师府TG全能营销系统.zip
+        name: 良子TG全能营销系统
+        path: 良子TG全能营销系统.zip
