@@ -769,9 +769,15 @@ class TelegramFullGUI:
                     self.update_status_filter_options()
                     return True
                 else:
-                    # session 未授权，尝试获取详细原因
+                    # session未授权，尝试获取详细原因（带超时）
                     try:
-                        await client.get_me()
+                        await asyncio.wait_for(client.get_me(), timeout=5)
+                        # 如果成功，说明 session 其实是有效的
+                        acc['status'] = '未授权'
+                        self.log("多账号管理", f"[{phone}] ⚠️ session未授权")
+                    except asyncio.TimeoutError:
+                        acc['status'] = '未授权(超时)'
+                        self.log("多账号管理", f"[{phone}] ⚠️ 连接超时")
                     except SessionPasswordNeededError:
                         acc['status'] = '需要2FA重新登录'
                         self.log("多账号管理", f"[{phone}] ⚠️ 需要2FA密码重新登录")
@@ -781,9 +787,6 @@ class TelegramFullGUI:
                     except PhoneNumberBannedError:
                         acc['status'] = '封禁'
                         self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
-                    except FloodWaitError as e:
-                        acc['status'] = f'登录限制({e.seconds}秒)'
-                        self.log("多账号管理", f"[{phone}] ⚠️ 登录过于频繁，等待{e.seconds}秒")
                     except Exception as e:
                         error_msg = str(e)
                         if "SESSION_REVOKED" in error_msg:
@@ -800,7 +803,7 @@ class TelegramFullGUI:
                             self.log("多账号管理", f"[{phone}] 🔵 账号被冻结，需要激活")
                         else:
                             acc['status'] = '未授权'
-                            self.log("多账号管理", f"[{phone}] ⚠️ session失效: {error_msg[:80]}")
+                            self.log("多账号管理", f"[{phone}] ⚠️ session失效: {error_msg[:50]}")
                     self.update_status_filter_options()
                     return False
             except FloodWaitError as e:
@@ -872,8 +875,34 @@ class TelegramFullGUI:
                 await client.connect()
                 
                 if not await client.is_user_authorized():
-                    acc['status'] = '未授权'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
+                    # 尝试获取详细错误信息（带超时）
+                    try:
+                        await asyncio.wait_for(client.get_me(), timeout=5)
+                        acc['status'] = '未授权'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
+                    except asyncio.TimeoutError:
+                        acc['status'] = '未授权(超时)'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 未授权(连接超时)")
+                    except SessionPasswordNeededError:
+                        acc['status'] = '需要2FA重新登录'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA重新登录")
+                    except UserDeactivatedError:
+                        acc['status'] = '销号'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+                    except PhoneNumberBannedError:
+                        acc['status'] = '封禁'
+                        self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "SESSION_REVOKED" in error_msg:
+                            acc['status'] = '被踢下线'
+                            self.log("多账号管理", f"[{phone}] 检测结果: 被踢下线")
+                        elif "AUTH_KEY_UNREGISTERED" in error_msg:
+                            acc['status'] = 'session已过期'
+                            self.log("多账号管理", f"[{phone}] 检测结果: session已过期")
+                        else:
+                            acc['status'] = '未授权'
+                            self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
                     self.update_status_filter_options()
                     return
                 
