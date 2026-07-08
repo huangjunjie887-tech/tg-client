@@ -230,7 +230,7 @@ class TelegramFullGUI:
             status = acc.get('status', '待检测')
             statuses.add(status)
         # 确保所有状态都在列表中
-        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制"]
+        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)"]
         for s in all_statuses:
             statuses.add(s)
         self.account_list_status_filter['values'] = list(statuses)
@@ -509,7 +509,7 @@ class TelegramFullGUI:
         
         ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
         status_var = tk.StringVar(value=status_filter_default)
-        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制"], width=12)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)"], width=12)
         status_combo.pack(side="left", padx=5)
         
         # 全选按钮
@@ -583,7 +583,7 @@ class TelegramFullGUI:
                 elif status in ["销号", "封禁"]:
                     tree.tag_configure('dead', background='#ffebee')
                     tree.item(phone, tags=('dead',))
-                elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制"]:
+                elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)"]:
                     tree.tag_configure('unauth', background='#fff3e0')
                     tree.item(phone, tags=('unauth',))
                 elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制"]:
