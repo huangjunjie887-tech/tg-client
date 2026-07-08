@@ -229,8 +229,11 @@ class TelegramFullGUI:
         for acc in self.accounts:
             status = acc.get('status', '待检测')
             statuses.add(status)
+        # 确保所有状态都在列表中
+        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制"]
+        for s in all_statuses:
+            statuses.add(s)
         self.account_list_status_filter['values'] = list(statuses)
-        # 如果当前选中的状态不在新列表中，重置为"全部"
         current = self.account_list_status_filter.get()
         if current not in statuses and current != "全部":
             self.account_list_status_filter.set("全部")
@@ -506,7 +509,7 @@ class TelegramFullGUI:
         
         ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
         status_var = tk.StringVar(value=status_filter_default)
-        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制"], width=12)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制"], width=12)
         status_combo.pack(side="left", padx=5)
         
         # 全选按钮
@@ -580,7 +583,7 @@ class TelegramFullGUI:
                 elif status in ["销号", "封禁"]:
                     tree.tag_configure('dead', background='#ffebee')
                     tree.item(phone, tags=('dead',))
-                elif status in ["未授权", "需要2FA"]:
+                elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制"]:
                     tree.tag_configure('unauth', background='#fff3e0')
                     tree.item(phone, tags=('unauth',))
                 elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制"]:
@@ -750,7 +753,7 @@ class TelegramFullGUI:
                     
                     # 检查账号是否已注销（关键修复）
                     if getattr(me, 'deleted', False):
-                        self.log("多账号管理", f"[{phone}] 账号已注销(销号)")
+                        self.log("多账号管理", f"[{phone}] ❌ 账号已注销(销号)")
                         acc['status'] = '销号'
                         await client.disconnect()
                         self.update_status_filter_options()
@@ -761,52 +764,61 @@ class TelegramFullGUI:
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
+                    self.log("多账号管理", f"[{phone}] ✅ 登录成功 | 昵称: {nickname}")
                     await client.disconnect()
                     self.update_status_filter_options()
                     return True
                 else:
-                    self.log("多账号管理", f"[{phone}] session未授权")
-                    acc['status'] = '未授权'
+                    # session 未授权，尝试获取详细原因
+                    try:
+                        await client.get_me()
+                    except SessionPasswordNeededError:
+                        acc['status'] = '需要2FA重新登录'
+                        self.log("多账号管理", f"[{phone}] ⚠️ 需要2FA密码重新登录")
+                    except UserDeactivatedError:
+                        acc['status'] = '销号'
+                        self.log("多账号管理", f"[{phone}] ❌ 账号已注销")
+                    except PhoneNumberBannedError:
+                        acc['status'] = '封禁'
+                        self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
+                    except FloodWaitError as e:
+                        acc['status'] = f'登录限制({e.seconds}秒)'
+                        self.log("多账号管理", f"[{phone}] ⚠️ 登录过于频繁，等待{e.seconds}秒")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "SESSION_REVOKED" in error_msg:
+                            acc['status'] = '被踢下线'
+                            self.log("多账号管理", f"[{phone}] 🔴 账号在其他设备登录，被踢下线")
+                        elif "AUTH_KEY_UNREGISTERED" in error_msg:
+                            acc['status'] = 'session已过期'
+                            self.log("多账号管理", f"[{phone}] 🟡 session已过期，请重新登录")
+                        elif "PASSWORD_HASH_INVALID" in error_msg:
+                            acc['status'] = '2FA已修改'
+                            self.log("多账号管理", f"[{phone}] 🟠 2FA密码已被修改，需要重新登录")
+                        elif "frozen" in error_msg.lower():
+                            acc['status'] = '账号冻结'
+                            self.log("多账号管理", f"[{phone}] 🔵 账号被冻结，需要激活")
+                        else:
+                            acc['status'] = '未授权'
+                            self.log("多账号管理", f"[{phone}] ⚠️ session失效: {error_msg[:80]}")
                     self.update_status_filter_options()
                     return False
             except FloodWaitError as e:
-                self.log("多账号管理", f"[{phone}] 被限制，需等待{e.seconds}秒")
-                acc['status'] = f'限制({e.seconds}秒)'
+                acc['status'] = f'登录限制({e.seconds}秒)'
+                self.log("多账号管理", f"[{phone}] ⚠️ 登录过于频繁，等待{e.seconds}秒")
                 self.update_status_filter_options()
-                return False
-            except UserDeactivatedError:
-                self.log("多账号管理", f"[{phone}] 账号已注销")
-                acc['status'] = '销号'
-                self.update_status_filter_options()
-                return False
-            except PhoneNumberBannedError:
-                self.log("多账号管理", f"[{phone}] 账号已被封禁")
-                acc['status'] = '封禁'
-                self.update_status_filter_options()
-                return False
-            except SessionPasswordNeededError:
-                if twofa:
-                    try:
-                        await client.sign_in(password=twofa)
-                        me = await client.get_me()
-                        acc['nickname'] = me.first_name or phone
-                        acc['status'] = '正常'
-                        self.log("多账号管理", f"[{phone}] 2FA登录成功")
-                        self.update_status_filter_options()
-                        return True
-                    except:
-                        self.log("多账号管理", f"[{phone}] 2FA密码错误")
-                        acc['status'] = '2FA错误'
-                        self.update_status_filter_options()
-                else:
-                    self.log("多账号管理", f"[{phone}] 需要2FA密码")
-                    acc['status'] = '需要2FA'
-                    self.update_status_filter_options()
                 return False
             except Exception as e:
-                self.log("多账号管理", f"[{phone}] 登录失败 - {str(e)[:80]}")
-                acc['status'] = '登录失败'
+                error_msg = str(e)
+                if "deactivated" in error_msg.lower():
+                    acc['status'] = '销号'
+                    self.log("多账号管理", f"[{phone}] ❌ 账号已注销")
+                elif "banned" in error_msg.lower():
+                    acc['status'] = '封禁'
+                    self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
+                else:
+                    acc['status'] = '登录失败'
+                    self.log("多账号管理", f"[{phone}] ❌ 登录失败: {error_msg[:80]}")
                 self.update_status_filter_options()
                 return False
             finally:
