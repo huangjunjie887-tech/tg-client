@@ -5543,7 +5543,7 @@ class TelegramFullGUI:
         self.log("监听群组", "停止监听")
         self.running_tasks['monitor'] = False
     
-    # ==================== 直登转协议页面 ====================
+    # ==================== 直登转协议页面（完善版） ====================
     def create_direct_login_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="直登转协议")
@@ -5551,67 +5551,282 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 基本信息区域
+        # 基本信息区域 - 隐藏API ID和API Hash
         info_frame = ttk.LabelFrame(main_frame, text="账号信息")
         info_frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(info_frame, text="手机号:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
-        self.direct_phone = ttk.Entry(info_frame, width=30, font=("微软雅黑", 11))
-        self.direct_phone.grid(row=0, column=1, padx=5, pady=10)
+        # 手机号行（带国家代码选择）
+        phone_row = ttk.Frame(info_frame)
+        phone_row.grid(row=0, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
         
-        ttk.Label(info_frame, text="API ID:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.direct_api_id = ttk.Entry(info_frame, width=30)
-        self.direct_api_id.insert(0, "34256693")
-        self.direct_api_id.grid(row=1, column=1, padx=5, pady=5)
+        ttk.Label(phone_row, text="手机号:", font=("微软雅黑", 10)).pack(side="left", padx=5)
         
-        ttk.Label(info_frame, text="API Hash:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        self.direct_api_hash = ttk.Entry(info_frame, width=50)
-        self.direct_api_hash.insert(0, "6cb54edb306a8a938d7759b6b8fb82cf")
-        self.direct_api_hash.grid(row=2, column=1, padx=5, pady=5)
+        # 国家代码下拉框
+        self.direct_country_code = ttk.Combobox(phone_row, values=["+86", "+1", "+44", "+91", "+81", "+82", "+84", "+63", "+60", "+62", "+66", "+852", "+853", "+886", "+7", "+49", "+33", "+39", "+34", "+61", "+55", "+52", "+82", "+971", "+966", "+65", "+64", "+31", "+46", "+41", "+47", "+45", "+358", "+46", "+47", "+41", "+43", "+32", "+36", "+420", "+421", "+48", "+351", "+353", "+30", "+90", "+972", "+98", "+92", "+880", "+94", "+977", "+856", "+855", "+95", "+371", "+372", "+370", "+373", "+355", "+356", "+389", "+381", "+382", "+383", "+387", "+385", "+386", "+374", "+994", "+995", "+996", "+992", "+993", "+998", "+380", "+375", "+359", "+40", "+27", "+234", "+254", "+233", "+256", "+250", "+251", "+237", "+225", "+226", "+228", "+229", "+227", "+235", "+236", "+242", "+241", "+243", "+244", "+245", "+248", "+249", "+252", "+253", "+257", "+258", "+260", "+261", "+262", "+263", "+264", "+265", "+266", "+267", "+268", "+269", "+290", "+291", "+297", "+298", "+299", "+350", "+351", "+352", "+353", "+354", "+355", "+356", "+357", "+358", "+359", "+370", "+371", "+372", "+373", "+374", "+375", "+376", "+377", "+378", "+379", "+380", "+381", "+382", "+383", "+385", "+386", "+387", "+389"], width=8)
+        self.direct_country_code.set("+86")
+        self.direct_country_code.pack(side="left", padx=2)
         
-        ttk.Label(info_frame, text="保存路径:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
-        self.direct_save_path = ttk.Entry(info_frame, width=40)
-        self.direct_save_path.grid(row=3, column=1, padx=5, pady=5)
-        ttk.Button(info_frame, text="浏览", command=self.select_direct_save_path, width=10).grid(row=3, column=2, padx=5)
+        self.direct_phone = ttk.Entry(phone_row, width=25, font=("微软雅黑", 11))
+        self.direct_phone.pack(side="left", padx=2)
+        
+        ttk.Button(phone_row, text="📋 粘贴", command=self.paste_phone, width=8).pack(side="left", padx=2)
+        ttk.Button(phone_row, text="📂 批量导入", command=self.batch_import_phones, width=10).pack(side="left", padx=2)
+        
+        # 保存路径行
+        path_row = ttk.Frame(info_frame)
+        path_row.grid(row=1, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        
+        ttk.Label(path_row, text="保存路径:").pack(side="left", padx=5)
+        self.direct_save_path = ttk.Entry(path_row, width=45)
+        self.direct_save_path.pack(side="left", padx=5)
+        ttk.Button(path_row, text="浏览", command=self.select_direct_save_path, width=8).pack(side="left", padx=5)
+        
+        # 代理设置行
+        proxy_row = ttk.Frame(info_frame)
+        proxy_row.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        
+        self.direct_use_proxy = tk.BooleanVar(value=False)
+        ttk.Checkbutton(proxy_row, text="使用代理", variable=self.direct_use_proxy, command=self.toggle_direct_proxy).pack(side="left", padx=5)
+        
+        self.direct_proxy_entry = ttk.Entry(proxy_row, width=40, state="disabled")
+        self.direct_proxy_entry.pack(side="left", padx=5)
+        self.direct_proxy_entry.insert(0, "socks5://127.0.0.1:1080")
+        
+        ttk.Button(proxy_row, text="测试代理", command=self.test_direct_proxy, width=8).pack(side="left", padx=5)
+        
+        # 批量手机号列表区域（用于批量导入）
+        batch_frame = ttk.LabelFrame(info_frame, text="批量导入列表")
+        batch_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        
+        self.batch_phones_text = scrolledtext.ScrolledText(batch_frame, width=60, height=4, state="disabled")
+        self.batch_phones_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.batch_phones_text.config(state="normal")
+        self.batch_phones_text.insert("1.0", "每行一个手机号（带国家代码）")
+        self.batch_phones_text.config(state="disabled")
+        
+        self.batch_phones = []
+        self.batch_index = 0
         
         # 验证码区域
-        code_frame = ttk.LabelFrame(main_frame, text="验证码")
+        code_frame = ttk.LabelFrame(main_frame, text="登录验证")
         code_frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(code_frame, text="验证码:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
-        self.direct_code = ttk.Entry(code_frame, width=20, font=("微软雅黑", 11), show="●")
-        self.direct_code.grid(row=0, column=1, padx=5, pady=10)
+        code_row1 = ttk.Frame(code_frame)
+        code_row1.pack(fill="x", padx=5, pady=5)
         
-        self.direct_status = ttk.Label(code_frame, text="", foreground="blue")
-        self.direct_status.grid(row=0, column=2, padx=10, pady=10)
+        ttk.Label(code_row1, text="验证码:").pack(side="left", padx=5)
+        self.direct_code = ttk.Entry(code_row1, width=20, font=("微软雅黑", 11), show="●")
+        self.direct_code.pack(side="left", padx=5)
         
-        # 2FA密码区域
-        twofa_frame = ttk.LabelFrame(main_frame, text="两步验证（如有）")
-        twofa_frame.pack(fill="x", padx=10, pady=5)
+        self.direct_send_code_btn = ttk.Button(code_row1, text="发送验证码", command=self.direct_send_code, width=12)
+        self.direct_send_code_btn.pack(side="left", padx=5)
         
-        ttk.Label(twofa_frame, text="2FA密码:").grid(row=0, column=0, sticky="w", padx=5, pady=10)
-        self.direct_twofa = ttk.Entry(twofa_frame, width=20, font=("微软雅黑", 11), show="●")
-        self.direct_twofa.grid(row=0, column=1, padx=5, pady=10)
+        self.direct_code_timer_label = ttk.Label(code_row1, text="", foreground="red")
+        self.direct_code_timer_label.pack(side="left", padx=5)
+        
+        self.direct_code_auto_fill = tk.BooleanVar(value=True)
+        ttk.Checkbutton(code_row1, text="自动填充", variable=self.direct_code_auto_fill).pack(side="left", padx=10)
+        
+        code_row2 = ttk.Frame(code_frame)
+        code_row2.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(code_row2, text="2FA密码:").pack(side="left", padx=5)
+        self.direct_twofa = ttk.Entry(code_row2, width=20, font=("微软雅黑", 11), show="●")
+        self.direct_twofa.pack(side="left", padx=5)
+        ttk.Label(code_row2, text="（如开启了两步验证）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
+        
+        # 状态显示行
+        status_row = ttk.Frame(code_frame)
+        status_row.pack(fill="x", padx=5, pady=5)
+        self.direct_status = ttk.Label(status_row, text="就绪", foreground="blue")
+        self.direct_status.pack(side="left", padx=5)
+        
+        # 进度条
+        self.direct_progress = ttk.Progressbar(code_frame, length=300, mode='determinate')
+        self.direct_progress.pack(fill="x", padx=5, pady=5)
         
         # 按钮区域
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(pady=20)
+        btn_frame.pack(pady=15)
         
-        self.direct_send_code_btn = ttk.Button(btn_frame, text="发送验证码", command=self.direct_send_code, width=15)
-        self.direct_send_code_btn.pack(side="left", padx=10)
-        
-        self.direct_login_btn = ttk.Button(btn_frame, text="登录并保存", command=self.direct_login, width=15)
+        self.direct_login_btn = ttk.Button(btn_frame, text="🚀 登录并保存", command=self.direct_login, width=15)
         self.direct_login_btn.pack(side="left", padx=10)
+        
+        ttk.Button(btn_frame, text="⏹ 取消", command=self.direct_cancel, width=12).pack(side="left", padx=10)
+        
+        ttk.Button(btn_frame, text="📋 复制Session", command=self.direct_copy_session, width=14).pack(side="left", padx=10)
+        
+        # 批量操作区域
+        batch_op_frame = ttk.LabelFrame(main_frame, text="批量操作")
+        batch_op_frame.pack(fill="x", padx=10, pady=5)
+        
+        batch_op_row = ttk.Frame(batch_op_frame)
+        batch_op_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(batch_op_row, text="进度:").pack(side="left", padx=5)
+        self.batch_progress_label = ttk.Label(batch_op_row, text="0/0", foreground="blue")
+        self.batch_progress_label.pack(side="left", padx=5)
+        
+        ttk.Label(batch_op_row, text="成功:").pack(side="left", padx=20)
+        self.batch_success_label = ttk.Label(batch_op_row, text="0", foreground="green")
+        self.batch_success_label.pack(side="left", padx=5)
+        
+        ttk.Label(batch_op_row, text="失败:").pack(side="left", padx=20)
+        self.batch_fail_label = ttk.Label(batch_op_row, text="0", foreground="red")
+        self.batch_fail_label.pack(side="left", padx=5)
+        
+        self.batch_start_btn = ttk.Button(batch_op_row, text="▶ 批量登录", command=self.batch_direct_login, width=12)
+        self.batch_start_btn.pack(side="left", padx=10)
+        
+        self.batch_stop_btn = ttk.Button(batch_op_row, text="⏹ 停止", command=self.batch_stop_login, width=8)
+        self.batch_stop_btn.pack(side="left", padx=5)
+        self.batch_stop_btn.config(state="disabled")
+        
+        # 批量参数
+        param_row = ttk.Frame(batch_op_frame)
+        param_row.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(param_row, text="并发数:").pack(side="left", padx=5)
+        self.batch_concurrent = ttk.Entry(param_row, width=8)
+        self.batch_concurrent.insert(0, "2")
+        self.batch_concurrent.pack(side="left", padx=5)
+        
+        ttk.Label(param_row, text="重试次数:").pack(side="left", padx=20)
+        self.batch_retry = ttk.Entry(param_row, width=8)
+        self.batch_retry.insert(0, "3")
+        self.batch_retry.pack(side="left", padx=5)
+        
+        ttk.Label(param_row, text="重试间隔(秒):").pack(side="left", padx=20)
+        self.batch_retry_interval = ttk.Entry(param_row, width=8)
+        self.batch_retry_interval.insert(0, "10")
+        self.batch_retry_interval.pack(side="left", padx=5)
         
         # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        self.log_widgets["直登转协议"] = scrolledtext.ScrolledText(log_frame, width=100, height=15)
+        self.log_widgets["直登转协议"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["直登转协议"].pack(fill="both", expand=True, padx=5, pady=5)
         
         # 状态变量
         self.direct_client = None
         self.direct_phone_code_hash = None
+        self.direct_current_phone = None
+        self.direct_code_timer = None
+        self.direct_code_countdown = 0
+        self.direct_is_logging = False
+        self.batch_is_running = False
+        self.batch_stop_flag = False
+        self.direct_session_path = None
+    
+    def toggle_direct_proxy(self):
+        if self.direct_use_proxy.get():
+            self.direct_proxy_entry.config(state="normal")
+        else:
+            self.direct_proxy_entry.config(state="disabled")
+    
+    def test_direct_proxy(self):
+        proxy_str = self.direct_proxy_entry.get().strip()
+        if not proxy_str:
+            self.log("直登转协议", "请输入代理地址")
+            return
+        
+        self.log("直登转协议", f"测试代理: {proxy_str}")
+        
+        def do_test():
+            try:
+                import socket
+                import socks
+                
+                # 解析代理
+                proxy_url = proxy_str
+                p_type = "socks5"
+                if "://" in proxy_url:
+                    p_type, proxy_url = proxy_url.split("://", 1)
+                
+                # 解析认证信息
+                user, password = "", ""
+                if "@" in proxy_url:
+                    auth, proxy_url = proxy_url.split("@", 1)
+                    if ":" in auth:
+                        user, password = auth.split(":", 1)
+                
+                host, port = proxy_url.split(":", 1)
+                port = int(port)
+                
+                # 测试连接
+                s = socks.socksocket()
+                if p_type == "socks5":
+                    s.set_proxy(socks.SOCKS5, host, port, username=user, password=password)
+                elif p_type == "socks4":
+                    s.set_proxy(socks.SOCKS4, host, port)
+                else:
+                    s.set_proxy(socks.HTTP, host, port, username=user, password=password)
+                
+                s.settimeout(10)
+                s.connect(("1.1.1.1", 53))
+                s.close()
+                
+                self.log("直登转协议", f"✅ 代理测试成功: {proxy_str}")
+                self.direct_status.config(text="代理可用", foreground="green")
+                
+            except Exception as e:
+                self.log("直登转协议", f"❌ 代理测试失败: {str(e)}")
+                self.direct_status.config(text="代理不可用", foreground="red")
+        
+        threading.Thread(target=do_test, daemon=True).start()
+    
+    def paste_phone(self):
+        try:
+            phone = self.root.clipboard_get().strip()
+            if phone:
+                self.direct_phone.delete(0, tk.END)
+                self.direct_phone.insert(0, phone)
+                self.log("直登转协议", f"粘贴手机号: {phone}")
+        except:
+            self.log("直登转协议", "粘贴失败")
+    
+    def batch_import_phones(self):
+        file_path = filedialog.askopenfilename(title="选择手机号文件", filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+        if not file_path:
+            return
+        
+        try:
+            phones = []
+            encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16']
+            content = None
+            for enc in encodings:
+                try:
+                    with open(file_path, 'r', encoding=enc) as f:
+                        content = f.read()
+                    break
+                except:
+                    continue
+            
+            if content is None:
+                self.log("直登转协议", "无法识别文件编码")
+                return
+            
+            for line in content.split('\n'):
+                phone = line.strip()
+                if phone and not phone.startswith('#'):
+                    # 自动添加国家代码
+                    if not phone.startswith('+'):
+                        phone = self.direct_country_code.get() + phone
+                    phones.append(phone)
+            
+            if phones:
+                self.batch_phones = phones
+                self.batch_index = 0
+                self.batch_phones_text.config(state="normal")
+                self.batch_phones_text.delete("1.0", tk.END)
+                self.batch_phones_text.insert("1.0", "\n".join(phones))
+                self.batch_phones_text.config(state="disabled")
+                self.log("直登转协议", f"导入 {len(phones)} 个手机号")
+                self.show_centered_info("导入成功", f"成功导入 {len(phones)} 个手机号")
+            else:
+                self.log("直登转协议", "未找到有效手机号")
+        except Exception as e:
+            self.log("直登转协议", f"导入失败: {str(e)}")
     
     def select_direct_save_path(self):
         folder = filedialog.askdirectory(title="选择保存路径")
@@ -5621,34 +5836,50 @@ class TelegramFullGUI:
             self.log("直登转协议", f"设置保存路径: {folder}")
     
     def direct_send_code(self):
+        if self.direct_is_logging:
+            self.log("直登转协议", "登录进行中，请稍候")
+            return
+        
+        # 获取当前手机号
         phone = self.direct_phone.get().strip()
         if not phone:
-            self.log("直登转协议", "请输入手机号")
-            self.show_centered_warning("提示", "请输入手机号")
-            return
+            # 如果批量模式有手机号，使用第一个
+            if self.batch_phones:
+                phone = self.batch_phones[0] if self.batch_phones else ""
+            if not phone:
+                self.log("直登转协议", "请输入手机号")
+                self.show_centered_warning("提示", "请输入手机号")
+                return
         
-        api_id = self.direct_api_id.get().strip()
-        api_hash = self.direct_api_hash.get().strip()
+        # 确保手机号有国家代码
+        if not phone.startswith('+'):
+            phone = self.direct_country_code.get() + phone
         
-        if not api_id or not api_hash:
-            self.log("直登转协议", "请输入API ID和API Hash")
-            self.show_centered_warning("提示", "请输入API ID和API Hash")
-            return
+        self.direct_current_phone = phone
+        self.direct_phone.delete(0, tk.END)
+        self.direct_phone.insert(0, phone)
         
-        try:
-            api_id = int(api_id)
-        except ValueError:
-            self.log("直登转协议", "API ID必须是数字")
-            self.show_centered_warning("提示", "API ID必须是数字")
-            return
+        # 获取代理设置
+        proxy = None
+        if self.direct_use_proxy.get():
+            proxy_str = self.direct_proxy_entry.get().strip()
+            if proxy_str:
+                try:
+                    proxy = self.parse_proxy_string(proxy_str)
+                except:
+                    self.log("直登转协议", "代理格式错误，使用无代理模式")
         
         self.direct_send_code_btn.config(state="disabled", text="发送中...")
-        self.direct_status.config(text="发送中...", foreground="orange")
+        self.direct_status.config(text="发送验证码中...", foreground="orange")
         
         def do_send_code():
             async def send():
                 try:
-                    self.direct_client = TelegramClient(None, api_id, api_hash)
+                    # API配置内置
+                    api_id = 34256693
+                    api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
+                    
+                    self.direct_client = TelegramClient(None, api_id, api_hash, proxy=proxy)
                     await self.direct_client.connect()
                     
                     if not await self.direct_client.is_user_authorized():
@@ -5656,6 +5887,9 @@ class TelegramFullGUI:
                         self.direct_phone_code_hash = result.phone_code_hash
                         self.direct_status.config(text="验证码已发送", foreground="green")
                         self.log("直登转协议", f"验证码已发送至 {phone}")
+                        
+                        # 启动倒计时
+                        self.start_code_timer()
                         
                         self.root.after(0, lambda: self.direct_login_btn.config(state="normal"))
                     else:
@@ -5667,10 +5901,13 @@ class TelegramFullGUI:
                     self.direct_status.config(text=f"请等待{e.seconds}秒", foreground="red")
                     self.log("直登转协议", f"请求过于频繁，请等待{e.seconds}秒")
                 except Exception as e:
-                    self.direct_status.config(text=f"发送失败: {str(e)[:30]}", foreground="red")
-                    self.log("直登转协议", f"发送验证码失败: {str(e)}")
+                    error_msg = str(e)
+                    self.direct_status.config(text=f"发送失败: {error_msg[:30]}", foreground="red")
+                    self.log("直登转协议", f"发送验证码失败: {error_msg}")
                 finally:
                     self.root.after(0, lambda: self.direct_send_code_btn.config(state="normal", text="发送验证码"))
+                    if not self.direct_client:
+                        self.direct_status.config(text="就绪", foreground="blue")
             
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -5679,15 +5916,64 @@ class TelegramFullGUI:
         
         threading.Thread(target=do_send_code, daemon=True).start()
     
+    def parse_proxy_string(self, proxy_str):
+        """解析代理字符串"""
+        if "://" not in proxy_str:
+            proxy_str = "socks5://" + proxy_str
+        
+        p_type, rest = proxy_str.split("://", 1)
+        user, password = "", ""
+        if "@" in rest:
+            auth, rest = rest.split("@", 1)
+            if ":" in auth:
+                user, password = auth.split(":", 1)
+        
+        host, port = rest.split(":", 1)
+        port = int(port)
+        
+        return {
+            'proxy_type': p_type,
+            'addr': host,
+            'port': port,
+            'username': user,
+            'password': password
+        }
+    
+    def start_code_timer(self):
+        """验证码倒计时"""
+        self.direct_code_countdown = 60
+        
+        def update_timer():
+            if self.direct_code_countdown <= 0:
+                self.direct_code_timer_label.config(text="")
+                return
+            self.direct_code_timer_label.config(text=f"{self.direct_code_countdown}s")
+            self.direct_code_countdown -= 1
+            self.direct_code_timer = self.root.after(1000, update_timer)
+        
+        if self.direct_code_timer:
+            self.root.after_cancel(self.direct_code_timer)
+        update_timer()
+    
     def direct_login(self):
+        if self.direct_is_logging:
+            return
+        
         phone = self.direct_phone.get().strip()
+        if not phone:
+            # 尝试从批量列表获取
+            if self.batch_phones:
+                phone = self.batch_phones[0] if self.batch_phones else ""
+            if not phone:
+                self.log("直登转协议", "请输入手机号")
+                return
+        
+        if not phone.startswith('+'):
+            phone = self.direct_country_code.get() + phone
+        
         code = self.direct_code.get().strip()
         twofa = self.direct_twofa.get().strip()
         save_path = self.direct_save_path.get().strip()
-        
-        if not phone:
-            self.log("直登转协议", "请输入手机号")
-            return
         
         if not save_path:
             self.log("直登转协议", "请选择保存路径")
@@ -5698,23 +5984,32 @@ class TelegramFullGUI:
             self.log("直登转协议", "请先点击发送验证码")
             return
         
+        self.direct_is_logging = True
         self.direct_login_btn.config(state="disabled", text="登录中...")
+        self.direct_status.config(text="登录中...", foreground="orange")
+        self.direct_progress['value'] = 30
         
         def do_login():
             async def login():
                 try:
+                    self.direct_progress['value'] = 50
+                    
                     if code:
                         await self.direct_client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
                     else:
                         me = await self.direct_client.get_me()
                         self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
                         await self.save_direct_account(phone, save_path)
+                        self.direct_progress['value'] = 100
                         return
+                    
+                    self.direct_progress['value'] = 70
                     
                     try:
                         me = await self.direct_client.get_me()
                         self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
                         await self.save_direct_account(phone, save_path)
+                        self.direct_progress['value'] = 100
                         
                     except SessionPasswordNeededError:
                         if twofa:
@@ -5722,22 +6017,29 @@ class TelegramFullGUI:
                             me = await self.direct_client.get_me()
                             self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
                             await self.save_direct_account(phone, save_path)
+                            self.direct_progress['value'] = 100
                         else:
                             self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
                             self.direct_status.config(text="需要2FA密码", foreground="red")
-                            self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="登录并保存"))
+                            self.direct_progress['value'] = 0
                             return
                     
                 except PhoneNumberBannedError:
                     self.log("直登转协议", "手机号已被封禁")
+                    self.direct_status.config(text="手机号被封禁", foreground="red")
                 except UserDeactivatedError:
                     self.log("直登转协议", "账号已注销")
+                    self.direct_status.config(text="账号已注销", foreground="red")
                 except FloodWaitError as e:
                     self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
+                    self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
                 except Exception as e:
                     self.log("直登转协议", f"登录失败: {str(e)}")
+                    self.direct_status.config(text=f"登录失败: {str(e)[:30]}", foreground="red")
                 finally:
-                    self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="登录并保存"))
+                    self.direct_is_logging = False
+                    self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
+                    self.direct_progress['value'] = 0
             
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -5751,29 +6053,39 @@ class TelegramFullGUI:
         try:
             me = await self.direct_client.get_me()
             
+            # 获取当前的API配置（内置）
+            api_id = 34256693
+            api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
+            
+            # 创建session文件
             session_file = os.path.join(save_path, f"{phone}.session")
             
-            await self.direct_client.log_out()
+            # 使用当前客户端保存session
+            await self.direct_client.disconnect()
             
-            api_id = int(self.direct_api_id.get().strip())
-            api_hash = self.direct_api_hash.get().strip()
-            
+            # 重新创建客户端并登录
             client = TelegramClient(session_file, api_id, api_hash)
             await client.connect()
             
-            if code := self.direct_code.get().strip():
+            # 使用保存的验证码登录
+            code = self.direct_code.get().strip()
+            if code:
                 await client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
             else:
                 await client.sign_in(phone)
             
-            if twofa := self.direct_twofa.get().strip():
+            # 检查2FA
+            twofa = self.direct_twofa.get().strip()
+            if twofa:
                 try:
                     await client.sign_in(password=twofa)
                 except:
                     pass
             
+            # 获取用户信息
             me = await client.get_me()
             
+            # 保存JSON
             json_file = os.path.join(save_path, f"{phone}.json")
             account_info = {
                 "phone": phone,
@@ -5781,7 +6093,7 @@ class TelegramFullGUI:
                 "last_name": me.last_name or "",
                 "username": me.username or "",
                 "register_time": me.date.timestamp() if hasattr(me, 'date') else 0,
-                "twoFA": self.direct_twofa.get().strip(),
+                "twoFA": twofa,
                 "app_id": api_id,
                 "app_hash": api_hash
             }
@@ -5791,15 +6103,337 @@ class TelegramFullGUI:
             
             await client.disconnect()
             
-            self.log("直登转协议", f"账号 {phone} 已保存到 {save_path}")
+            self.log("直登转协议", f"✅ 账号 {phone} 已保存到 {save_path}")
             self.direct_status.config(text="保存成功", foreground="green")
-            self.show_centered_info("成功", f"账号 {phone} 已成功转为协议号并保存")
+            self.direct_session_path = session_file
             
-            self.refresh_account_list_filter()
+            # 自动导入到账号列表
+            self.add_account_from_session(phone, session_file, json_file, account_info)
+            
+            self.show_centered_info("成功", f"账号 {phone} 已成功转为协议号并保存\n\nSession: {session_file}\nJSON: {json_file}")
             
         except Exception as e:
             self.log("直登转协议", f"保存失败: {str(e)}")
             raise e
+    
+    def add_account_from_session(self, phone, session_path, json_path, account_info):
+        """将新登录的账号添加到账号列表"""
+        # 检查是否已存在
+        for acc in self.accounts:
+            if acc.get('phone') == phone:
+                self.log("直登转协议", f"账号 {phone} 已存在于列表中，更新信息")
+                acc['session_path'] = session_path
+                acc['json_path'] = json_path
+                acc['account_info'] = account_info
+                acc['nickname'] = account_info.get('first_name', '') or phone
+                acc['status'] = '正常'
+                self.refresh_account_list_filter()
+                self.save_config()
+                return
+        
+        # 添加新账号
+        nickname = account_info.get('first_name', '') or phone
+        if account_info.get('last_name'):
+            nickname = f"{nickname} {account_info.get('last_name')}"
+        
+        self.accounts.append({
+            "phone": phone,
+            "nickname": nickname.strip() or phone,
+            "group": "默认分组",
+            "status": "正常",
+            "current_task": "",
+            "last_action": "直登转协议",
+            "register_time": datetime.now().strftime("%Y-%m-%d"),
+            "session_path": session_path,
+            "json_path": json_path,
+            "account_info": account_info,
+            "proxy": ""
+        })
+        
+        self.refresh_account_list_filter()
+        self.refresh_scrape_accounts()
+        self.refresh_invite_group_filter()
+        self.save_config()
+        self.log("直登转协议", f"账号 {phone} 已添加到列表")
+    
+    def direct_cancel(self):
+        """取消当前操作"""
+        if self.direct_client and self.direct_client.is_connected():
+            async def do_disconnect():
+                await self.direct_client.disconnect()
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(do_disconnect())
+                loop.close()
+            except:
+                pass
+        
+        self.direct_client = None
+        self.direct_phone_code_hash = None
+        self.direct_status.config(text="已取消", foreground="gray")
+        self.direct_login_btn.config(state="disabled")
+        self.direct_send_code_btn.config(state="normal", text="发送验证码")
+        self.direct_is_logging = False
+        self.direct_progress['value'] = 0
+        
+        if self.direct_code_timer:
+            self.root.after_cancel(self.direct_code_timer)
+            self.direct_code_timer_label.config(text="")
+        
+        self.log("直登转协议", "操作已取消")
+    
+    def direct_copy_session(self):
+        """复制当前session路径"""
+        if self.direct_session_path and os.path.exists(self.direct_session_path):
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.direct_session_path)
+            self.log("直登转协议", f"已复制Session路径: {self.direct_session_path}")
+            self.show_centered_info("已复制", f"Session路径已复制到剪贴板:\n{self.direct_session_path}")
+        else:
+            self.log("直登转协议", "没有可复制的Session")
+            self.show_centered_warning("提示", "请先登录并保存账号")
+    
+    # ==================== 批量登录功能 ====================
+    def batch_direct_login(self):
+        """批量直登转协议"""
+        if not self.batch_phones:
+            self.log("直登转协议", "请先导入手机号列表")
+            self.show_centered_warning("提示", "请先导入手机号列表")
+            return
+        
+        save_path = self.direct_save_path.get().strip()
+        if not save_path:
+            self.log("直登转协议", "请选择保存路径")
+            self.show_centered_warning("提示", "请选择保存路径")
+            return
+        
+        try:
+            concurrent = int(self.batch_concurrent.get())
+            retry_count = int(self.batch_retry.get())
+            retry_interval = int(self.batch_retry_interval.get())
+        except ValueError:
+            self.log("直登转协议", "参数错误")
+            return
+        
+        if concurrent <= 0:
+            concurrent = 1
+        
+        self.batch_is_running = True
+        self.batch_stop_flag = False
+        self.batch_start_btn.config(state="disabled")
+        self.batch_stop_btn.config(state="normal")
+        
+        self.batch_success_count = 0
+        self.batch_fail_count = 0
+        self.batch_total = len(self.batch_phones)
+        self.batch_index = 0
+        
+        self.batch_progress_label.config(text=f"0/{self.batch_total}")
+        self.batch_success_label.config(text="0")
+        self.batch_fail_label.config(text="0")
+        
+        self.log("直登转协议", f"========== 开始批量登录 ==========")
+        self.log("直登转协议", f"总手机号: {self.batch_total} | 并发数: {concurrent} | 重试: {retry_count}次")
+        
+        def do_batch_login():
+            import concurrent.futures
+            
+            def process_phone(phone_data):
+                phone, retry = phone_data
+                if self.batch_stop_flag:
+                    return None
+                
+                for attempt in range(retry + 1):
+                    if self.batch_stop_flag:
+                        return None
+                    
+                    self.log("直登转协议", f"处理: {phone} (尝试 {attempt + 1}/{retry + 1})")
+                    
+                    result = self.direct_login_single(phone, save_path)
+                    if result == "success":
+                        return "success"
+                    elif result == "skip":
+                        return "skip"
+                    elif attempt < retry:
+                        self.log("直登转协议", f"等待 {retry_interval} 秒后重试...")
+                        time.sleep(retry_interval)
+                
+                return "fail"
+            
+            # 使用线程池并发处理
+            with concurrent.futures.ThreadPoolExecutor(max_workers=concurrent) as executor:
+                futures = []
+                for phone in self.batch_phones:
+                    if self.batch_stop_flag:
+                        break
+                    futures.append(executor.submit(process_phone, (phone, retry_count)))
+                
+                for future in concurrent.futures.as_completed(futures):
+                    if self.batch_stop_flag:
+                        break
+                    result = future.result()
+                    if result == "success":
+                        self.batch_success_count += 1
+                    elif result == "fail":
+                        self.batch_fail_count += 1
+                    
+                    self.batch_index += 1
+                    self.root.after(0, self.update_batch_progress)
+            
+            self.batch_is_running = False
+            self.root.after(0, self.batch_complete)
+        
+        threading.Thread(target=do_batch_login, daemon=True).start()
+    
+    def direct_login_single(self, phone, save_path):
+        """单个手机号登录（用于批量）"""
+        try:
+            api_id = 34256693
+            api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
+            
+            # 获取代理
+            proxy = None
+            if self.direct_use_proxy.get():
+                proxy_str = self.direct_proxy_entry.get().strip()
+                if proxy_str:
+                    try:
+                        proxy = self.parse_proxy_string(proxy_str)
+                    except:
+                        pass
+            
+            async def do_login():
+                client = None
+                try:
+                    client = TelegramClient(None, api_id, api_hash, proxy=proxy)
+                    await client.connect()
+                    
+                    if await client.is_user_authorized():
+                        self.log("直登转协议", f"[{phone}] 账号已授权")
+                        await client.disconnect()
+                        return "skip"
+                    
+                    # 发送验证码
+                    result = await client.send_code_request(phone)
+                    phone_code_hash = result.phone_code_hash
+                    
+                    self.log("直登转协议", f"[{phone}] 验证码已发送，请手动输入或使用自动接码")
+                    
+                    # 提示用户输入验证码（使用消息框）
+                    code = simpledialog.askstring("输入验证码", f"请输入 {phone} 的验证码:", parent=self.root)
+                    
+                    if not code:
+                        self.log("直登转协议", f"[{phone}] 用户取消或未输入验证码")
+                        await client.disconnect()
+                        return "fail"
+                    
+                    await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
+                    
+                    # 检查2FA
+                    try:
+                        me = await client.get_me()
+                    except SessionPasswordNeededError:
+                        twofa = simpledialog.askstring("2FA密码", f"请输入 {phone} 的2FA密码:", parent=self.root, show="*")
+                        if twofa:
+                            await client.sign_in(password=twofa)
+                        else:
+                            self.log("直登转协议", f"[{phone}] 未输入2FA密码")
+                            await client.disconnect()
+                            return "fail"
+                    
+                    me = await client.get_me()
+                    
+                    # 保存session
+                    session_file = os.path.join(save_path, f"{phone}.session")
+                    await client.disconnect()
+                    
+                    # 重新创建并保存
+                    client2 = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
+                    await client2.connect()
+                    
+                    # 重新登录
+                    if code:
+                        await client2.sign_in(phone, code, phone_code_hash=phone_code_hash)
+                    else:
+                        await client2.sign_in(phone)
+                    
+                    if twofa:
+                        try:
+                            await client2.sign_in(password=twofa)
+                        except:
+                            pass
+                    
+                    me = await client2.get_me()
+                    
+                    # 保存JSON
+                    json_file = os.path.join(save_path, f"{phone}.json")
+                    account_info = {
+                        "phone": phone,
+                        "first_name": me.first_name or "",
+                        "last_name": me.last_name or "",
+                        "username": me.username or "",
+                        "register_time": me.date.timestamp() if hasattr(me, 'date') else 0,
+                        "twoFA": twofa if twofa else "",
+                        "app_id": api_id,
+                        "app_hash": api_hash
+                    }
+                    
+                    with open(json_file, 'w', encoding='utf-8') as f:
+                        json.dump(account_info, f, ensure_ascii=False, indent=2)
+                    
+                    await client2.disconnect()
+                    
+                    # 添加到账号列表
+                    self.root.after(0, lambda: self.add_account_from_session(phone, session_file, json_file, account_info))
+                    
+                    self.log("直登转协议", f"[{phone}] ✅ 登录成功并保存")
+                    return "success"
+                    
+                except FloodWaitError as e:
+                    self.log("直登转协议", f"[{phone}] 频率限制，等待{e.seconds}秒")
+                    await asyncio.sleep(e.seconds)
+                    return "fail"
+                except Exception as e:
+                    self.log("直登转协议", f"[{phone}] 登录失败: {str(e)}")
+                    return "fail"
+                finally:
+                    if client:
+                        try:
+                            await client.disconnect()
+                        except:
+                            pass
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(do_login())
+            loop.close()
+            return result
+            
+        except Exception as e:
+            self.log("直登转协议", f"[{phone}] 异常: {str(e)}")
+            return "fail"
+    
+    def update_batch_progress(self):
+        """更新批量进度显示"""
+        self.batch_progress_label.config(text=f"{self.batch_index}/{self.batch_total}")
+        self.batch_success_label.config(text=str(self.batch_success_count))
+        self.batch_fail_label.config(text=str(self.batch_fail_count))
+        self.root.update_idletasks()
+    
+    def batch_complete(self):
+        """批量完成"""
+        self.batch_start_btn.config(state="normal")
+        self.batch_stop_btn.config(state="disabled")
+        self.log("直登转协议", f"========== 批量登录完成 ==========")
+        self.log("直登转协议", f"总计: {self.batch_total} | 成功: {self.batch_success_count} | 失败: {self.batch_fail_count}")
+        self.show_centered_info("批量完成", f"总计: {self.batch_total}\n成功: {self.batch_success_count}\n失败: {self.batch_fail_count}")
+    
+    def batch_stop_login(self):
+        """停止批量登录"""
+        self.batch_stop_flag = True
+        self.batch_start_btn.config(state="normal")
+        self.batch_stop_btn.config(state="disabled")
+        self.log("直登转协议", "停止批量登录")
     
     def export_config(self):
         self.save_config()
