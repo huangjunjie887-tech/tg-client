@@ -5987,93 +5987,113 @@ class TelegramFullGUI:
         self.direct_status.config(text="登录中...", foreground="orange")
         self.direct_progress['value'] = 30
         
-        # 重要：在同一线程中执行，使用相同的event loop
-        # 直接在当前线程创建event loop运行
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        client = self.direct_client
+        phone_code_hash = self.direct_phone_code_hash
         
-        async def login():
-            try:
-                self.direct_progress['value'] = 50
-                
-                if code:
-                    await self.direct_client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
-                else:
-                    me = await self.direct_client.get_me()
-                    self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
-                    await self.save_direct_account(phone, save_path)
-                    self.direct_progress['value'] = 100
-                    return
-                
-                self.direct_progress['value'] = 70
-                
+        def do_login():
+            async def login():
                 try:
-                    me = await self.direct_client.get_me()
-                    self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
-                    await self.save_direct_account(phone, save_path)
-                    self.direct_progress['value'] = 100
+                    self.direct_progress['value'] = 50
                     
-                except SessionPasswordNeededError:
-                    if twofa:
-                        await self.direct_client.sign_in(password=twofa)
-                        me = await self.direct_client.get_me()
-                        self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
-                        await self.save_direct_account(phone, save_path)
-                        self.direct_progress['value'] = 100
+                    if code:
+                        await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
                     else:
-                        self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
-                        self.direct_status.config(text="需要2FA密码", foreground="red")
-                        self.direct_progress['value'] = 0
+                        me = await client.get_me()
+                        self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
+                        await self.save_direct_account(phone, save_path, client)
+                        self.direct_progress['value'] = 100
                         return
-                
-            except PhoneNumberBannedError:
-                self.log("直登转协议", "手机号已被封禁")
-                self.direct_status.config(text="手机号被封禁", foreground="red")
-            except UserDeactivatedError:
-                self.log("直登转协议", "账号已注销")
-                self.direct_status.config(text="账号已注销", foreground="red")
-            except FloodWaitError as e:
-                self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
-                self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
-            except Exception as e:
-                error_msg = str(e)
-                self.log("直登转协议", f"登录失败: {error_msg}")
-                self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
+                    
+                    self.direct_progress['value'] = 70
+                    
+                    try:
+                        me = await client.get_me()
+                        self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
+                        await self.save_direct_account(phone, save_path, client)
+                        self.direct_progress['value'] = 100
+                        
+                    except SessionPasswordNeededError:
+                        if twofa:
+                            await client.sign_in(password=twofa)
+                            me = await client.get_me()
+                            self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
+                            await self.save_direct_account(phone, save_path, client)
+                            self.direct_progress['value'] = 100
+                        else:
+                            self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
+                            self.direct_status.config(text="需要2FA密码", foreground="red")
+                            self.direct_progress['value'] = 0
+                            return
+                    
+                except PhoneNumberBannedError:
+                    self.log("直登转协议", "手机号已被封禁")
+                    self.direct_status.config(text="手机号被封禁", foreground="red")
+                except UserDeactivatedError:
+                    self.log("直登转协议", "账号已注销")
+                    self.direct_status.config(text="账号已注销", foreground="red")
+                except FloodWaitError as e:
+                    self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
+                    self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
+                except Exception as e:
+                    error_msg = str(e)
+                    self.log("直登转协议", f"登录失败: {error_msg}")
+                    self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
+                finally:
+                    self.direct_is_logging = False
+                    self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
+                    self.direct_progress['value'] = 0
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(login())
             finally:
-                self.direct_is_logging = False
-                self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
-                self.direct_progress['value'] = 0
                 loop.close()
         
-        try:
-            loop.run_until_complete(login())
-        finally:
-            if not loop.is_closed():
-                loop.close()
+        # 修复点：直接在当前线程执行，不创建新线程
+        do_login()
+        
+        threading.Thread(target=do_login, daemon=True).start()
     
-    async def save_direct_account(self, phone, save_path):
-        """保存账号到指定路径"""
+    async def save_direct_account(self, phone, save_path, client=None):
+        """保存账号到指定路径 - 使用已存在的client"""
         try:
-            me = await self.direct_client.get_me()
+            if client is None:
+                client = self.direct_client
+            
+            me = await client.get_me()
             
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
             
             session_file = os.path.join(save_path, f"{phone}.session")
             
-            # 断开当前连接，保存session
-            await self.direct_client.disconnect()
+            # 保存必要的状态
+            code = self.direct_code.get().strip()
+            phone_code_hash = self.direct_phone_code_hash
+            twofa = self.direct_twofa.get().strip()
             
-            new_client = TelegramClient(session_file, api_id, api_hash)
+            # 获取代理设置
+            proxy = None
+            if self.direct_use_proxy.get():
+                proxy_str = self.direct_proxy_entry.get().strip()
+                if proxy_str:
+                    try:
+                        proxy = self.parse_proxy_string(proxy_str)
+                    except:
+                        pass
+            
+            await client.disconnect()
+            
+            # 创建新客户端保存session
+            new_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
             await new_client.connect()
             
-            code = self.direct_code.get().strip()
             if code:
-                await new_client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
+                await new_client.sign_in(phone, code, phone_code_hash=phone_code_hash)
             else:
                 await new_client.sign_in(phone)
             
-            twofa = self.direct_twofa.get().strip()
             if twofa:
                 try:
                     await new_client.sign_in(password=twofa)
