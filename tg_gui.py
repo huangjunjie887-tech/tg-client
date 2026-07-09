@@ -21,7 +21,8 @@ from telethon.errors import (
     PeerFloodError, InviteHashExpiredError, InviteHashInvalidError,
     ChannelInvalidError, ChannelPrivateError, UsernameInvalidError,
     UserKickedError, UserBannedInChannelError, ChatAdminRequiredError,
-    UserNotMutualContactError, ChatWriteForbiddenError, UserChannelsTooMuchError
+    UserNotMutualContactError, ChatWriteForbiddenError, UserChannelsTooMuchError,
+    AuthKeyUnregisteredError, SessionRevokedError
 )
 from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
@@ -230,7 +231,7 @@ class TelegramFullGUI:
             status = acc.get('status', '待检测')
             statuses.add(status)
         # 确保所有状态都在列表中
-        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)"]
+        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"]
         for s in all_statuses:
             statuses.add(s)
         self.account_list_status_filter['values'] = list(statuses)
@@ -266,6 +267,65 @@ class TelegramFullGUI:
                 return False
             except Exception as e:
                 return False
+    
+    def parse_unauthorized_error(self, phone, e, operation="检测"):
+        """
+        解析未授权错误，返回细化的状态和日志信息
+        支持所有Telegram未授权相关错误
+        """
+        error_msg = str(e)
+        error_lower = error_msg.lower()
+        
+        # 1. 账号已注销
+        if isinstance(e, UserDeactivatedError) or "deactivated" in error_lower:
+            return "销号", f"[{phone}] ❌ 账号已注销(销号)"
+        
+        # 2. 账号被封禁
+        if isinstance(e, PhoneNumberBannedError) or "banned" in error_lower:
+            return "封禁", f"[{phone}] ❌ 账号已被封禁"
+        
+        # 3. 需要2FA密码
+        if isinstance(e, SessionPasswordNeededError) or "password" in error_lower:
+            return "需要2FA重新登录", f"[{phone}] ⚠️ 需要2FA密码重新登录"
+        
+        # 4. Session被撤销（在其他设备登录）
+        if isinstance(e, SessionRevokedError) or "session_revoked" in error_lower:
+            return "被踢下线", f"[{phone}] 🔴 账号在其他设备登录，被踢下线"
+        
+        # 5. AuthKey未注册
+        if isinstance(e, AuthKeyUnregisteredError) or "auth_key_unregistered" in error_lower:
+            return "session已过期", f"[{phone}] 🟡 session已过期，请重新登录"
+        
+        # 6. 2FA密码哈希无效
+        if "password_hash_invalid" in error_lower:
+            return "2FA已修改", f"[{phone}] 🟠 2FA密码已被修改，需要重新登录"
+        
+        # 7. 账号冻结
+        if "frozen" in error_lower:
+            return "账号冻结", f"[{phone}] 🔵 账号被冻结，需要激活"
+        
+        # 8. 手机号未注册
+        if "phone_number_unregistered" in error_lower or "unregistered" in error_lower:
+            return "未注册", f"[{phone}] ❌ 手机号未注册"
+        
+        # 9. 手机号无效
+        if "phone_number_invalid" in error_lower:
+            return "手机号无效", f"[{phone}] ❌ 手机号无效"
+        
+        # 10. API ID/API Hash错误
+        if "api_id" in error_lower or "api_hash" in error_lower:
+            return "API错误", f"[{phone}] ⚠️ API ID或API Hash无效"
+        
+        # 11. 连接超时
+        if "timeout" in error_lower or "timed out" in error_lower:
+            return "未授权(超时)", f"[{phone}] ⚠️ 连接超时"
+        
+        # 12. 网络连接问题
+        if "connection" in error_lower or "network" in error_lower:
+            return "未授权", f"[{phone}] ⚠️ 网络连接失败: {error_msg[:50]}"
+        
+        # 13. 其他未知错误
+        return "未授权", f"[{phone}] ⚠️ {operation}异常: {error_msg[:80]}"
     
     def show_card_login(self):
         login_window = tk.Toplevel(self.root)
@@ -509,7 +569,7 @@ class TelegramFullGUI:
         
         ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
         status_var = tk.StringVar(value=status_filter_default)
-        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)"], width=12)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"], width=15)
         status_combo.pack(side="left", padx=5)
         
         # 全选按钮
@@ -583,7 +643,7 @@ class TelegramFullGUI:
                 elif status in ["销号", "封禁"]:
                     tree.tag_configure('dead', background='#ffebee')
                     tree.item(phone, tags=('dead',))
-                elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)"]:
+                elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"]:
                     tree.tag_configure('unauth', background='#fff3e0')
                     tree.item(phone, tags=('unauth',))
                 elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制"]:
@@ -644,7 +704,7 @@ class TelegramFullGUI:
         self.root.wait_window(dialog)
         
         return selected_accounts
-    
+
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
@@ -737,6 +797,7 @@ class TelegramFullGUI:
         threading.Thread(target=do_login, daemon=True).start()
     
     def login_single_account(self, acc):
+        """修复版一键登录 - 细化所有未授权原因"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -753,8 +814,8 @@ class TelegramFullGUI:
                     
                     # 检查账号是否已注销（关键修复）
                     if getattr(me, 'deleted', False):
-                        self.log("多账号管理", f"[{phone}] ❌ 账号已注销(销号)")
                         acc['status'] = '销号'
+                        self.log("多账号管理", f"[{phone}] ❌ 账号已注销(销号)")
                         await client.disconnect()
                         self.update_status_filter_options()
                         return False
@@ -772,9 +833,15 @@ class TelegramFullGUI:
                     # session未授权，尝试获取详细原因（带超时）
                     try:
                         await asyncio.wait_for(client.get_me(), timeout=5)
-                        # 如果成功，说明 session 其实是有效的
-                        acc['status'] = '未授权'
-                        self.log("多账号管理", f"[{phone}] ⚠️ session未授权")
+                        # 如果成功，说明 session 其实是有效的，但 is_user_authorized 返回了False
+                        # 这种情况可能发生在session文件损坏或不完整
+                        me = await client.get_me()
+                        if getattr(me, 'deleted', False):
+                            acc['status'] = '销号'
+                            self.log("多账号管理", f"[{phone}] ❌ 账号已注销(销号)")
+                        else:
+                            acc['status'] = '未授权'
+                            self.log("多账号管理", f"[{phone}] ⚠️ session未授权(登录态失效)")
                     except asyncio.TimeoutError:
                         acc['status'] = '未授权(超时)'
                         self.log("多账号管理", f"[{phone}] ⚠️ 连接超时")
@@ -788,22 +855,10 @@ class TelegramFullGUI:
                         acc['status'] = '封禁'
                         self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
                     except Exception as e:
-                        error_msg = str(e)
-                        if "SESSION_REVOKED" in error_msg:
-                            acc['status'] = '被踢下线'
-                            self.log("多账号管理", f"[{phone}] 🔴 账号在其他设备登录，被踢下线")
-                        elif "AUTH_KEY_UNREGISTERED" in error_msg:
-                            acc['status'] = 'session已过期'
-                            self.log("多账号管理", f"[{phone}] 🟡 session已过期，请重新登录")
-                        elif "PASSWORD_HASH_INVALID" in error_msg:
-                            acc['status'] = '2FA已修改'
-                            self.log("多账号管理", f"[{phone}] 🟠 2FA密码已被修改，需要重新登录")
-                        elif "frozen" in error_msg.lower():
-                            acc['status'] = '账号冻结'
-                            self.log("多账号管理", f"[{phone}] 🔵 账号被冻结，需要激活")
-                        else:
-                            acc['status'] = '未授权'
-                            self.log("多账号管理", f"[{phone}] ⚠️ session失效: {error_msg[:50]}")
+                        # 使用统一解析函数
+                        status, log_msg = self.parse_unauthorized_error(phone, e, "登录")
+                        acc['status'] = status
+                        self.log("多账号管理", log_msg)
                     self.update_status_filter_options()
                     return False
             except FloodWaitError as e:
@@ -813,12 +868,19 @@ class TelegramFullGUI:
                 return False
             except Exception as e:
                 error_msg = str(e)
-                if "deactivated" in error_msg.lower():
+                error_lower = error_msg.lower()
+                if "deactivated" in error_lower:
                     acc['status'] = '销号'
                     self.log("多账号管理", f"[{phone}] ❌ 账号已注销")
-                elif "banned" in error_msg.lower():
+                elif "banned" in error_lower:
                     acc['status'] = '封禁'
                     self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
+                elif "password" in error_lower:
+                    acc['status'] = '需要2FA重新登录'
+                    self.log("多账号管理", f"[{phone}] ⚠️ 需要2FA密码重新登录")
+                elif "flood" in error_lower or "too many" in error_lower:
+                    acc['status'] = '频率限制'
+                    self.log("多账号管理", f"[{phone}] ⚠️ 操作频率限制: {error_msg[:50]}")
                 else:
                     acc['status'] = '登录失败'
                     self.log("多账号管理", f"[{phone}] ❌ 登录失败: {error_msg[:80]}")
@@ -863,6 +925,7 @@ class TelegramFullGUI:
         threading.Thread(target=do_deep_check, daemon=True).start()
     
     def deep_check_single_account(self, acc):
+        """修复版深度检测 - 细化所有未授权原因"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -878,8 +941,14 @@ class TelegramFullGUI:
                     # 尝试获取详细错误信息（带超时）
                     try:
                         await asyncio.wait_for(client.get_me(), timeout=5)
-                        acc['status'] = '未授权'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
+                        # 能获取到用户信息但未授权，可能是session不完整
+                        me = await client.get_me()
+                        if getattr(me, 'deleted', False):
+                            acc['status'] = '销号'
+                            self.log("多账号管理", f"[{phone}] 检测结果: 销号(账号已注销)")
+                        else:
+                            acc['status'] = '未授权'
+                            self.log("多账号管理", f"[{phone}] 检测结果: 未授权(登录态失效)")
                     except asyncio.TimeoutError:
                         acc['status'] = '未授权(超时)'
                         self.log("多账号管理", f"[{phone}] 检测结果: 未授权(连接超时)")
@@ -893,16 +962,12 @@ class TelegramFullGUI:
                         acc['status'] = '封禁'
                         self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
                     except Exception as e:
-                        error_msg = str(e)
-                        if "SESSION_REVOKED" in error_msg:
-                            acc['status'] = '被踢下线'
-                            self.log("多账号管理", f"[{phone}] 检测结果: 被踢下线")
-                        elif "AUTH_KEY_UNREGISTERED" in error_msg:
-                            acc['status'] = 'session已过期'
-                            self.log("多账号管理", f"[{phone}] 检测结果: session已过期")
-                        else:
-                            acc['status'] = '未授权'
-                            self.log("多账号管理", f"[{phone}] 检测结果: 未授权")
+                        # 使用统一解析函数
+                        status, log_msg = self.parse_unauthorized_error(phone, e, "深度检测")
+                        acc['status'] = status
+                        # 替换"检测异常"为"检测结果"
+                        log_msg = log_msg.replace("异常", "结果")
+                        self.log("多账号管理", log_msg)
                     self.update_status_filter_options()
                     return
                 
@@ -952,6 +1017,12 @@ class TelegramFullGUI:
                 elif "banned" in error_msg:
                     acc['status'] = '封禁'
                     self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                elif "password" in error_msg:
+                    acc['status'] = '需要2FA'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA")
+                elif "flood" in error_msg or "too many" in error_msg:
+                    acc['status'] = '频率限制'
+                    self.log("多账号管理", f"[{phone}] 检测结果: 频率限制")
                 else:
                     acc['status'] = '检测失败'
                     self.log("多账号管理", f"[{phone}] 检测结果: 检测失败 - {str(e)[:50]}")
@@ -1711,7 +1782,6 @@ class TelegramFullGUI:
         else:
             self.log("多账号管理", "当前筛选结果中没有发现已失效的账号")
             self.show_centered_info("提示", "当前筛选结果中没有发现已失效的账号")
-    
     # ==================== 代理IP页面 ====================
     def create_proxy_page(self):
         page = ttk.Frame(self.notebook)
@@ -2201,8 +2271,6 @@ class TelegramFullGUI:
         self.preview_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         preview_scrollbar.pack(side="right", fill="y")
         
-        # 删除"已采集: X 人"标签
-        
         log_frame = ttk.LabelFrame(right_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
@@ -2346,8 +2414,7 @@ class TelegramFullGUI:
                 display_name, info.get('online_status', '未知'),
                 "是" if info.get('is_admin', False) else "否", "是" if is_bot else "否"
             ))
-        # 不再更新"已采集"标签
-        
+    
     def parse_group_link(self, link):
         topic_id = None
         group_username = None
@@ -2383,7 +2450,7 @@ class TelegramFullGUI:
         
         if not account_phone:
             self.log("采集群成员", "请选择采集账号")
-            self.show_centered_warning("提示", "请先登录账号并刷新账号列表")
+            self.show_centered_warning("提示", "请选择采集账号")
             return
         
         if not save_dir:
@@ -2998,7 +3065,6 @@ class TelegramFullGUI:
         
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
-    
     # ==================== 批量拉人页面 ====================
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
@@ -3070,7 +3136,6 @@ class TelegramFullGUI:
         ttk.Label(self.admin_frame, text="目标群组或频道:").pack(side="left", padx=5)
         self.admin_target_group = ttk.Entry(self.admin_frame, width=50)
         self.admin_target_group.pack(side="left", padx=5)
-        ttk.Label(self.admin_frame, text="（支持链接或ID）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
         ttk.Label(self.admin_frame, text="单账号拉群数:").pack(side="left", padx=20)
         self.admin_per_account_limit = ttk.Entry(self.admin_frame, width=10)
         self.admin_per_account_limit.insert(0, "0")
@@ -3666,7 +3731,6 @@ class TelegramFullGUI:
             self.log("批量拉人", "停止拉人")
         else:
             self.log("批量拉人", "无进行中的任务")
-    
     # ==================== 群发广告页面 ====================
     def create_send_page(self):
         page = ttk.Frame(self.notebook)
@@ -4603,7 +4667,6 @@ class TelegramFullGUI:
         if self.group_send_running and self.group_send_paused:
             self.group_send_paused = False
             self.group_log_insert("继续群发")
-    
     # ==================== 自动群聊+回复页面 ====================
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
