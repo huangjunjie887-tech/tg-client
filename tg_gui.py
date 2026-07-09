@@ -5957,148 +5957,178 @@ class TelegramFullGUI:
         update_timer()
     
     # ==================== 修复版 direct_login 方法 ====================
-def direct_login(self):
-    if self.direct_is_logging:
-        return
-    
-    phone = self.direct_phone.get().strip()
-    if not phone:
-        if self.batch_phones:
-            phone = self.batch_phones[0] if self.batch_phones else ""
-        if not phone:
-            self.log("直登转协议", "请输入手机号")
+    def direct_login(self):
+        if self.direct_is_logging:
             return
-    
-    if not phone.startswith('+'):
-        phone = self.direct_country_code.get() + phone
-    
-    code = self.direct_code.get().strip()
-    twofa = self.direct_twofa.get().strip()
-    save_path = self.direct_save_path.get().strip()
-    
-    if not save_path:
-        self.log("直登转协议", "请选择保存路径")
-        self.show_centered_warning("提示", "请选择保存路径")
-        return
-    
-    if not self.direct_client or not self.direct_client.is_connected():
-        self.log("直登转协议", "请先点击发送验证码")
-        self.show_centered_warning("提示", "请先点击发送验证码")
-        return
-    
-    self.direct_is_logging = True
-    self.direct_login_btn.config(state="disabled", text="登录中...")
-    self.direct_status.config(text="登录中...", foreground="orange")
-    self.direct_progress['value'] = 30
-    
-    client = self.direct_client
-    phone_code_hash = self.direct_phone_code_hash
-    
-    # 保存登录状态，用于 finally 块判断
-    login_success = False
-    
-    async def login():
-        nonlocal login_success
-        try:
-            self.direct_progress['value'] = 50
-            
-            # ========== 修复：先尝试登录，如果验证码正确但需要2FA，再处理 ==========
+        
+        phone = self.direct_phone.get().strip()
+        if not phone:
+            if self.batch_phones:
+                phone = self.batch_phones[0] if self.batch_phones else ""
+            if not phone:
+                self.log("直登转协议", "请输入手机号")
+                return
+        
+        if not phone.startswith('+'):
+            phone = self.direct_country_code.get() + phone
+        
+        code = self.direct_code.get().strip()
+        twofa = self.direct_twofa.get().strip()
+        save_path = self.direct_save_path.get().strip()
+        
+        if not save_path:
+            self.log("直登转协议", "请选择保存路径")
+            self.show_centered_warning("提示", "请选择保存路径")
+            return
+        
+        if not self.direct_client or not self.direct_client.is_connected():
+            self.log("直登转协议", "请先点击发送验证码")
+            self.show_centered_warning("提示", "请先点击发送验证码")
+            return
+        
+        self.direct_is_logging = True
+        self.direct_login_btn.config(state="disabled", text="登录中...")
+        self.direct_status.config(text="登录中...", foreground="orange")
+        self.direct_progress['value'] = 30
+        
+        client = self.direct_client
+        phone_code_hash = self.direct_phone_code_hash
+        
+        # 保存登录状态，用于 finally 块判断
+        login_success = False
+        
+        async def login():
+            nonlocal login_success
             try:
-                # 1. 验证验证码并登录
-                if code:
-                    await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
-                else:
-                    me = await client.get_me()
-                    self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
-                    await self.save_direct_account(phone, save_path, client)
-                    self.direct_progress['value'] = 100
-                    login_success = True
-                    return
+                self.direct_progress['value'] = 50
                 
-                self.direct_progress['value'] = 70
-                
-                # 2. 检查是否需要2FA
+                # ========== 修复：先尝试登录，如果验证码正确但需要2FA，再处理 ==========
                 try:
-                    me = await client.get_me()
-                    # 登录成功
-                    self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
-                    await self.save_direct_account(phone, save_path, client)
-                    self.direct_progress['value'] = 100
-                    login_success = True
-                    
-                except SessionPasswordNeededError:
-                    # ========== 关键修复：处理2FA密码 ==========
-                    if twofa:
-                        self.log("直登转协议", "检测到2FA，正在验证...")
-                        try:
-                            # 使用2FA密码登录
-                            await client.sign_in(password=twofa)
-                            self.direct_progress['value'] = 85
-                            # 获取用户信息
-                            me = await client.get_me()
-                            self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
-                            await self.save_direct_account(phone, save_path, client)
-                            self.direct_progress['value'] = 100
-                            login_success = True
-                        except Exception as e2:
-                            error_msg = str(e2)
-                            self.log("直登转协议", f"2FA验证失败: {error_msg}")
-                            if "password" in error_msg.lower() or "PASSWORD_HASH_INVALID" in error_msg or "invalid" in error_msg.lower():
-                                self.log("直登转协议", "2FA密码错误，请重新输入")
-                                self.direct_status.config(text="2FA密码错误", foreground="red")
-                                self.direct_progress['value'] = 0
-                                self.direct_twofa.delete(0, tk.END)
-                                self.direct_twofa.focus()
-                            else:
-                                self.direct_status.config(text=f"2FA验证失败: {error_msg[:30]}", foreground="red")
+                    # 1. 验证验证码并登录
+                    if code:
+                        await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
                     else:
-                        self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
-                        self.direct_status.config(text="需要2FA密码", foreground="red")
-                        self.direct_progress['value'] = 0
-                        self.direct_twofa.focus()
+                        me = await client.get_me()
+                        self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
+                        await self.save_direct_account(phone, save_path, client)
+                        self.direct_progress['value'] = 100
+                        login_success = True
                         return
                     
-            except Exception as e1:
-                error_msg = str(e1)
-                # 检查是否是验证码错误
-                if "phone_code" in error_msg.lower() or "code" in error_msg.lower() or "invalid" in error_msg.lower():
-                    if "phone_code" in error_msg.lower():
-                        self.log("直登转协议", f"验证码错误: {error_msg}")
-                        self.direct_status.config(text="验证码错误", foreground="red")
-                        self.direct_progress['value'] = 0
-                        self.direct_code.delete(0, tk.END)
-                        self.direct_code.focus()
+                    self.direct_progress['value'] = 70
+                    
+                    # 2. 检查是否需要2FA
+                    try:
+                        me = await client.get_me()
+                        # 登录成功
+                        self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
+                        await self.save_direct_account(phone, save_path, client)
+                        self.direct_progress['value'] = 100
+                        login_success = True
+                        
+                    except SessionPasswordNeededError:
+                        # ========== 关键修复：处理2FA密码 ==========
+                        if twofa:
+                            self.log("直登转协议", "检测到2FA，正在验证...")
+                            try:
+                                # 使用2FA密码登录
+                                await client.sign_in(password=twofa)
+                                self.direct_progress['value'] = 85
+                                # 获取用户信息
+                                me = await client.get_me()
+                                self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
+                                await self.save_direct_account(phone, save_path, client)
+                                self.direct_progress['value'] = 100
+                                login_success = True
+                            except Exception as e2:
+                                error_msg = str(e2)
+                                self.log("直登转协议", f"2FA验证失败: {error_msg}")
+                                if "password" in error_msg.lower() or "PASSWORD_HASH_INVALID" in error_msg or "invalid" in error_msg.lower():
+                                    self.log("直登转协议", "2FA密码错误，请重新输入")
+                                    self.direct_status.config(text="2FA密码错误", foreground="red")
+                                    self.direct_progress['value'] = 0
+                                    self.direct_twofa.delete(0, tk.END)
+                                    self.direct_twofa.focus()
+                                else:
+                                    self.direct_status.config(text=f"2FA验证失败: {error_msg[:30]}", foreground="red")
+                        else:
+                            self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
+                            self.direct_status.config(text="需要2FA密码", foreground="red")
+                            self.direct_progress['value'] = 0
+                            self.direct_twofa.focus()
+                            return
+                        
+                except Exception as e1:
+                    error_msg = str(e1)
+                    # 检查是否是验证码错误
+                    if "phone_code" in error_msg.lower() or "code" in error_msg.lower() or "invalid" in error_msg.lower():
+                        if "phone_code" in error_msg.lower():
+                            self.log("直登转协议", f"验证码错误: {error_msg}")
+                            self.direct_status.config(text="验证码错误", foreground="red")
+                            self.direct_progress['value'] = 0
+                            self.direct_code.delete(0, tk.END)
+                            self.direct_code.focus()
+                        else:
+                            raise e1
                     else:
                         raise e1
-                else:
-                    raise e1
-                
-        except PhoneNumberBannedError:
-            self.log("直登转协议", "手机号已被封禁")
-            self.direct_status.config(text="手机号被封禁", foreground="red")
-            self.direct_progress['value'] = 0
-        except UserDeactivatedError:
-            self.log("直登转协议", "账号已注销")
-            self.direct_status.config(text="账号已注销", foreground="red")
-            self.direct_progress['value'] = 0
-        except FloodWaitError as e:
-            self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
-            self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
-            self.direct_progress['value'] = 0
-        except Exception as e:
-            error_msg = str(e)
-            self.log("直登转协议", f"登录失败: {error_msg}")
-            self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
-            self.direct_progress['value'] = 0
-        finally:
-            # ========== 关键修复：只在登录成功时关闭 loop ==========
-            self.direct_is_logging = False
-            self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
-            
-            # 只有在登录成功或致命错误时才关闭 event loop
-            # 如果需要2FA密码但用户未输入，则不关闭 loop，保持连接等待用户输入
-            if login_success or "需要2FA" not in self.direct_status.cget("text"):
+                    
+            except PhoneNumberBannedError:
+                self.log("直登转协议", "手机号已被封禁")
+                self.direct_status.config(text="手机号被封禁", foreground="red")
                 self.direct_progress['value'] = 0
+            except UserDeactivatedError:
+                self.log("直登转协议", "账号已注销")
+                self.direct_status.config(text="账号已注销", foreground="red")
+                self.direct_progress['value'] = 0
+            except FloodWaitError as e:
+                self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
+                self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
+                self.direct_progress['value'] = 0
+            except Exception as e:
+                error_msg = str(e)
+                self.log("直登转协议", f"登录失败: {error_msg}")
+                self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
+                self.direct_progress['value'] = 0
+            finally:
+                # ========== 关键修复：只在登录成功时关闭 loop ==========
+                self.direct_is_logging = False
+                self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
+                
+                # 只有在登录成功或致命错误时才关闭 event loop
+                # 如果需要2FA密码但用户未输入，则不关闭 loop，保持连接等待用户输入
+                if login_success or "需要2FA" not in self.direct_status.cget("text"):
+                    self.direct_progress['value'] = 0
+                    if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
+                        try:
+                            if not self.direct_loop.is_running():
+                                self.direct_loop.close()
+                                self.direct_loop = None
+                        except:
+                            self.direct_loop = None
+        
+        # ========== 修复点：使用保存的 loop 执行 ==========
+        if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
+            try:
+                self.direct_loop.run_until_complete(login())
+            except RuntimeError as e:
+                error_msg = str(e)
+                self.log("直登转协议", f"事件循环错误，重新创建: {error_msg}")
+                # 重新创建 loop
+                self.direct_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.direct_loop)
+                try:
+                    self.direct_loop.run_until_complete(login())
+                finally:
+                    if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
+                        try:
+                            if not self.direct_loop.is_running():
+                                self.direct_loop.close()
+                                self.direct_loop = None
+                        except:
+                            self.direct_loop = None
+            except Exception as e:
+                self.log("直登转协议", f"执行异常: {str(e)}")
                 if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
                     try:
                         if not self.direct_loop.is_running():
@@ -6106,15 +6136,8 @@ def direct_login(self):
                             self.direct_loop = None
                     except:
                         self.direct_loop = None
-    
-    # ========== 修复点：使用保存的 loop 执行 ==========
-    if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
-        try:
-            self.direct_loop.run_until_complete(login())
-        except RuntimeError as e:
-            error_msg = str(e)
-            self.log("直登转协议", f"事件循环错误，重新创建: {error_msg}")
-            # 重新创建 loop
+        else:
+            # 备用：创建新 loop
             self.direct_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.direct_loop)
             try:
@@ -6127,29 +6150,6 @@ def direct_login(self):
                             self.direct_loop = None
                     except:
                         self.direct_loop = None
-        except Exception as e:
-            self.log("直登转协议", f"执行异常: {str(e)}")
-            if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
-                try:
-                    if not self.direct_loop.is_running():
-                        self.direct_loop.close()
-                        self.direct_loop = None
-                except:
-                    self.direct_loop = None
-    else:
-        # 备用：创建新 loop
-        self.direct_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.direct_loop)
-        try:
-            self.direct_loop.run_until_complete(login())
-        finally:
-            if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
-                try:
-                    if not self.direct_loop.is_running():
-                        self.direct_loop.close()
-                        self.direct_loop = None
-                except:
-                    self.direct_loop = None
     
     async def save_direct_account(self, phone, save_path, client=None):
         """保存账号到指定路径 - 使用已存在的client"""
