@@ -704,7 +704,6 @@ class TelegramFullGUI:
         self.root.wait_window(dialog)
         
         return selected_accounts
-
     # ==================== 多账号管理页面 ====================
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
@@ -4500,10 +4499,96 @@ class TelegramFullGUI:
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import UserAlreadyParticipantError
         
+        # ========== 智能分配：将账号均匀分配到各个群组 ==========
+        def smart_assign_groups(accounts_list, groups_list):
+            """
+            智能分配：将账号均匀分配到各个群组
+            返回：{group: [account1, account2, ...]}
+            """
+            total_accounts = len(accounts_list)
+            total_groups = len(groups_list)
+            
+            if total_accounts == 0 or total_groups == 0:
+                return {}
+            
+            assignment = {}
+            account_index = 0
+            
+            if total_accounts <= total_groups:
+                # 账号数 <= 群组数：每个群最多1个账号
+                accounts_per_group = 1
+                for group in groups_list:
+                    if account_index < total_accounts:
+                        assignment[group] = [accounts_list[account_index]]
+                        account_index += 1
+                    else:
+                        # 账号用完了，剩余群没有账号
+                        assignment[group] = []
+            else:
+                # 账号数 > 群组数：均匀分配
+                accounts_per_group = total_accounts // total_groups
+                remainder = total_accounts % total_groups
+                
+                for i, group in enumerate(groups_list):
+                    # 前 remainder 个群多分配1个账号
+                    count = accounts_per_group + (1 if i < remainder else 0)
+                    assigned = []
+                    for _ in range(count):
+                        if account_index < total_accounts:
+                            assigned.append(accounts_list[account_index])
+                            account_index += 1
+                        else:
+                            # 账号不够，从头轮询
+                            account_index = 0
+                            assigned.append(accounts_list[account_index])
+                            account_index += 1
+                    assignment[group] = assigned
+            
+            return assignment
+        
+        # ========== 执行智能分配 ==========
+        account_to_groups = {}  # {account: [group1, group2, ...]}
+        
+        # 获取所有账号（按状态过滤）
+        valid_accounts = [acc for acc in accounts if acc.get('status') == '正常']
+        
+        # 解析群组实体列表
+        group_entities = []
+        for target in targets:
+            # 这里需要实际的实体，但当前函数只传入了targets字符串列表
+            # 所以我们用targets字符串作为标识，稍后在每个账号中解析
+            pass
+        
+        # 由于每个账号需要独立解析群组实体，我们采用简化方案：
+        # 每个账号只发送分配到的群组链接列表
+        assignment = smart_assign_groups(valid_accounts, targets)
+        
+        # 记录每个账号分配到哪些群
+        account_assignment = {}
+        for group, assigned_accounts in assignment.items():
+            for acc in assigned_accounts:
+                phone = acc.get('phone', '')
+                if phone not in account_assignment:
+                    account_assignment[phone] = []
+                account_assignment[phone].append(group)
+        
+        # 记录分配日志
+        self.group_log_insert("========== 智能分配结果 ==========")
+        for group, assigned_accounts in assignment.items():
+            account_phones = [a.get('phone', '')[-6:] for a in assigned_accounts if a.get('phone')]
+            self.group_log_insert(f"群: {group[:30]}... → 账号: {', '.join(account_phones) if account_phones else '无'}")
+        
+        # 执行发送
         async def send_for_account(acc):
             phone = acc.get('phone', '')
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
+            
+            # 获取该账号分配到的群组
+            assigned_groups = account_assignment.get(phone, [])
+            if not assigned_groups:
+                self.group_log_insert(f"[{phone[-6:]}] 未分配到任何群组")
+                return
             
             client = None
             sent_count = 0
@@ -4513,10 +4598,11 @@ class TelegramFullGUI:
                 client = TelegramClient(session_path, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
-                    self.group_log_insert(f"[{phone}] 未登录")
+                    self.group_log_insert(f"[{phone[-6:]}] 未登录")
                     return
                 
-                for target in targets:
+                # 加入分配到的群组
+                for target in assigned_groups:
                     try:
                         entity = None
                         if 't.me/+' in target or 't.me/joinchat' in target:
@@ -4528,18 +4614,16 @@ class TelegramFullGUI:
                                 result = await client(ImportChatInviteRequest(invite_hash))
                                 if result.chats:
                                     entity = result.chats[0]
-                                    self.group_log_insert(f"[{phone}] 加入群组成功")
+                                    self.group_log_insert(f"[{phone[-6:]}] 加入群组成功")
                             except UserAlreadyParticipantError:
-                                self.group_log_insert(f"[{phone}] 已是群成员")
+                                self.group_log_insert(f"[{phone[-6:]}] 已是群成员")
                                 try:
                                     entity = await client.get_entity(target)
                                 except:
                                     pass
                             except Exception as e:
                                 error_msg = str(e)
-                                self.group_log_insert(f"[{phone}] 加入失败: {error_msg[:50]}")
-                                if "You tried to use a method that" in error_msg:
-                                    self.update_account_status_by_phone(phone, '销号')
+                                self.group_log_insert(f"[{phone[-6:]}] 加入失败: {error_msg[:50]}")
                                 continue
                             if not entity:
                                 try:
@@ -4556,25 +4640,24 @@ class TelegramFullGUI:
                             entity = await client.get_entity(username)
                             try:
                                 await client(JoinChannelRequest(entity))
-                                self.group_log_insert(f"[{phone}] 加入群组成功")
+                                self.group_log_insert(f"[{phone[-6:]}] 加入群组成功")
                             except UserAlreadyParticipantError:
-                                self.group_log_insert(f"[{phone}] 已是群成员")
+                                self.group_log_insert(f"[{phone[-6:]}] 已是群成员")
                             except Exception as e:
                                 error_msg = str(e)
-                                self.group_log_insert(f"[{phone}] 加入失败: {error_msg[:50]}")
-                                if "You tried to use a method that" in error_msg:
-                                    self.update_account_status_by_phone(phone, '销号')
+                                self.group_log_insert(f"[{phone[-6:]}] 加入失败: {error_msg[:50]}")
                                 continue
                         
                         if entity:
                             joined_groups.append(entity)
                     except Exception as e:
-                        self.group_log_insert(f"[{phone}] 解析群组失败: {str(e)[:30]}")
+                        self.group_log_insert(f"[{phone[-6:]}] 解析群组失败: {str(e)[:30]}")
                 
                 if not joined_groups:
-                    self.group_log_insert(f"[{phone}] 无有效目标群组")
+                    self.group_log_insert(f"[{phone[-6:]}] 无有效目标群组")
                     return
                 
+                # 循环发送（每个群组发送 per_account_limit 条）
                 group_index = 0
                 while sent_count < per_account_limit or per_account_limit == 0:
                     if self.group_stop_flag:
@@ -4582,6 +4665,7 @@ class TelegramFullGUI:
                     while self.group_send_paused:
                         await asyncio.sleep(1)
                     
+                    # 取 concurrent 个群组同时发送
                     target_groups = []
                     for i in range(concurrent):
                         if group_index >= len(joined_groups):
@@ -4611,34 +4695,34 @@ class TelegramFullGUI:
                                                 query_id=result.query_id,
                                                 id=result.results[0].id
                                             ))
-                                            self.group_log_insert(f"[{phone}] 群发PostBot广告成功")
+                                            self.group_log_insert(f"[{phone[-6:]}] 群发PostBot广告成功")
                                         else:
-                                            self.group_log_insert(f"[{phone}] PostBot无结果")
+                                            self.group_log_insert(f"[{phone[-6:]}] PostBot无结果")
                                     except Exception as e:
-                                        self.group_log_insert(f"[{phone}] PostBot发送失败: {str(e)[:50]}")
+                                        self.group_log_insert(f"[{phone[-6:]}] PostBot发送失败: {str(e)[:50]}")
                                 else:
-                                    self.group_log_insert(f"[{phone}] PostBot命令格式错误")
+                                    self.group_log_insert(f"[{phone[-6:]}] PostBot命令格式错误")
                             elif image_path and os.path.exists(image_path):
                                 file = await client.upload_file(image_path)
                                 if ad_text:
                                     await client.send_file(entity, file, caption=ad_text)
                                 else:
                                     await client.send_file(entity, file)
-                                self.group_log_insert(f"[{phone}] 群发图片成功")
+                                self.group_log_insert(f"[{phone[-6:]}] 群发图片成功")
                             else:
                                 await client.send_message(entity, ad_text)
-                                self.group_log_insert(f"[{phone}] 群发文本成功")
+                                self.group_log_insert(f"[{phone[-6:]}] 群发文本成功")
                             
                             sent_count += 1
                             group_title = getattr(entity, 'title', str(entity))[:20]
-                            self.group_log_insert(f"[{phone}] 群发成功 | {group_title} ({sent_count}/{per_account_limit if per_account_limit>0 else '不限'})")
+                            self.group_log_insert(f"[{phone[-6:]}] 群发成功 | {group_title} ({sent_count}/{per_account_limit if per_account_limit>0 else '不限'})")
                             await asyncio.sleep(interval)
                         except FloodWaitError as e:
-                            self.group_log_insert(f"[{phone}] 频率限制，等待{e.seconds}秒")
+                            self.group_log_insert(f"[{phone[-6:]}] 频率限制，等待{e.seconds}秒")
                             self.update_account_status_by_phone(phone, '频率限制')
                             await asyncio.sleep(e.seconds)
                         except ChatWriteForbiddenError:
-                            self.group_log_insert(f"[{phone}] 群发失败: 账号被群组禁言")
+                            self.group_log_insert(f"[{phone[-6:]}] 群发失败: 账号被群组禁言")
                             self.update_account_status_by_phone(phone, '发言限制')
                             if auto_skip:
                                 continue
@@ -4646,10 +4730,10 @@ class TelegramFullGUI:
                         except Exception as e:
                             error_msg = str(e).lower()
                             if "banned" in error_msg:
-                                self.group_log_insert(f"[{phone}] 群发失败: 账号被禁言")
+                                self.group_log_insert(f"[{phone[-6:]}] 群发失败: 账号被禁言")
                                 self.update_account_status_by_phone(phone, '发言限制')
                             else:
-                                self.group_log_insert(f"[{phone}] 群发失败: {str(e)[:50]}")
+                                self.group_log_insert(f"[{phone[-6:]}] 群发失败: {str(e)[:50]}")
                             if auto_skip:
                                 continue
                             await asyncio.sleep(interval)
@@ -4660,13 +4744,14 @@ class TelegramFullGUI:
                     await asyncio.sleep(1)
                 
             except Exception as e:
-                self.group_log_insert(f"[{phone}] 异常: {str(e)[:50]}")
+                self.group_log_insert(f"[{phone[-6:]}] 异常: {str(e)[:50]}")
             finally:
                 if client:
                     await client.disconnect()
         
+        # 创建任务并执行（线程数控制）
         tasks = []
-        for acc in accounts[:thread_cnt]:
+        for acc in valid_accounts[:thread_cnt]:
             tasks.append(send_for_account(acc))
         await asyncio.gather(*tasks)
     
