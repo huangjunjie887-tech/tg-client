@@ -1044,7 +1044,7 @@ class TelegramFullGUI:
         self.update_status_filter_options()
     
     def kick_devices_filtered(self):
-        """将选中分组的所有账号踢出之前登录过的设备"""
+        """将选中分组的所有账号踢出其他设备，保留当前设备"""
         filtered_accounts = self.get_filtered_accounts()
         if not filtered_accounts:
             self.log("多账号管理", "当前筛选条件下没有账号可操作")
@@ -1053,7 +1053,7 @@ class TelegramFullGUI:
         
         # 确认对话框
         def do_kick():
-            self.log("多账号管理", f"开始踢出 {len(filtered_accounts)} 个账号的所有设备...")
+            self.log("多账号管理", f"开始踢出 {len(filtered_accounts)} 个账号的其他设备...")
             
             def kick_thread():
                 for idx, acc in enumerate(filtered_accounts, 1):
@@ -1066,10 +1066,10 @@ class TelegramFullGUI:
             
             threading.Thread(target=kick_thread, daemon=True).start()
         
-        self.show_centered_yesno("确认", f"确定将当前筛选的 {len(filtered_accounts)} 个账号踢出所有设备吗？\n踢出后需要重新登录才能使用。", do_kick)
+        self.show_centered_yesno("确认", f"确定将当前筛选的 {len(filtered_accounts)} 个账号踢出所有其他设备吗？\n（当前设备将保留登录状态）", do_kick)
     
     def kick_single_account_devices(self, acc):
-        """踢出单个账号的所有设备"""
+        """踢出单个账号的所有其他设备，保留当前设备"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -1087,22 +1087,38 @@ class TelegramFullGUI:
                 # 获取所有会话
                 auths = await client(GetAuthorizationsRequest())
                 
+                kicked_count = 0
                 for auth in auths.authorizations:
                     if auth.current:
+                        # 跳过当前设备（我们的TG营销系统）
+                        device_name = auth.device_model or "当前设备"
+                        self.log("多账号管理", f"[{phone}] 保留当前设备: {device_name}")
                         continue
                     # 踢出其他设备
                     try:
                         await client(ResetAuthorizationRequest(hash=auth.hash))
-                        self.log("多账号管理", f"[{phone}] 已踢出一个设备")
+                        kicked_count += 1
+                        device_name = auth.device_model or "未知设备"
+                        self.log("多账号管理", f"[{phone}] 已踢出设备: {device_name}")
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 踢出设备失败: {str(e)[:50]}")
                 
-                # 注销当前会话，让账号完全退出
-                await client.log_out()
-                self.log("多账号管理", f"[{phone}] 已注销当前会话，账号已退出")
+                # 修复：不再执行 log_out()，保留当前设备登录状态
+                # await client.log_out()  ← 已删除
                 
-                # 更新账号状态
-                acc['status'] = '未授权'
+                self.log("多账号管理", f"[{phone}] 踢出完成，共踢出 {kicked_count} 个设备，当前设备已保留")
+                
+                # 保持账号状态为"正常"
+                if acc.get('status') != '正常':
+                    # 如果当前不是正常状态，尝试刷新
+                    try:
+                        me = await client.get_me()
+                        if me:
+                            acc['status'] = '正常'
+                            self.log("多账号管理", f"[{phone}] 账号状态已刷新: 正常")
+                    except:
+                        pass
+                
                 self.update_status_filter_options()
                 self.refresh_account_list_filter()
                 
