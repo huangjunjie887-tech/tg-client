@@ -5718,6 +5718,7 @@ class TelegramFullGUI:
         self.batch_is_running = False
         self.batch_stop_flag = False
         self.direct_session_path = None
+        self.direct_loop = None
     
     def toggle_direct_proxy(self):
         if self.direct_use_proxy.get():
@@ -5905,12 +5906,14 @@ class TelegramFullGUI:
                     if not self.direct_client:
                         self.direct_status.config(text="就绪", foreground="blue")
             
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # ========== 修复点：保存 event loop 到 self.direct_loop ==========
+            self.direct_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.direct_loop)
             try:
-                loop.run_until_complete(send())
+                self.direct_loop.run_until_complete(send())
             finally:
-                loop.close()
+                # 不关闭 loop，留给 direct_login 使用
+                pass
         
         threading.Thread(target=do_send_code, daemon=True).start()
     
@@ -5990,70 +5993,82 @@ class TelegramFullGUI:
         client = self.direct_client
         phone_code_hash = self.direct_phone_code_hash
         
-        def do_login():
-            async def login():
-                try:
-                    self.direct_progress['value'] = 50
-                    
-                    if code:
-                        await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
-                    else:
-                        me = await client.get_me()
-                        self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
-                        await self.save_direct_account(phone, save_path, client)
-                        self.direct_progress['value'] = 100
-                        return
-                    
-                    self.direct_progress['value'] = 70
-                    
-                    try:
-                        me = await client.get_me()
-                        self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
-                        await self.save_direct_account(phone, save_path, client)
-                        self.direct_progress['value'] = 100
-                        
-                    except SessionPasswordNeededError:
-                        if twofa:
-                            await client.sign_in(password=twofa)
-                            me = await client.get_me()
-                            self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
-                            await self.save_direct_account(phone, save_path, client)
-                            self.direct_progress['value'] = 100
-                        else:
-                            self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
-                            self.direct_status.config(text="需要2FA密码", foreground="red")
-                            self.direct_progress['value'] = 0
-                            return
-                    
-                except PhoneNumberBannedError:
-                    self.log("直登转协议", "手机号已被封禁")
-                    self.direct_status.config(text="手机号被封禁", foreground="red")
-                except UserDeactivatedError:
-                    self.log("直登转协议", "账号已注销")
-                    self.direct_status.config(text="账号已注销", foreground="red")
-                except FloodWaitError as e:
-                    self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
-                    self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
-                except Exception as e:
-                    error_msg = str(e)
-                    self.log("直登转协议", f"登录失败: {error_msg}")
-                    self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
-                finally:
-                    self.direct_is_logging = False
-                    self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
-                    self.direct_progress['value'] = 0
-            
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # ========== 修复点：使用保存的 event loop，不创建新的 ==========
+        async def login():
             try:
-                loop.run_until_complete(login())
+                self.direct_progress['value'] = 50
+                
+                if code:
+                    await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
+                else:
+                    me = await client.get_me()
+                    self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
+                    await self.save_direct_account(phone, save_path, client)
+                    self.direct_progress['value'] = 100
+                    return
+                
+                self.direct_progress['value'] = 70
+                
+                try:
+                    me = await client.get_me()
+                    self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
+                    await self.save_direct_account(phone, save_path, client)
+                    self.direct_progress['value'] = 100
+                    
+                except SessionPasswordNeededError:
+                    if twofa:
+                        await client.sign_in(password=twofa)
+                        me = await client.get_me()
+                        self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
+                        await self.save_direct_account(phone, save_path, client)
+                        self.direct_progress['value'] = 100
+                    else:
+                        self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
+                        self.direct_status.config(text="需要2FA密码", foreground="red")
+                        self.direct_progress['value'] = 0
+                        return
+                
+            except PhoneNumberBannedError:
+                self.log("直登转协议", "手机号已被封禁")
+                self.direct_status.config(text="手机号被封禁", foreground="red")
+            except UserDeactivatedError:
+                self.log("直登转协议", "账号已注销")
+                self.direct_status.config(text="账号已注销", foreground="red")
+            except FloodWaitError as e:
+                self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
+                self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
+            except Exception as e:
+                error_msg = str(e)
+                self.log("直登转协议", f"登录失败: {error_msg}")
+                self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
             finally:
-                loop.close()
+                self.direct_is_logging = False
+                self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
+                self.direct_progress['value'] = 0
+                # ========== 修复点：登录完成后关闭 event loop ==========
+                if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
+                    self.direct_loop.close()
+                    self.direct_loop = None
         
-        # 修复点：直接在当前线程执行，不创建新线程
-        do_login()
-        
-        threading.Thread(target=do_login, daemon=True).start()
+        # ========== 修复点：使用保存的 loop 执行 ==========
+        if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
+            try:
+                self.direct_loop.run_until_complete(login())
+            except RuntimeError as e:
+                self.log("直登转协议", f"事件循环错误，重新创建: {str(e)}")
+                self.direct_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.direct_loop)
+                self.direct_loop.run_until_complete(login())
+                self.direct_loop.close()
+                self.direct_loop = None
+        else:
+            self.direct_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.direct_loop)
+            try:
+                self.direct_loop.run_until_complete(login())
+            finally:
+                self.direct_loop.close()
+                self.direct_loop = None
     
     async def save_direct_account(self, phone, save_path, client=None):
         """保存账号到指定路径 - 使用已存在的client"""
@@ -6175,10 +6190,14 @@ class TelegramFullGUI:
             async def do_disconnect():
                 await self.direct_client.disconnect()
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(do_disconnect())
-                loop.close()
+                # ========== 修复点：使用保存的 event loop ==========
+                if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
+                    self.direct_loop.run_until_complete(do_disconnect())
+                else:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(do_disconnect())
+                    loop.close()
             except:
                 pass
         
@@ -6189,6 +6208,14 @@ class TelegramFullGUI:
         self.direct_send_code_btn.config(state="normal", text="发送验证码")
         self.direct_is_logging = False
         self.direct_progress['value'] = 0
+        
+        # 关闭 event loop
+        if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
+            try:
+                self.direct_loop.close()
+            except:
+                pass
+            self.direct_loop = None
         
         if self.direct_code_timer:
             self.root.after_cancel(self.direct_code_timer)
