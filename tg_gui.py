@@ -5651,6 +5651,7 @@ class TelegramFullGUI:
         
         self.direct_login_btn = ttk.Button(btn_frame, text="🚀 登录并保存", command=self.direct_login, width=15)
         self.direct_login_btn.pack(side="left", padx=10)
+        self.direct_login_btn.config(state="disabled")
         
         ttk.Button(btn_frame, text="⏹ 取消", command=self.direct_cancel, width=12).pack(side="left", padx=10)
         
@@ -5843,7 +5844,6 @@ class TelegramFullGUI:
         # 获取当前手机号
         phone = self.direct_phone.get().strip()
         if not phone:
-            # 如果批量模式有手机号，使用第一个
             if self.batch_phones:
                 phone = self.batch_phones[0] if self.batch_phones else ""
             if not phone:
@@ -5851,7 +5851,6 @@ class TelegramFullGUI:
                 self.show_centered_warning("提示", "请输入手机号")
                 return
         
-        # 确保手机号有国家代码
         if not phone.startswith('+'):
             phone = self.direct_country_code.get() + phone
         
@@ -5875,7 +5874,6 @@ class TelegramFullGUI:
         def do_send_code():
             async def send():
                 try:
-                    # API配置内置
                     api_id = 34256693
                     api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
                     
@@ -5888,9 +5886,7 @@ class TelegramFullGUI:
                         self.direct_status.config(text="验证码已发送", foreground="green")
                         self.log("直登转协议", f"验证码已发送至 {phone}")
                         
-                        # 启动倒计时
                         self.start_code_timer()
-                        
                         self.root.after(0, lambda: self.direct_login_btn.config(state="normal"))
                     else:
                         self.direct_status.config(text="账号已授权", foreground="blue")
@@ -5911,8 +5907,10 @@ class TelegramFullGUI:
             
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(send())
-            loop.close()
+            try:
+                loop.run_until_complete(send())
+            finally:
+                loop.close()
         
         threading.Thread(target=do_send_code, daemon=True).start()
     
@@ -5961,7 +5959,6 @@ class TelegramFullGUI:
         
         phone = self.direct_phone.get().strip()
         if not phone:
-            # 尝试从批量列表获取
             if self.batch_phones:
                 phone = self.batch_phones[0] if self.batch_phones else ""
             if not phone:
@@ -5982,6 +5979,7 @@ class TelegramFullGUI:
         
         if not self.direct_client or not self.direct_client.is_connected():
             self.log("直登转协议", "请先点击发送验证码")
+            self.show_centered_warning("提示", "请先点击发送验证码")
             return
         
         self.direct_is_logging = True
@@ -5989,34 +5987,37 @@ class TelegramFullGUI:
         self.direct_status.config(text="登录中...", foreground="orange")
         self.direct_progress['value'] = 30
         
+        client = self.direct_client
+        phone_code_hash = self.direct_phone_code_hash
+        
         def do_login():
             async def login():
                 try:
                     self.direct_progress['value'] = 50
                     
                     if code:
-                        await self.direct_client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
+                        await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
                     else:
-                        me = await self.direct_client.get_me()
+                        me = await client.get_me()
                         self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
-                        await self.save_direct_account(phone, save_path)
+                        await self.save_direct_account(phone, save_path, client)
                         self.direct_progress['value'] = 100
                         return
                     
                     self.direct_progress['value'] = 70
                     
                     try:
-                        me = await self.direct_client.get_me()
+                        me = await client.get_me()
                         self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
-                        await self.save_direct_account(phone, save_path)
+                        await self.save_direct_account(phone, save_path, client)
                         self.direct_progress['value'] = 100
                         
                     except SessionPasswordNeededError:
                         if twofa:
-                            await self.direct_client.sign_in(password=twofa)
-                            me = await self.direct_client.get_me()
+                            await client.sign_in(password=twofa)
+                            me = await client.get_me()
                             self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
-                            await self.save_direct_account(phone, save_path)
+                            await self.save_direct_account(phone, save_path, client)
                             self.direct_progress['value'] = 100
                         else:
                             self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
@@ -6034,8 +6035,9 @@ class TelegramFullGUI:
                     self.log("直登转协议", f"请求频繁，请等待{e.seconds}秒")
                     self.direct_status.config(text=f"等待{e.seconds}秒", foreground="red")
                 except Exception as e:
-                    self.log("直登转协议", f"登录失败: {str(e)}")
-                    self.direct_status.config(text=f"登录失败: {str(e)[:30]}", foreground="red")
+                    error_msg = str(e)
+                    self.log("直登转协议", f"登录失败: {error_msg}")
+                    self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
                 finally:
                     self.direct_is_logging = False
                     self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
@@ -6043,49 +6045,46 @@ class TelegramFullGUI:
             
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(login())
-            loop.close()
+            try:
+                loop.run_until_complete(login())
+            finally:
+                loop.close()
         
         threading.Thread(target=do_login, daemon=True).start()
     
-    async def save_direct_account(self, phone, save_path):
-        """保存账号到指定路径"""
+    async def save_direct_account(self, phone, save_path, client=None):
+        """保存账号到指定路径 - 使用已存在的client"""
         try:
-            me = await self.direct_client.get_me()
+            if client is None:
+                client = self.direct_client
             
-            # 获取当前的API配置（内置）
+            me = await client.get_me()
+            
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
             
-            # 创建session文件
             session_file = os.path.join(save_path, f"{phone}.session")
             
-            # 使用当前客户端保存session
-            await self.direct_client.disconnect()
+            await client.disconnect()
             
-            # 重新创建客户端并登录
-            client = TelegramClient(session_file, api_id, api_hash)
-            await client.connect()
+            new_client = TelegramClient(session_file, api_id, api_hash)
+            await new_client.connect()
             
-            # 使用保存的验证码登录
             code = self.direct_code.get().strip()
             if code:
-                await client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
+                await new_client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
             else:
-                await client.sign_in(phone)
+                await new_client.sign_in(phone)
             
-            # 检查2FA
             twofa = self.direct_twofa.get().strip()
             if twofa:
                 try:
-                    await client.sign_in(password=twofa)
+                    await new_client.sign_in(password=twofa)
                 except:
                     pass
             
-            # 获取用户信息
-            me = await client.get_me()
+            me = await new_client.get_me()
             
-            # 保存JSON
             json_file = os.path.join(save_path, f"{phone}.json")
             account_info = {
                 "phone": phone,
@@ -6101,13 +6100,12 @@ class TelegramFullGUI:
             with open(json_file, 'w', encoding='utf-8') as f:
                 json.dump(account_info, f, ensure_ascii=False, indent=2)
             
-            await client.disconnect()
+            await new_client.disconnect()
             
             self.log("直登转协议", f"✅ 账号 {phone} 已保存到 {save_path}")
             self.direct_status.config(text="保存成功", foreground="green")
             self.direct_session_path = session_file
             
-            # 自动导入到账号列表
             self.add_account_from_session(phone, session_file, json_file, account_info)
             
             self.show_centered_info("成功", f"账号 {phone} 已成功转为协议号并保存\n\nSession: {session_file}\nJSON: {json_file}")
@@ -6118,7 +6116,6 @@ class TelegramFullGUI:
     
     def add_account_from_session(self, phone, session_path, json_path, account_info):
         """将新登录的账号添加到账号列表"""
-        # 检查是否已存在
         for acc in self.accounts:
             if acc.get('phone') == phone:
                 self.log("直登转协议", f"账号 {phone} 已存在于列表中，更新信息")
@@ -6131,7 +6128,6 @@ class TelegramFullGUI:
                 self.save_config()
                 return
         
-        # 添加新账号
         nickname = account_info.get('first_name', '') or phone
         if account_info.get('last_name'):
             nickname = f"{nickname} {account_info.get('last_name')}"
@@ -6261,7 +6257,6 @@ class TelegramFullGUI:
                 
                 return "fail"
             
-            # 使用线程池并发处理
             with concurrent.futures.ThreadPoolExecutor(max_workers=concurrent) as executor:
                 futures = []
                 for phone in self.batch_phones:
@@ -6292,7 +6287,6 @@ class TelegramFullGUI:
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
             
-            # 获取代理
             proxy = None
             if self.direct_use_proxy.get():
                 proxy_str = self.direct_proxy_entry.get().strip()
@@ -6313,13 +6307,11 @@ class TelegramFullGUI:
                         await client.disconnect()
                         return "skip"
                     
-                    # 发送验证码
                     result = await client.send_code_request(phone)
                     phone_code_hash = result.phone_code_hash
                     
                     self.log("直登转协议", f"[{phone}] 验证码已发送，请手动输入或使用自动接码")
                     
-                    # 提示用户输入验证码（使用消息框）
                     code = simpledialog.askstring("输入验证码", f"请输入 {phone} 的验证码:", parent=self.root)
                     
                     if not code:
@@ -6329,7 +6321,6 @@ class TelegramFullGUI:
                     
                     await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
                     
-                    # 检查2FA
                     try:
                         me = await client.get_me()
                     except SessionPasswordNeededError:
@@ -6343,15 +6334,12 @@ class TelegramFullGUI:
                     
                     me = await client.get_me()
                     
-                    # 保存session
                     session_file = os.path.join(save_path, f"{phone}.session")
                     await client.disconnect()
                     
-                    # 重新创建并保存
                     client2 = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
                     await client2.connect()
                     
-                    # 重新登录
                     if code:
                         await client2.sign_in(phone, code, phone_code_hash=phone_code_hash)
                     else:
@@ -6365,7 +6353,6 @@ class TelegramFullGUI:
                     
                     me = await client2.get_me()
                     
-                    # 保存JSON
                     json_file = os.path.join(save_path, f"{phone}.json")
                     account_info = {
                         "phone": phone,
@@ -6383,7 +6370,6 @@ class TelegramFullGUI:
                     
                     await client2.disconnect()
                     
-                    # 添加到账号列表
                     self.root.after(0, lambda: self.add_account_from_session(phone, session_file, json_file, account_info))
                     
                     self.log("直登转协议", f"[{phone}] ✅ 登录成功并保存")
