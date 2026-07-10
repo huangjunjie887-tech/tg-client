@@ -37,7 +37,7 @@ from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotos
 from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlineBotResultRequest
 from telethon.tl.functions.auth import SendCodeRequest, SignInRequest, LogOutRequest
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
-from telethon.sessions import StringSession
+from telethon.sessions import StringSession, MemorySession
 
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
@@ -6184,7 +6184,7 @@ class TelegramFullGUI:
     
     # ==================== 修复版 save_direct_account 方法 ====================
     async def save_direct_account(self, phone, save_path, client=None):
-        """保存账号到指定路径 - 使用导出的session保存"""
+        """保存账号到指定路径 - 直接使用当前client保存session"""
         try:
             if client is None:
                 client = self.direct_client
@@ -6207,68 +6207,52 @@ class TelegramFullGUI:
                     except:
                         pass
             
-            # ========== 核心修复：直接从当前client复制session到文件 ==========
-            # 方法1：尝试使用 Telethon 的 export_session 功能
+            # ========== 核心修复：直接保存当前client的session ==========
+            # 方法：使用 client.session.save() 导出session字符串
+            session_string = None
             try:
-                # 导出当前session为字符串
                 session_string = client.session.save()
-                
-                # 用导出的session创建新的client并保存到文件
-                from telethon.sessions import StringSession
-                
-                # 创建新的session文件
-                file_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
-                await file_client.connect()
-                
-                # 使用导出的session替换当前session
-                file_client.session = StringSession(session_string)
-                await file_client.connect()
-                
-                # 验证登录
-                me2 = await file_client.get_me()
-                if me2.id == me.id:
-                    # 保存session到文件（disconnect时会自动保存）
-                    await file_client.disconnect()
+                if session_string:
+                    self.log("直登转协议", f"导出Session成功")
+                else:
+                    self.log("直登转协议", "导出Session返回空字符串")
+            except Exception as e:
+                self.log("直登转协议", f"导出Session失败: {str(e)}")
+            
+            if session_string:
+                # 直接写入session文件
+                try:
+                    with open(session_file, 'w', encoding='utf-8') as f:
+                        f.write(session_string)
                     self.log("直登转协议", f"✅ Session已保存到 {session_file}")
-                else:
-                    self.log("直登转协议", "Session验证失败，用户ID不匹配")
-                    await file_client.disconnect()
-                    # 降级方案：使用传统方法
-                    raise Exception("Session验证失败")
+                except Exception as e:
+                    self.log("直登转协议", f"写入Session文件失败: {str(e)}")
+                    raise e
+            else:
+                # 备用方法：使用MemorySession直接保存
+                self.log("直登转协议", "尝试使用MemorySession保存...")
+                try:
+                    from telethon.sessions import MemorySession
+                    import pickle
+                    import base64
                     
-            except Exception as e1:
-                self.log("直登转协议", f"导出Session失败，尝试备用方法: {str(e1)}")
-                # 备用方法：使用传统登录方式保存
-                code = self.direct_code.get().strip()
-                phone_code_hash = self.direct_phone_code_hash
-                twofa = self.direct_twofa.get().strip()
-                
-                # 保存当前client的auth_key
-                await client.disconnect()
-                
-                # 重新创建client保存session
-                new_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
-                await new_client.connect()
-                
-                # 尝试使用验证码登录
-                if code and phone_code_hash:
-                    try:
-                        await new_client.sign_in(phone, code, phone_code_hash=phone_code_hash)
-                    except SessionPasswordNeededError:
-                        if twofa:
-                            await new_client.sign_in(password=twofa)
-                else:
-                    await new_client.sign_in(phone)
-                
-                if twofa:
-                    try:
-                        await new_client.sign_in(password=twofa)
-                    except:
-                        pass
-                
-                me = await new_client.get_me()
-                await new_client.disconnect()
-                self.log("直登转协议", f"✅ Session已保存(备用方法)到 {session_file}")
+                    # 创建MemorySession
+                    mem_session = MemorySession()
+                    mem_session.set_dc(
+                        client.session.dc_id,
+                        client.session.server_address,
+                        client.session.port
+                    )
+                    mem_session.auth_key = client.session.auth_key
+                    
+                    # 保存到文件
+                    with open(session_file, 'wb') as f:
+                        f.write(mem_session.save())
+                    
+                    self.log("直登转协议", f"✅ Session已保存(备用方法)到 {session_file}")
+                except Exception as e:
+                    self.log("直登转协议", f"MemorySession保存失败: {str(e)}")
+                    raise e
             
             # 保存JSON文件
             twofa = self.direct_twofa.get().strip()
@@ -6296,7 +6280,8 @@ class TelegramFullGUI:
             self.show_centered_info("成功", f"账号 {phone} 已成功转为协议号并保存\n\nSession: {session_file}\nJSON: {json_file}")
             
         except Exception as e:
-            self.log("直登转协议", f"保存失败: {str(e)}")
+            error_msg = str(e)
+            self.log("直登转协议", f"保存失败: {error_msg}")
             raise e
     
     def add_account_from_session(self, phone, session_path, json_path, account_info):
