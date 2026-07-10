@@ -6207,28 +6207,68 @@ class TelegramFullGUI:
                     except:
                         pass
             
-            # ========== 核心修复：直接导出当前client的session ==========
-            # 导出当前session为字符串
-            session_string = client.session.save()
-            
-            # 用导出的session创建新的client并保存到文件
-            from telethon.sessions import StringSession
-            file_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
-            await file_client.connect()
-            
-            # 使用导出的session登录（不需要验证码）
-            file_client.session = StringSession(session_string)
-            await file_client.connect()
-            
-            # 验证登录
-            me2 = await file_client.get_me()
-            if me2.id != me.id:
-                self.log("直登转协议", "Session验证失败，用户ID不匹配")
-                await file_client.disconnect()
-                return
-            
-            # 保存session到文件（disconnect时会自动保存）
-            await file_client.disconnect()
+            # ========== 核心修复：直接从当前client复制session到文件 ==========
+            # 方法1：尝试使用 Telethon 的 export_session 功能
+            try:
+                # 导出当前session为字符串
+                session_string = client.session.save()
+                
+                # 用导出的session创建新的client并保存到文件
+                from telethon.sessions import StringSession
+                
+                # 创建新的session文件
+                file_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
+                await file_client.connect()
+                
+                # 使用导出的session替换当前session
+                file_client.session = StringSession(session_string)
+                await file_client.connect()
+                
+                # 验证登录
+                me2 = await file_client.get_me()
+                if me2.id == me.id:
+                    # 保存session到文件（disconnect时会自动保存）
+                    await file_client.disconnect()
+                    self.log("直登转协议", f"✅ Session已保存到 {session_file}")
+                else:
+                    self.log("直登转协议", "Session验证失败，用户ID不匹配")
+                    await file_client.disconnect()
+                    # 降级方案：使用传统方法
+                    raise Exception("Session验证失败")
+                    
+            except Exception as e1:
+                self.log("直登转协议", f"导出Session失败，尝试备用方法: {str(e1)}")
+                # 备用方法：使用传统登录方式保存
+                code = self.direct_code.get().strip()
+                phone_code_hash = self.direct_phone_code_hash
+                twofa = self.direct_twofa.get().strip()
+                
+                # 保存当前client的auth_key
+                await client.disconnect()
+                
+                # 重新创建client保存session
+                new_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
+                await new_client.connect()
+                
+                # 尝试使用验证码登录
+                if code and phone_code_hash:
+                    try:
+                        await new_client.sign_in(phone, code, phone_code_hash=phone_code_hash)
+                    except SessionPasswordNeededError:
+                        if twofa:
+                            await new_client.sign_in(password=twofa)
+                else:
+                    await new_client.sign_in(phone)
+                
+                if twofa:
+                    try:
+                        await new_client.sign_in(password=twofa)
+                    except:
+                        pass
+                
+                me = await new_client.get_me()
+                await new_client.disconnect()
+                self.log("直登转协议", f"✅ Session已保存(备用方法)到 {session_file}")
             
             # 保存JSON文件
             twofa = self.direct_twofa.get().strip()
