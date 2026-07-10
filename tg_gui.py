@@ -5906,7 +5906,7 @@ class TelegramFullGUI:
                     if not self.direct_client:
                         self.direct_status.config(text="就绪", foreground="blue")
             
-            # ========== 修复点：保存 event loop 到 self.direct_loop ==========
+            # ========== 保存 event loop 到 self.direct_loop ==========
             self.direct_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.direct_loop)
             try:
@@ -6002,11 +6002,13 @@ class TelegramFullGUI:
             try:
                 self.direct_progress['value'] = 50
                 
-                # ========== 修复：先尝试登录，如果验证码正确但需要2FA，再处理 ==========
+                # ========== 核心修复：正确处理2FA ==========
                 try:
-                    # 1. 验证验证码并登录
+                    # 1. 尝试用验证码登录
                     if code:
+                        self.log("直登转协议", f"正在验证验证码...")
                         await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
+                        self.log("直登转协议", "验证码验证成功")
                     else:
                         me = await client.get_me()
                         self.log("直登转协议", f"账号 {phone} 已登录，昵称: {me.first_name or me.username}")
@@ -6017,24 +6019,20 @@ class TelegramFullGUI:
                     
                     self.direct_progress['value'] = 70
                     
-                    # 2. 检查是否需要2FA
+                    # 2. 获取用户信息
                     try:
                         me = await client.get_me()
-                        # 登录成功
                         self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
                         await self.save_direct_account(phone, save_path, client)
                         self.direct_progress['value'] = 100
                         login_success = True
-                        
                     except SessionPasswordNeededError:
-                        # ========== 关键修复：处理2FA密码 ==========
+                        # 2FA在get_me时触发
+                        self.log("直登转协议", "检测到需要2FA验证(get_me阶段)")
                         if twofa:
-                            self.log("直登转协议", "检测到2FA，正在验证...")
+                            self.log("直登转协议", "正在验证2FA密码...")
                             try:
-                                # 使用2FA密码登录
                                 await client.sign_in(password=twofa)
-                                self.direct_progress['value'] = 85
-                                # 获取用户信息
                                 me = await client.get_me()
                                 self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
                                 await self.save_direct_account(phone, save_path, client)
@@ -6043,7 +6041,7 @@ class TelegramFullGUI:
                             except Exception as e2:
                                 error_msg = str(e2)
                                 self.log("直登转协议", f"2FA验证失败: {error_msg}")
-                                if "password" in error_msg.lower() or "PASSWORD_HASH_INVALID" in error_msg or "invalid" in error_msg.lower():
+                                if "password" in error_msg.lower() or "invalid" in error_msg.lower():
                                     self.log("直登转协议", "2FA密码错误，请重新输入")
                                     self.direct_status.config(text="2FA密码错误", foreground="red")
                                     self.direct_progress['value'] = 0
@@ -6052,17 +6050,49 @@ class TelegramFullGUI:
                                 else:
                                     self.direct_status.config(text=f"2FA验证失败: {error_msg[:30]}", foreground="red")
                         else:
-                            self.log("直登转协议", "需要两步验证密码，请输入2FA密码")
+                            self.log("直登转协议", "需要2FA密码但未输入")
                             self.direct_status.config(text="需要2FA密码", foreground="red")
                             self.direct_progress['value'] = 0
                             self.direct_twofa.focus()
                             return
-                        
+                
+                except SessionPasswordNeededError:
+                    # ========== sign_in 时触发2FA ==========
+                    self.log("直登转协议", "检测到需要2FA验证(sign_in阶段)")
+                    if twofa:
+                        self.log("直登转协议", "正在验证2FA密码...")
+                        try:
+                            # 直接使用2FA密码登录
+                            await client.sign_in(password=twofa)
+                            self.direct_progress['value'] = 85
+                            me = await client.get_me()
+                            self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
+                            await self.save_direct_account(phone, save_path, client)
+                            self.direct_progress['value'] = 100
+                            login_success = True
+                        except Exception as e2:
+                            error_msg = str(e2)
+                            self.log("直登转协议", f"2FA验证失败: {error_msg}")
+                            if "password" in error_msg.lower() or "invalid" in error_msg.lower():
+                                self.log("直登转协议", "2FA密码错误，请重新输入")
+                                self.direct_status.config(text="2FA密码错误", foreground="red")
+                                self.direct_progress['value'] = 0
+                                self.direct_twofa.delete(0, tk.END)
+                                self.direct_twofa.focus()
+                            else:
+                                self.direct_status.config(text=f"2FA验证失败: {error_msg[:30]}", foreground="red")
+                    else:
+                        self.log("直登转协议", "需要2FA密码但未输入")
+                        self.direct_status.config(text="需要2FA密码", foreground="red")
+                        self.direct_progress['value'] = 0
+                        self.direct_twofa.focus()
+                        return
+                
                 except Exception as e1:
                     error_msg = str(e1)
                     # 检查是否是验证码错误
                     if "phone_code" in error_msg.lower() or "code" in error_msg.lower() or "invalid" in error_msg.lower():
-                        if "phone_code" in error_msg.lower():
+                        if "phone_code" in error_msg.lower() or "code" in error_msg.lower():
                             self.log("直登转协议", f"验证码错误: {error_msg}")
                             self.direct_status.config(text="验证码错误", foreground="red")
                             self.direct_progress['value'] = 0
@@ -6107,7 +6137,7 @@ class TelegramFullGUI:
                         except:
                             self.direct_loop = None
         
-        # ========== 修复点：使用保存的 loop 执行 ==========
+        # ========== 使用保存的 loop 执行 ==========
         if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
             try:
                 self.direct_loop.run_until_complete(login())
@@ -6271,7 +6301,7 @@ class TelegramFullGUI:
             async def do_disconnect():
                 await self.direct_client.disconnect()
             try:
-                # ========== 修复点：使用保存的 event loop ==========
+                # ========== 使用保存的 event loop ==========
                 if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
                     self.direct_loop.run_until_complete(do_disconnect())
                 else:
