@@ -37,6 +37,7 @@ from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotos
 from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlineBotResultRequest
 from telethon.tl.functions.auth import SendCodeRequest, SignInRequest, LogOutRequest
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+from telethon.sessions import StringSession
 
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
@@ -6181,23 +6182,20 @@ class TelegramFullGUI:
                     except:
                         self.direct_loop = None
     
+    # ==================== 修复版 save_direct_account 方法 ====================
     async def save_direct_account(self, phone, save_path, client=None):
-        """保存账号到指定路径 - 使用已存在的client"""
+        """保存账号到指定路径 - 使用导出的session保存"""
         try:
             if client is None:
                 client = self.direct_client
             
+            # 获取当前用户信息
             me = await client.get_me()
             
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
             
             session_file = os.path.join(save_path, f"{phone}.session")
-            
-            # 保存必要的状态
-            code = self.direct_code.get().strip()
-            phone_code_hash = self.direct_phone_code_hash
-            twofa = self.direct_twofa.get().strip()
             
             # 获取代理设置
             proxy = None
@@ -6209,25 +6207,31 @@ class TelegramFullGUI:
                     except:
                         pass
             
-            await client.disconnect()
+            # ========== 核心修复：直接导出当前client的session ==========
+            # 导出当前session为字符串
+            session_string = client.session.save()
             
-            # 创建新客户端保存session
-            new_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
-            await new_client.connect()
+            # 用导出的session创建新的client并保存到文件
+            from telethon.sessions import StringSession
+            file_client = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
+            await file_client.connect()
             
-            if code:
-                await new_client.sign_in(phone, code, phone_code_hash=phone_code_hash)
-            else:
-                await new_client.sign_in(phone)
+            # 使用导出的session登录（不需要验证码）
+            file_client.session = StringSession(session_string)
+            await file_client.connect()
             
-            if twofa:
-                try:
-                    await new_client.sign_in(password=twofa)
-                except:
-                    pass
+            # 验证登录
+            me2 = await file_client.get_me()
+            if me2.id != me.id:
+                self.log("直登转协议", "Session验证失败，用户ID不匹配")
+                await file_client.disconnect()
+                return
             
-            me = await new_client.get_me()
+            # 保存session到文件（disconnect时会自动保存）
+            await file_client.disconnect()
             
+            # 保存JSON文件
+            twofa = self.direct_twofa.get().strip()
             json_file = os.path.join(save_path, f"{phone}.json")
             account_info = {
                 "phone": phone,
@@ -6242,8 +6246,6 @@ class TelegramFullGUI:
             
             with open(json_file, 'w', encoding='utf-8') as f:
                 json.dump(account_info, f, ensure_ascii=False, indent=2)
-            
-            await new_client.disconnect()
             
             self.log("直登转协议", f"✅ 账号 {phone} 已保存到 {save_path}")
             self.direct_status.config(text="保存成功", foreground="green")
