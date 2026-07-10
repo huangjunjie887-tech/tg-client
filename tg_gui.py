@@ -6184,107 +6184,151 @@ class TelegramFullGUI:
 
     # ==================== 修复版 save_direct_account 方法 ====================
     async def save_direct_account(self, phone, save_path, client=None):
-        """保存账号到指定路径 - 直接使用当前client保存session（不重新连接）"""
+        """保存账号到指定路径 - 直接从client提取auth_key保存"""
         try:
             if client is None:
                 client = self.direct_client
 
             # 获取当前用户信息
             me = await client.get_me()
+            self.log("直登转协议", f"当前用户: {me.first_name} (ID: {me.id})")
 
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
 
             session_file = os.path.join(save_path, f"{phone}.session")
+            json_file = os.path.join(save_path, f"{phone}.json")
 
-            # 获取代理设置
-            proxy = None
-            if self.direct_use_proxy.get():
-                proxy_str = self.direct_proxy_entry.get().strip()
-                if proxy_str:
+            # ===== 核心修复：直接从client获取auth_key =====
+            from telethon.sessions import MemorySession
+            import base64
+
+            # 方法1：尝试从client.session获取auth_key
+            auth_key = None
+            dc_id = None
+            server_address = None
+            port = None
+
+            if client.session:
+                # 获取DC信息
+                if hasattr(client.session, 'dc_id'):
+                    dc_id = client.session.dc_id
+                if hasattr(client.session, 'server_address'):
+                    server_address = client.session.server_address
+                if hasattr(client.session, 'port'):
+                    port = client.session.port
+
+                # 获取auth_key - 直接访问内部属性
+                if hasattr(client.session, 'auth_key'):
+                    auth_key = client.session.auth_key
+                    if auth_key:
+                        self.log("直登转协议", f"从session获取auth_key成功，长度: {len(auth_key)}")
+
+            # 如果auth_key为None，尝试从client的连接中获取
+            if not auth_key:
+                self.log("直登转协议", "尝试从client连接中获取auth_key...")
+                try:
+                    # 从client的底层连接获取
+                    if hasattr(client, '_connection') and client._connection:
+                        if hasattr(client._connection, '_auth_key'):
+                            auth_key = client._connection._auth_key
+                            if auth_key:
+                                self.log("直登转协议", f"从连接获取auth_key成功，长度: {len(auth_key)}")
+                except:
+                    pass
+
+            # 如果auth_key为None，尝试从client的session文件读取
+            if not auth_key and hasattr(client, 'session') and hasattr(client.session, '_session_file'):
+                session_file_path = client.session._session_file
+                if session_file_path and os.path.exists(session_file_path):
+                    self.log("直登转协议", f"尝试从session文件读取: {session_file_path}")
                     try:
-                        proxy = self.parse_proxy_string(proxy_str)
+                        with open(session_file_path, 'rb') as f:
+                            # 读取auth_key (通常在文件开头)
+                            data = f.read(256)  # auth_key是256字节
+                            if len(data) == 256:
+                                auth_key = data
+                                self.log("直登转协议", "从session文件读取auth_key成功")
                     except:
                         pass
 
-            # ========== 核心修复：直接保存当前client的session到文件 ==========
-            # 方法：使用 client.session.save() 导出session字符串，直接写入文件
-
-            # 首先确保client的session有auth_key
-            if not client.session or not client.session.auth_key:
-                self.log("直登转协议", "当前session没有auth_key，尝试重新连接...")
-                # 重新连接获取auth_key
+            if not auth_key:
+                self.log("直登转协议", "⚠️ 无法获取auth_key，尝试重新连接...")
+                # 重新连接并重新登录
                 await client.disconnect()
                 await client.connect()
-                if not await client.is_user_authorized():
-                    # 重新登录
-                    code = self.direct_code.get().strip()
-                    phone_code_hash = self.direct_phone_code_hash
-                    twofa = self.direct_twofa.get().strip()
 
-                    if code and phone_code_hash:
-                        try:
-                            await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
-                        except SessionPasswordNeededError:
-                            if twofa:
-                                await client.sign_in(password=twofa)
-                    elif twofa:
-                        try:
+                # 重新登录
+                code = self.direct_code.get().strip()
+                twofa = self.direct_twofa.get().strip()
+
+                if code:
+                    try:
+                        await client.sign_in(phone, code, phone_code_hash=self.direct_phone_code_hash)
+                    except SessionPasswordNeededError:
+                        if twofa:
                             await client.sign_in(password=twofa)
-                        except:
-                            pass
+                elif twofa:
+                    try:
+                        await client.sign_in(password=twofa)
+                    except:
+                        pass
 
-                    # 再次获取用户信息
-                    me = await client.get_me()
+                # 重新获取auth_key
+                if hasattr(client.session, 'auth_key'):
+                    auth_key = client.session.auth_key
+                    if auth_key:
+                        self.log("直登转协议", f"重新连接后获取auth_key成功")
+
+            # 如果还是None，报错
+            if not auth_key:
+                raise Exception("无法获取auth_key，请检查登录状态")
+
+            # ===== 创建新的session并保存 =====
+            # 使用StringSession保存
+            from telethon.sessions import StringSession
+
+            # 创建StringSession并手动设置数据
+            string_session = StringSession()
+
+            # 设置DC信息
+            if dc_id is not None:
+                string_session._dc_id = dc_id
+            if server_address:
+                string_session._server_address = server_address
+            if port is not None:
+                string_session._port = port
+
+            # 设置auth_key
+            string_session._auth_key = auth_key
 
             # 导出session字符串
-            session_string = None
-            try:
-                session_string = client.session.save()
-                self.log("直登转协议", f"导出Session成功")
-            except Exception as e:
-                self.log("直登转协议", f"导出Session失败: {str(e)}")
+            session_string = string_session.save()
 
             if session_string:
-                # 直接写入session文件
-                try:
-                    with open(session_file, 'w', encoding='utf-8') as f:
-                        f.write(session_string)
-                    self.log("直登转协议", f"✅ Session已保存到 {session_file}")
-                except Exception as e:
-                    self.log("直登转协议", f"写入Session文件失败: {str(e)}")
-                    raise e
+                with open(session_file, 'w', encoding='utf-8') as f:
+                    f.write(session_string)
+                self.log("直登转协议", f"✅ Session保存成功: {session_file}")
+                self.log("直登转协议", f"Session字符串长度: {len(session_string)}")
             else:
-                # 备用方法：使用MemorySession保存auth_key
-                self.log("直登转协议", "尝试使用MemorySession保存...")
-                try:
-                    from telethon.sessions import MemorySession
-                    import pickle
+                # 备用方案：使用MemorySession直接保存
+                self.log("直登转协议", "StringSession导出失败，使用MemorySession备用方案...")
+                mem_session = MemorySession()
+                mem_session._dc_id = dc_id
+                mem_session._server_address = server_address
+                mem_session._port = port
+                mem_session._auth_key = auth_key
 
-                    if client.session and client.session.auth_key:
-                        # 创建MemorySession
-                        mem_session = MemorySession()
-                        mem_session.set_dc(
-                            client.session.dc_id,
-                            client.session.server_address,
-                            client.session.port
-                        )
-                        mem_session.auth_key = client.session.auth_key
-
-                        # 保存到文件
-                        with open(session_file, 'wb') as f:
-                            f.write(mem_session.save())
-
-                        self.log("直登转协议", f"✅ Session已保存(备用方法)到 {session_file}")
-                    else:
-                        raise Exception("无法获取auth_key")
-                except Exception as e:
-                    self.log("直登转协议", f"MemorySession保存失败: {str(e)}")
-                    raise e
+                # 保存为二进制文件
+                with open(session_file + '.mem', 'wb') as f:
+                    f.write(mem_session.save())
+                self.log("直登转协议", f"✅ MemorySession保存成功: {session_file}.mem")
+                # 重命名为.session
+                os.rename(session_file + '.mem', session_file)
+                self.log("直登转协议", f"✅ 已重命名为: {session_file}")
 
             # 保存JSON文件
             twofa = self.direct_twofa.get().strip()
-            json_file = os.path.join(save_path, f"{phone}.json")
             account_info = {
                 "phone": phone,
                 "first_name": me.first_name or "",
@@ -6299,9 +6343,21 @@ class TelegramFullGUI:
             with open(json_file, 'w', encoding='utf-8') as f:
                 json.dump(account_info, f, ensure_ascii=False, indent=2)
 
-            self.log("直登转协议", f"✅ 账号 {phone} 已保存到 {save_path}")
+            self.log("直登转协议", f"✅ JSON保存成功: {json_file}")
             self.direct_status.config(text="保存成功", foreground="green")
             self.direct_session_path = session_file
+
+            # 验证保存的session是否可用
+            try:
+                self.log("直登转协议", "验证保存的session...")
+                test_client = TelegramClient(session_file, api_id, api_hash)
+                await test_client.connect()
+                if await test_client.is_user_authorized():
+                    test_me = await test_client.get_me()
+                    self.log("直登转协议", f"✅ Session验证成功: {test_me.first_name}")
+                await test_client.disconnect()
+            except Exception as e:
+                self.log("直登转协议", f"⚠️ Session验证失败: {str(e)}")
 
             self.add_account_from_session(phone, session_file, json_file, account_info)
 
