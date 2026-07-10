@@ -6184,7 +6184,7 @@ class TelegramFullGUI:
     
     # ==================== 修复版 save_direct_account 方法 ====================
     async def save_direct_account(self, phone, save_path, client=None):
-        """保存账号到指定路径 - 直接使用当前client保存session"""
+        """保存账号到指定路径 - 直接使用当前client保存session（不重新连接）"""
         try:
             if client is None:
                 client = self.direct_client
@@ -6207,15 +6207,41 @@ class TelegramFullGUI:
                     except:
                         pass
             
-            # ========== 核心修复：直接保存当前client的session ==========
-            # 方法：使用 client.session.save() 导出session字符串
+            # ========== 核心修复：直接保存当前client的session到文件 ==========
+            # 方法：使用 client.session.save() 导出session字符串，直接写入文件
+            
+            # 首先确保client的session有auth_key
+            if not client.session or not client.session.auth_key:
+                self.log("直登转协议", "当前session没有auth_key，尝试重新连接...")
+                # 重新连接获取auth_key
+                await client.disconnect()
+                await client.connect()
+                if not await client.is_user_authorized():
+                    # 重新登录
+                    code = self.direct_code.get().strip()
+                    phone_code_hash = self.direct_phone_code_hash
+                    twofa = self.direct_twofa.get().strip()
+                    
+                    if code and phone_code_hash:
+                        try:
+                            await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
+                        except SessionPasswordNeededError:
+                            if twofa:
+                                await client.sign_in(password=twofa)
+                    elif twofa:
+                        try:
+                            await client.sign_in(password=twofa)
+                        except:
+                            pass
+                    
+                    # 再次获取用户信息
+                    me = await client.get_me()
+            
+            # 导出session字符串
             session_string = None
             try:
                 session_string = client.session.save()
-                if session_string:
-                    self.log("直登转协议", f"导出Session成功")
-                else:
-                    self.log("直登转协议", "导出Session返回空字符串")
+                self.log("直登转协议", f"导出Session成功")
             except Exception as e:
                 self.log("直登转协议", f"导出Session失败: {str(e)}")
             
@@ -6229,27 +6255,29 @@ class TelegramFullGUI:
                     self.log("直登转协议", f"写入Session文件失败: {str(e)}")
                     raise e
             else:
-                # 备用方法：使用MemorySession直接保存
+                # 备用方法：使用MemorySession保存auth_key
                 self.log("直登转协议", "尝试使用MemorySession保存...")
                 try:
                     from telethon.sessions import MemorySession
                     import pickle
-                    import base64
                     
-                    # 创建MemorySession
-                    mem_session = MemorySession()
-                    mem_session.set_dc(
-                        client.session.dc_id,
-                        client.session.server_address,
-                        client.session.port
-                    )
-                    mem_session.auth_key = client.session.auth_key
-                    
-                    # 保存到文件
-                    with open(session_file, 'wb') as f:
-                        f.write(mem_session.save())
-                    
-                    self.log("直登转协议", f"✅ Session已保存(备用方法)到 {session_file}")
+                    if client.session and client.session.auth_key:
+                        # 创建MemorySession
+                        mem_session = MemorySession()
+                        mem_session.set_dc(
+                            client.session.dc_id,
+                            client.session.server_address,
+                            client.session.port
+                        )
+                        mem_session.auth_key = client.session.auth_key
+                        
+                        # 保存到文件
+                        with open(session_file, 'wb') as f:
+                            f.write(mem_session.save())
+                        
+                        self.log("直登转协议", f"✅ Session已保存(备用方法)到 {session_file}")
+                    else:
+                        raise Exception("无法获取auth_key")
                 except Exception as e:
                     self.log("直登转协议", f"MemorySession保存失败: {str(e)}")
                     raise e
