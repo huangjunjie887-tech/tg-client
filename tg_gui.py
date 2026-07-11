@@ -64,7 +64,7 @@ class TelegramFullGUI:
         self.user_list_lock = threading.Lock()
 
         # 消息缓存：用于自动群聊的回复功能
-        self.chat_message_cache = {}  # {group_id: {account_phone: {'msg_id': xxx, 'content': xxx, 'timestamp': xxx}}}
+        self.chat_message_cache = {}
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
@@ -203,11 +203,9 @@ class TelegramFullGUI:
         self.refresh_account_list_filter()
 
     def update_account_status_by_phone(self, phone, error_type, error_detail=""):
-        """根据手机号更新账号状态"""
         for acc in self.accounts:
             if acc.get('phone') == phone:
                 old_status = acc.get('status', '正常')
-                # 只有更严重的状态才覆盖
                 if error_type == '封禁':
                     acc['status'] = '封禁'
                 elif error_type == '销号':
@@ -227,12 +225,10 @@ class TelegramFullGUI:
         self.update_status_filter_options()
 
     def update_status_filter_options(self):
-        """更新状态筛选下拉框的选项"""
         statuses = set(["全部"])
         for acc in self.accounts:
             status = acc.get('status', '待检测')
             statuses.add(status)
-        # 确保所有状态都在列表中
         all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"]
         for s in all_statuses:
             statuses.add(s)
@@ -271,62 +267,33 @@ class TelegramFullGUI:
                 return False
 
     def parse_unauthorized_error(self, phone, e, operation="检测"):
-        """
-        解析未授权错误，返回细化的状态和日志信息
-        支持所有Telegram未授权相关错误
-        """
         error_msg = str(e)
         error_lower = error_msg.lower()
 
-        # 1. 账号已注销
         if isinstance(e, UserDeactivatedError) or "deactivated" in error_lower:
             return "销号", f"[{phone}] ❌ 账号已注销(销号)"
-
-        # 2. 账号被封禁
         if isinstance(e, PhoneNumberBannedError) or "banned" in error_lower:
             return "封禁", f"[{phone}] ❌ 账号已被封禁"
-
-        # 3. 需要2FA密码
         if isinstance(e, SessionPasswordNeededError) or "password" in error_lower:
             return "需要2FA重新登录", f"[{phone}] ⚠️ 需要2FA密码重新登录"
-
-        # 4. Session被撤销（在其他设备登录）
         if isinstance(e, SessionRevokedError) or "session_revoked" in error_lower:
             return "被踢下线", f"[{phone}] 🔴 账号在其他设备登录，被踢下线"
-
-        # 5. AuthKey未注册
         if isinstance(e, AuthKeyUnregisteredError) or "auth_key_unregistered" in error_lower:
             return "session已过期", f"[{phone}] 🟡 session已过期，请重新登录"
-
-        # 6. 2FA密码哈希无效
         if "password_hash_invalid" in error_lower:
             return "2FA已修改", f"[{phone}] 🟠 2FA密码已被修改，需要重新登录"
-
-        # 7. 账号冻结
         if "frozen" in error_lower:
             return "账号冻结", f"[{phone}] 🔵 账号被冻结，需要激活"
-
-        # 8. 手机号未注册
         if "phone_number_unregistered" in error_lower or "unregistered" in error_lower:
             return "未注册", f"[{phone}] ❌ 手机号未注册"
-
-        # 9. 手机号无效
         if "phone_number_invalid" in error_lower:
             return "手机号无效", f"[{phone}] ❌ 手机号无效"
-
-        # 10. API ID/API Hash错误
         if "api_id" in error_lower or "api_hash" in error_lower:
             return "API错误", f"[{phone}] ⚠️ API ID或API Hash无效"
-
-        # 11. 连接超时
         if "timeout" in error_lower or "timed out" in error_lower:
             return "未授权(超时)", f"[{phone}] ⚠️ 连接超时"
-
-        # 12. 网络连接问题
         if "connection" in error_lower or "network" in error_lower:
             return "未授权", f"[{phone}] ⚠️ 网络连接失败: {error_msg[:50]}"
-
-        # 13. 其他未知错误
         return "未授权", f"[{phone}] ⚠️ {operation}异常: {error_msg[:80]}"
 
     def show_card_login(self):
@@ -413,7 +380,6 @@ class TelegramFullGUI:
         self.status_bar.pack(side="bottom", fill="x")
 
         self.refresh_invite_group_filter()
-
         self.refresh_account_list_filter()
         self.refresh_proxy_list()
         self.refresh_scrape_accounts()
@@ -545,10 +511,7 @@ class TelegramFullGUI:
 
         self.update_status_filter_options()
 
-    # ==================== 通用账号选择弹窗 ====================
     def show_account_selector(self, title, group_filter_default="全部", status_filter_default="正常", multi_select=True):
-        """显示账号选择弹窗，返回选中的账号列表"""
-
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         dialog.geometry("700x550")
@@ -560,7 +523,6 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(dialog)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # 筛选栏
         filter_frame = ttk.Frame(main_frame)
         filter_frame.pack(fill="x", pady=5)
 
@@ -574,11 +536,9 @@ class TelegramFullGUI:
         status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"], width=15)
         status_combo.pack(side="left", padx=5)
 
-        # 全选按钮
         select_all_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(filter_frame, text="全选", variable=select_all_var).pack(side="left", padx=20)
 
-        # 账号列表（带复选框）- 使用Treeview带复选框
         listbox_frame = ttk.Frame(main_frame)
         listbox_frame.pack(fill="both", expand=True, pady=5)
 
@@ -604,11 +564,9 @@ class TelegramFullGUI:
         tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # 存储复选框状态
-        check_vars = {}  # {phone: BooleanVar}
+        check_vars = {}
 
         def refresh_account_list():
-            # 清空tree
             for item in tree.get_children():
                 tree.delete(item)
             check_vars.clear()
@@ -634,11 +592,9 @@ class TelegramFullGUI:
                 var = tk.BooleanVar(value=False)
                 check_vars[phone] = var
 
-                # 设置状态颜色标记
                 status_display = status
                 tree.insert("", "end", iid=phone, values=("", idx, phone, nickname, group, status_display))
 
-                # 根据状态设置行颜色
                 if status == "正常":
                     tree.tag_configure('normal', background='#e8f5e9')
                     tree.item(phone, tags=('normal',))
@@ -656,7 +612,7 @@ class TelegramFullGUI:
             region = tree.identify_region(event.x, event.y)
             if region == "cell":
                 column = tree.identify_column(event.x)
-                if column == "#1":  # 选择列
+                if column == "#1":
                     item = tree.identify_row(event.y)
                     if item:
                         current = check_vars.get(item, tk.BooleanVar(value=False))
@@ -680,7 +636,6 @@ class TelegramFullGUI:
 
         refresh_account_list()
 
-        # 按钮区域
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill="x", pady=10)
 
@@ -706,7 +661,7 @@ class TelegramFullGUI:
         self.root.wait_window(dialog)
 
         return selected_accounts
-    # ==================== 多账号管理页面 ====================
+
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
@@ -798,7 +753,7 @@ class TelegramFullGUI:
         threading.Thread(target=do_login, daemon=True).start()
 
     def login_single_account(self, acc):
-        """修复版一键登录 - 细化所有未授权原因"""
+        """修复版一键登录 - 支持文本格式和二进制格式session"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -807,13 +762,29 @@ class TelegramFullGUI:
         async def do_login():
             client = None
             try:
-                client = TelegramClient(session_path, api_id, api_hash)
+                from telethon.sessions import StringSession, MemorySession
+
+                session = None
+                if session_path and os.path.exists(session_path):
+                    try:
+                        with open(session_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        if content and len(content) > 10:
+                            session = StringSession(content)
+                            self.log("多账号管理", f"[{phone}] 使用StringSession加载")
+                    except (UnicodeDecodeError, UnicodeError):
+                        session = session_path
+                        self.log("多账号管理", f"[{phone}] 使用二进制Session加载")
+                    except Exception:
+                        session = session_path
+                else:
+                    session = MemorySession()
+
+                client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
 
                 if await client.is_user_authorized():
                     me = await client.get_me()
-
-                    # 检查账号是否已注销（关键修复）
                     if getattr(me, 'deleted', False):
                         acc['status'] = '销号'
                         self.log("多账号管理", f"[{phone}] ❌ 账号已注销(销号)")
@@ -831,11 +802,8 @@ class TelegramFullGUI:
                     self.update_status_filter_options()
                     return True
                 else:
-                    # session未授权，尝试获取详细原因（带超时）
                     try:
                         await asyncio.wait_for(client.get_me(), timeout=5)
-                        # 如果成功，说明 session 其实是有效的，但 is_user_authorized 返回了False
-                        # 这种情况可能发生在session文件损坏或不完整
                         me = await client.get_me()
                         if getattr(me, 'deleted', False):
                             acc['status'] = '销号'
@@ -856,12 +824,12 @@ class TelegramFullGUI:
                         acc['status'] = '封禁'
                         self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
                     except Exception as e:
-                        # 使用统一解析函数
                         status, log_msg = self.parse_unauthorized_error(phone, e, "登录")
                         acc['status'] = status
                         self.log("多账号管理", log_msg)
                     self.update_status_filter_options()
                     return False
+
             except FloodWaitError as e:
                 acc['status'] = f'登录限制({e.seconds}秒)'
                 self.log("多账号管理", f"[{phone}] ⚠️ 登录过于频繁，等待{e.seconds}秒")
@@ -870,18 +838,35 @@ class TelegramFullGUI:
             except Exception as e:
                 error_msg = str(e)
                 error_lower = error_msg.lower()
-                if "deactivated" in error_lower:
+                if "database" in error_lower:
+                    self.log("多账号管理", f"[{phone}] ⚠️ session文件格式问题，尝试重新加载...")
+                    try:
+                        if session_path and os.path.exists(session_path):
+                            with open(session_path, 'r', encoding='utf-8') as f:
+                                content = f.read().strip()
+                            if content:
+                                from telethon.sessions import StringSession
+                                session = StringSession(content)
+                                client = TelegramClient(session, api_id, api_hash)
+                                await client.connect()
+                                if await client.is_user_authorized():
+                                    me = await client.get_me()
+                                    acc['status'] = '正常'
+                                    acc['nickname'] = me.first_name or phone
+                                    self.log("多账号管理", f"[{phone}] ✅ 重新加载成功 | 昵称: {me.first_name}")
+                                    await client.disconnect()
+                                    self.update_status_filter_options()
+                                    return True
+                    except:
+                        pass
+                    acc['status'] = 'session格式错误'
+                    self.log("多账号管理", f"[{phone}] ❌ session文件格式错误")
+                elif "deactivated" in error_lower:
                     acc['status'] = '销号'
                     self.log("多账号管理", f"[{phone}] ❌ 账号已注销")
                 elif "banned" in error_lower:
                     acc['status'] = '封禁'
                     self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
-                elif "password" in error_lower:
-                    acc['status'] = '需要2FA重新登录'
-                    self.log("多账号管理", f"[{phone}] ⚠️ 需要2FA密码重新登录")
-                elif "flood" in error_lower or "too many" in error_lower:
-                    acc['status'] = '频率限制'
-                    self.log("多账号管理", f"[{phone}] ⚠️ 操作频率限制: {error_msg[:50]}")
                 else:
                     acc['status'] = '登录失败'
                     self.log("多账号管理", f"[{phone}] ❌ 登录失败: {error_msg[:80]}")
@@ -926,7 +911,7 @@ class TelegramFullGUI:
         threading.Thread(target=do_deep_check, daemon=True).start()
 
     def deep_check_single_account(self, acc):
-        """修复版深度检测 - 细化所有未授权原因"""
+        """修复版深度检测 - 支持文本格式和二进制格式session"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -935,14 +920,28 @@ class TelegramFullGUI:
         async def do_check():
             client = None
             try:
-                client = TelegramClient(session_path, api_id, api_hash)
+                from telethon.sessions import StringSession, MemorySession
+
+                session = None
+                if session_path and os.path.exists(session_path):
+                    try:
+                        with open(session_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        if content and len(content) > 10:
+                            session = StringSession(content)
+                    except (UnicodeDecodeError, UnicodeError):
+                        session = session_path
+                    except Exception:
+                        session = session_path
+                else:
+                    session = MemorySession()
+
+                client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
 
                 if not await client.is_user_authorized():
-                    # 尝试获取详细错误信息（带超时）
                     try:
                         await asyncio.wait_for(client.get_me(), timeout=5)
-                        # 能获取到用户信息但未授权，可能是session不完整
                         me = await client.get_me()
                         if getattr(me, 'deleted', False):
                             acc['status'] = '销号'
@@ -963,18 +962,14 @@ class TelegramFullGUI:
                         acc['status'] = '封禁'
                         self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
                     except Exception as e:
-                        # 使用统一解析函数
                         status, log_msg = self.parse_unauthorized_error(phone, e, "深度检测")
                         acc['status'] = status
-                        # 替换"检测异常"为"检测结果"
                         log_msg = log_msg.replace("异常", "结果")
                         self.log("多账号管理", log_msg)
                     self.update_status_filter_options()
                     return
 
                 me = await client.get_me()
-
-                # 关键修复：检查账号是否已注销
                 if getattr(me, 'deleted', False):
                     acc['status'] = '销号'
                     self.log("多账号管理", f"[{phone}] 检测结果: 销号(账号已注销)")
@@ -991,10 +986,8 @@ class TelegramFullGUI:
                     days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
                     self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
 
-                # 只检测基础状态，不发送任何消息
                 acc['status'] = '正常'
                 self.log("多账号管理", f"[{phone}] 检测结果: 正常(可登录)")
-
                 await client.disconnect()
                 self.update_status_filter_options()
 
@@ -1012,7 +1005,10 @@ class TelegramFullGUI:
                 self.update_status_filter_options()
             except Exception as e:
                 error_msg = str(e).lower()
-                if "deactivated" in error_msg:
+                if "database" in error_msg:
+                    acc['status'] = 'session格式错误'
+                    self.log("多账号管理", f"[{phone}] 检测结果: session文件格式错误")
+                elif "deactivated" in error_msg:
                     acc['status'] = '销号'
                     self.log("多账号管理", f"[{phone}] 检测结果: 销号")
                 elif "banned" in error_msg:
@@ -1045,14 +1041,12 @@ class TelegramFullGUI:
         self.update_status_filter_options()
 
     def kick_devices_filtered(self):
-        """将选中分组的所有账号踢出其他设备，保留当前设备"""
         filtered_accounts = self.get_filtered_accounts()
         if not filtered_accounts:
             self.log("多账号管理", "当前筛选条件下没有账号可操作")
             self.show_centered_warning("提示", "当前筛选条件下没有账号可操作")
             return
 
-        # 确认对话框
         def do_kick():
             self.log("多账号管理", f"开始踢出 {len(filtered_accounts)} 个账号的其他设备...")
 
@@ -1070,7 +1064,6 @@ class TelegramFullGUI:
         self.show_centered_yesno("确认", f"确定将当前筛选的 {len(filtered_accounts)} 个账号踢出所有其他设备吗？\n（当前设备将保留登录状态）", do_kick)
 
     def kick_single_account_devices(self, acc):
-        """踢出单个账号的所有其他设备，保留当前设备"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -1078,24 +1071,35 @@ class TelegramFullGUI:
         async def do_kick():
             client = None
             try:
-                client = TelegramClient(session_path, api_id, api_hash)
+                from telethon.sessions import StringSession
+
+                session = None
+                if session_path and os.path.exists(session_path):
+                    try:
+                        with open(session_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        if content and len(content) > 10:
+                            session = StringSession(content)
+                    except:
+                        session = session_path
+                else:
+                    session = MemorySession()
+
+                client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
 
                 if not await client.is_user_authorized():
                     self.log("多账号管理", f"[{phone}] 账号未登录，无需踢出")
                     return
 
-                # 获取所有会话
                 auths = await client(GetAuthorizationsRequest())
 
                 kicked_count = 0
                 for auth in auths.authorizations:
                     if auth.current:
-                        # 跳过当前设备（我们的TG营销系统）
                         device_name = auth.device_model or "当前设备"
                         self.log("多账号管理", f"[{phone}] 保留当前设备: {device_name}")
                         continue
-                    # 踢出其他设备
                     try:
                         await client(ResetAuthorizationRequest(hash=auth.hash))
                         kicked_count += 1
@@ -1104,14 +1108,9 @@ class TelegramFullGUI:
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 踢出设备失败: {str(e)[:50]}")
 
-                # 修复：不再执行 log_out()，保留当前设备登录状态
-                # await client.log_out()  ← 已删除
-
                 self.log("多账号管理", f"[{phone}] 踢出完成，共踢出 {kicked_count} 个设备，当前设备已保留")
 
-                # 保持账号状态为"正常"
                 if acc.get('status') != '正常':
-                    # 如果当前不是正常状态，尝试刷新
                     try:
                         me = await client.get_me()
                         if me:
@@ -1223,7 +1222,6 @@ class TelegramFullGUI:
         ttk.Button(bio_row, text="导入TXT文件", command=self.select_bio_file, width=15).pack(side="left", padx=5)
         ttk.Label(bio_frame, text="每行一个简介，按行依次分配给选中的账号", font=("微软雅黑", 8), foreground="gray").pack(anchor="w", padx=5, pady=2)
 
-        # 2FA密码修改区域
         twofa_frame = ttk.LabelFrame(dialog, text="两步验证密码(2FA)")
         twofa_frame.pack(fill="x", padx=10, pady=5)
 
@@ -1265,7 +1263,6 @@ class TelegramFullGUI:
             firstname_file = self.firstname_file_path.get().strip()
             bio_file = self.bio_file_path.get().strip()
 
-            # 读取2FA密码
             old_twofa = self.twofa_old_password.get().strip()
             new_twofa = self.twofa_new_password.get().strip()
             confirm_twofa = self.twofa_confirm_password.get().strip()
@@ -1310,7 +1307,6 @@ class TelegramFullGUI:
                             username = usernames[i % len(usernames)] if usernames else None
                             firstname = firstnames[i % len(firstnames)] if firstnames else None
                             bio = bios[i % len(bios)] if bios else None
-                            # 传递2FA密码
                             self.edit_single_account_profile(acc, photo_path, username, firstname, bio, old_twofa, new_twofa)
                             self.update_account_task(phone, "", False)
                             self.update_account_task(phone, "修改资料", False)
@@ -1355,28 +1351,36 @@ class TelegramFullGUI:
         async def do_edit():
             client = None
             try:
-                client = TelegramClient(session_path, api_id, api_hash)
+                from telethon.sessions import StringSession
+
+                session = None
+                if session_path and os.path.exists(session_path):
+                    try:
+                        with open(session_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        if content and len(content) > 10:
+                            session = StringSession(content)
+                    except:
+                        session = session_path
+                else:
+                    session = MemorySession()
+
+                client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.log("多账号管理", f"[{phone}] 账号未登录")
                     return
 
-                # 修改2FA密码
                 if old_twofa and new_twofa and old_twofa.strip() and new_twofa.strip():
                     try:
-                        # 获取当前密码设置
                         pwd = await client(GetPasswordRequest())
-
                         if pwd.has_password:
-                            # 有原密码，需要验证后修改
                             await client.edit_2fa(new_password=new_twofa, current_password=old_twofa)
                             self.log("多账号管理", f"[{phone}] 2FA密码修改成功")
                         else:
-                            # 没有2FA，直接设置
                             await client.edit_2fa(new_password=new_twofa)
                             self.log("多账号管理", f"[{phone}] 2FA密码设置成功")
 
-                        # 更新JSON文件中的2FA密码
                         json_path = acc.get('json_path', '')
                         if json_path and os.path.exists(json_path):
                             with open(json_path, 'r', encoding='utf-8') as f:
@@ -1799,7 +1803,7 @@ class TelegramFullGUI:
         else:
             self.log("多账号管理", "当前筛选结果中没有发现已失效的账号")
             self.show_centered_info("提示", "当前筛选结果中没有发现已失效的账号")
-    # ==================== 代理IP页面 ====================
+
     def create_proxy_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="代理IP")
@@ -2535,7 +2539,21 @@ class TelegramFullGUI:
             total_count = 0
 
             try:
-                client = TelegramClient(session_path, api_id, api_hash)
+                from telethon.sessions import StringSession
+
+                session = None
+                if session_path and os.path.exists(session_path):
+                    try:
+                        with open(session_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        if content and len(content) > 10:
+                            session = StringSession(content)
+                    except:
+                        session = session_path
+                else:
+                    session = MemorySession()
+
+                client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.log("采集群成员", "账号未登录")
@@ -3082,16 +3100,14 @@ class TelegramFullGUI:
 
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
-    # ==================== 批量拉人页面 ====================
+
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
 
-        # 主容器 - 垂直布局
         main_container = ttk.Frame(page)
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 上方内容区域（可滚动，占据所有剩余空间）
         top_frame = ttk.Frame(main_container)
         top_frame.pack(fill="both", expand=True, pady=(0, 5))
 
@@ -3116,8 +3132,6 @@ class TelegramFullGUI:
         def on_mousewheel(event):
             settings_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         settings_canvas.bind("<MouseWheel>", on_mousewheel)
-
-        # ========== 以下所有设置内容都在 settings_frame 中 ==========
 
         mode_frame = ttk.LabelFrame(settings_frame, text="拉人模式")
         mode_frame.pack(fill="x", pady=5, padx=5)
@@ -3177,7 +3191,6 @@ class TelegramFullGUI:
         ttk.Label(file_frame, text="执行后自动删除已处理的用户", font=("微软雅黑", 8), foreground="red").pack(side="left", padx=10)
         current_row += 1
 
-        # 账号选择（删除分组筛选，只保留选择账号按钮）
         account_select_frame = ttk.Frame(self.settings_panel)
         account_select_frame.grid(row=current_row, column=0, sticky="ew", pady=5)
         ttk.Button(account_select_frame, text="选择账号", command=self.select_invite_accounts, width=12).pack(side="left", padx=5)
@@ -3185,7 +3198,6 @@ class TelegramFullGUI:
         self.selected_invite_accounts_label.pack(side="left", padx=10)
         current_row += 1
 
-        # 存储选中的账号
         self.selected_invite_accounts = []
 
         param_frame = ttk.LabelFrame(self.settings_panel, text="拉人参数")
@@ -3234,7 +3246,6 @@ class TelegramFullGUI:
 
         self.settings_panel.columnconfigure(0, weight=1)
 
-        # 按钮区域
         btn_frame = ttk.Frame(settings_frame)
         btn_frame.pack(fill="x", pady=10)
         self.start_invite_btn = ttk.Button(btn_frame, text="开始拉人", command=self.start_invite_advanced, width=12)
@@ -3242,7 +3253,6 @@ class TelegramFullGUI:
         self.stop_invite_btn = ttk.Button(btn_frame, text="停止拉人", command=self.stop_invite, width=12)
         self.stop_invite_btn.pack(side="left", padx=10)
 
-        # ========== 运行日志区域 - 放在最底部，固定高度 ==========
         log_frame = ttk.LabelFrame(main_container, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=24)
@@ -3252,35 +3262,30 @@ class TelegramFullGUI:
         self.invite_stop_flag = False
 
     def select_invite_accounts(self):
-        """选择拉人账号的弹窗"""
         selected = self.show_account_selector("选择拉人账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_invite_accounts = selected
         self.selected_invite_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("批量拉人", f"已选择 {len(selected)} 个账号")
 
     def select_private_accounts(self):
-        """选择私发账号的弹窗"""
         selected = self.show_account_selector("选择私发账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_private_accounts = selected
         self.selected_private_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("群发广告", f"已选择 {len(selected)} 个私发账号")
 
     def select_group_accounts(self):
-        """选择群发账号的弹窗"""
         selected = self.show_account_selector("选择群发账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_group_accounts = selected
         self.selected_group_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("群发广告", f"已选择 {len(selected)} 个群发账号")
 
     def select_chat_accounts(self):
-        """选择自动群聊账号的弹窗"""
         selected = self.show_account_selector("选择自动群聊账号", group_filter_default="全部", status_filter_default="正常")
         self.selected_chat_accounts = selected
         self.selected_chat_accounts_label.config(text=f"已选: {len(selected)} 个账号")
         self.log("自动群聊", f"已选择 {len(selected)} 个账号")
 
     def refresh_invite_account_listbox(self, event=None):
-        # 保留方法以兼容，但不再使用
         pass
 
     def get_selected_invite_accounts(self):
@@ -3598,7 +3603,6 @@ class TelegramFullGUI:
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
 
-            # 进一步细分常见错误
             if "banned" in error_msg:
                 self.update_account_status_by_phone(phone, '封禁')
                 return False, f"[{phone[-6:]}] ⚠️账号封禁 | {clean_username[:15]} | 账号被封禁"
@@ -3627,7 +3631,21 @@ class TelegramFullGUI:
         account_invited_count = 0
 
         try:
-            client = TelegramClient(session_path, api_id, api_hash)
+            from telethon.sessions import StringSession
+
+            session = None
+            if session_path and os.path.exists(session_path):
+                try:
+                    with open(session_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                    if content and len(content) > 10:
+                        session = StringSession(content)
+                except:
+                    session = session_path
+            else:
+                session = MemorySession()
+
+            client = TelegramClient(session, api_id, api_hash)
             await client.connect()
             if not await client.is_user_authorized():
                 self.log("批量拉人", f"[{phone[-6:]}] 未登录")
@@ -3657,7 +3675,6 @@ class TelegramFullGUI:
                         except Exception as e:
                             error_msg = str(e)
                             self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {error_msg[:50]}")
-                            # 检测销号或限制加群
                             if "You tried to use a method that" in error_msg or "USER_DEACTIVATED" in error_msg or "deactivated" in error_msg.lower():
                                 self.update_account_status_by_phone(phone, '销号')
                                 self.log("批量拉人", f"[{phone[-6:]}] ⚠️账号已注销(销号)")
@@ -3748,7 +3765,7 @@ class TelegramFullGUI:
             self.log("批量拉人", "停止拉人")
         else:
             self.log("批量拉人", "无进行中的任务")
-    # ==================== 群发广告页面 ====================
+
     def create_send_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="群发广告")
@@ -3759,22 +3776,18 @@ class TelegramFullGUI:
         send_notebook = ttk.Notebook(main_frame)
         send_notebook.pack(fill="both", expand=True)
 
-        # ==================== 私发标签页 ====================
         private_frame = ttk.Frame(send_notebook)
         send_notebook.add(private_frame, text="私发(私聊)")
 
-        # 使用垂直布局，确保日志铺满
         private_main = ttk.Frame(private_frame)
         private_main.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 上方内容区域（不扩展，随内容大小）
         private_top = ttk.Frame(private_main)
         private_top.pack(fill="x", pady=(0, 5))
 
         account_frame = ttk.LabelFrame(private_top, text="选择任务账号")
         account_frame.pack(fill="x", pady=5)
 
-        # 删除分组筛选和状态筛选，只保留选择账号按钮
         filter_row = ttk.Frame(account_frame)
         filter_row.pack(fill="x", padx=5, pady=5)
 
@@ -3848,21 +3861,17 @@ class TelegramFullGUI:
         self.private_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_private_send, width=10)
         self.private_resume_btn.pack(side="left", padx=5)
 
-        # 运行日志区域 - 自动铺满剩余空间
         private_log_frame = ttk.LabelFrame(private_main, text="运行日志")
         private_log_frame.pack(fill="both", expand=True, pady=5)
         self.private_log = scrolledtext.ScrolledText(private_log_frame, width=100, height=8)
         self.private_log.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # ==================== 群发标签页 ====================
         group_frame_tab = ttk.Frame(send_notebook)
         send_notebook.add(group_frame_tab, text="群发(群聊)")
 
-        # 使用垂直布局，确保日志铺满
         group_main = ttk.Frame(group_frame_tab)
         group_main.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 上方内容区域（不扩展，随内容大小）
         group_top = ttk.Frame(group_main)
         group_top.pack(fill="x", pady=(0, 5))
 
@@ -3884,7 +3893,6 @@ class TelegramFullGUI:
         group_account_frame = ttk.LabelFrame(group_top, text="选择任务账号")
         group_account_frame.pack(fill="x", pady=5)
 
-        # 删除分组筛选和状态筛选，只保留选择账号按钮
         group_filter_row = ttk.Frame(group_account_frame)
         group_filter_row.pack(fill="x", padx=5, pady=5)
 
@@ -3948,7 +3956,6 @@ class TelegramFullGUI:
         self.group_resume_btn = ttk.Button(group_btn_frame, text="继续", command=self.resume_group_send, width=10)
         self.group_resume_btn.pack(side="left", padx=5)
 
-        # 运行日志区域 - 自动铺满剩余空间
         group_log_frame = ttk.LabelFrame(group_main, text="运行日志")
         group_log_frame.pack(fill="both", expand=True, pady=5)
         self.group_log = scrolledtext.ScrolledText(group_log_frame, width=100, height=8)
@@ -3964,11 +3971,9 @@ class TelegramFullGUI:
         self.group_stop_flag = False
 
     def refresh_private_account_list(self, event=None):
-        # 保留方法以兼容
         pass
 
     def refresh_group_account_list(self, event=None):
-        # 保留方法以兼容
         pass
 
     def import_private_user_txt(self):
@@ -4183,8 +4188,6 @@ class TelegramFullGUI:
         threading.Thread(target=run_private_send, daemon=True).start()
 
     async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
-        """修复版私发函数 - 支持每账号发送数量、线程控制、间隔控制、中文日志、账号状态实时更新"""
-
         if not accounts or not users:
             self.private_log_insert("账号或用户列表为空")
             return
@@ -4193,8 +4196,7 @@ class TelegramFullGUI:
             self.private_log_insert("每账号发送数量必须大于0")
             return
 
-        # ========== 1. 正确分配用户：每个账号分配 per_account_limit 个用户 ==========
-        account_tasks = []  # [(acc, [user1, user2, ...]), ...]
+        account_tasks = []
         user_index = 0
         total_users_to_send = len(accounts) * per_account_limit
 
@@ -4217,23 +4219,19 @@ class TelegramFullGUI:
 
         self.private_log_insert(f"分配完成: {len(account_tasks)}个账号, 共{sum(len(t[1]) for t in account_tasks)}个用户, 每账号{per_account_limit}人")
 
-        # ========== 2. 统计变量 ==========
         send_stats = {
             'success': 0,
             'fail': 0,
             'total': 0
         }
 
-        # ========== 3. 信号量控制并发线程数 ==========
         semaphore = asyncio.Semaphore(max(1, thread_cnt))
 
-        # 发送函数（单个账号，按顺序发送多个用户）
         async def send_for_account(acc, user_list):
             phone = acc.get('phone', '')
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
 
-            # 使用信号量控制并发
             async with semaphore:
                 self.private_log_insert(f"[{phone}] 开始任务，需发送 {len(user_list)} 个用户")
 
@@ -4242,7 +4240,21 @@ class TelegramFullGUI:
                 fail_count = 0
 
                 try:
-                    client = TelegramClient(session_path, api_id, api_hash)
+                    from telethon.sessions import StringSession
+
+                    session = None
+                    if session_path and os.path.exists(session_path):
+                        try:
+                            with open(session_path, 'r', encoding='utf-8') as f:
+                                content = f.read().strip()
+                            if content and len(content) > 10:
+                                session = StringSession(content)
+                        except:
+                            session = session_path
+                    else:
+                        session = MemorySession()
+
+                    client = TelegramClient(session, api_id, api_hash)
                     await client.connect()
 
                     if not await client.is_user_authorized():
@@ -4250,14 +4262,11 @@ class TelegramFullGUI:
                         self.update_account_status_by_phone(phone, '未授权')
                         return {'phone': phone, 'success': 0, 'fail': len(user_list)}
 
-                    # 依次发送每个用户
                     for idx, username in enumerate(user_list, 1):
-                        # 检查停止标志
                         if self.private_stop_flag:
                             self.private_log_insert(f"[{phone}] 收到停止信号，停止发送")
                             break
 
-                        # 检查暂停标志
                         while self.private_send_paused:
                             await asyncio.sleep(1)
                             if self.private_stop_flag:
@@ -4269,7 +4278,6 @@ class TelegramFullGUI:
                             clean_username = username.lstrip('@')
                             user_entity = await client.get_entity(clean_username)
 
-                            # 发送消息
                             if ad_text.strip().startswith('@PostBot'):
                                 parts = ad_text.strip().split(' ')
                                 if len(parts) >= 2:
@@ -4320,7 +4328,6 @@ class TelegramFullGUI:
                                 await client.send_message(user_entity.id, ad_text)
                                 self.private_log_insert(f"[{phone}] ✅发送文本成功 | {clean_username}")
 
-                            # 发送成功，从文件删除用户
                             if self.private_user_file_path and os.path.exists(self.private_user_file_path):
                                 self.remove_user_from_file(username, self.private_user_file_path)
 
@@ -4332,7 +4339,6 @@ class TelegramFullGUI:
                             self.update_account_status_by_phone(phone, '频率限制')
                             fail_count += 1
                             send_stats['fail'] += 1
-                            # 等待后继续下一个用户
                             await asyncio.sleep(min(e.seconds, 300))
 
                         except UserNotMutualContactError:
@@ -4346,7 +4352,6 @@ class TelegramFullGUI:
                             self.update_account_status_by_phone(phone, '风控限制')
                             fail_count += 1
                             send_stats['fail'] += 1
-                            # 风控账号暂停使用
                             break
 
                         except UserPrivacyRestrictedError:
@@ -4384,8 +4389,7 @@ class TelegramFullGUI:
                             fail_count += 1
                             send_stats['fail'] += 1
 
-                        # 发送间隔等待（关键：每个用户发送后等待）
-                        if idx < len(user_list):  # 不是最后一个用户才等待
+                        if idx < len(user_list):
                             self.private_log_insert(f"[{phone}] 等待 {interval} 秒后发送下一个用户...")
                             await asyncio.sleep(interval)
 
@@ -4404,20 +4408,17 @@ class TelegramFullGUI:
 
                 return {'phone': phone, 'success': success_count, 'fail': fail_count}
 
-        # 并发执行所有账号任务
         tasks = []
         for acc, user_list in account_tasks:
             tasks.append(send_for_account(acc, user_list))
 
         results = await asyncio.gather(*tasks)
 
-        # 输出统计
         total_success = sum(r['success'] for r in results)
         total_fail = sum(r['fail'] for r in results)
 
         self.private_log_insert(f"发送完成: 成功 {total_success} 个，失败 {total_fail} 个")
 
-        # 更新用户列表计数
         if self.private_user_file_path and os.path.exists(self.private_user_file_path):
             try:
                 with open(self.private_user_file_path, 'r', encoding='utf-8') as f:
@@ -4429,7 +4430,6 @@ class TelegramFullGUI:
             except:
                 pass
 
-        # 刷新账号列表显示
         self.refresh_account_list_filter()
 
     def stop_private_send(self):
@@ -4501,12 +4501,7 @@ class TelegramFullGUI:
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import UserAlreadyParticipantError
 
-        # ========== 智能分配：将账号均匀分配到各个群组 ==========
         def smart_assign_groups(accounts_list, groups_list):
-            """
-            智能分配：将账号均匀分配到各个群组
-            返回：{group: [account1, account2, ...]}
-            """
             total_accounts = len(accounts_list)
             total_groups = len(groups_list)
 
@@ -4517,22 +4512,18 @@ class TelegramFullGUI:
             account_index = 0
 
             if total_accounts <= total_groups:
-                # 账号数 <= 群组数：每个群最多1个账号
                 accounts_per_group = 1
                 for group in groups_list:
                     if account_index < total_accounts:
                         assignment[group] = [accounts_list[account_index]]
                         account_index += 1
                     else:
-                        # 账号用完了，剩余群没有账号
                         assignment[group] = []
             else:
-                # 账号数 > 群组数：均匀分配
                 accounts_per_group = total_accounts // total_groups
                 remainder = total_accounts % total_groups
 
                 for i, group in enumerate(groups_list):
-                    # 前 remainder 个群多分配1个账号
                     count = accounts_per_group + (1 if i < remainder else 0)
                     assigned = []
                     for _ in range(count):
@@ -4540,7 +4531,6 @@ class TelegramFullGUI:
                             assigned.append(accounts_list[account_index])
                             account_index += 1
                         else:
-                            # 账号不够，从头轮询
                             account_index = 0
                             assigned.append(accounts_list[account_index])
                             account_index += 1
@@ -4548,24 +4538,10 @@ class TelegramFullGUI:
 
             return assignment
 
-        # ========== 执行智能分配 ==========
-        account_to_groups = {}  # {account: [group1, group2, ...]}
-
-        # 获取所有账号（按状态过滤）
         valid_accounts = [acc for acc in accounts if acc.get('status') == '正常']
 
-        # 解析群组实体列表
-        group_entities = []
-        for target in targets:
-            # 这里需要实际的实体，但当前函数只传入了targets字符串列表
-            # 所以我们用targets字符串作为标识，稍后在每个账号中解析
-            pass
-
-        # 由于每个账号需要独立解析群组实体，我们采用简化方案：
-        # 每个账号只发送分配到的群组链接列表
         assignment = smart_assign_groups(valid_accounts, targets)
 
-        # 记录每个账号分配到哪些群
         account_assignment = {}
         for group, assigned_accounts in assignment.items():
             for acc in assigned_accounts:
@@ -4574,19 +4550,16 @@ class TelegramFullGUI:
                     account_assignment[phone] = []
                 account_assignment[phone].append(group)
 
-        # 记录分配日志
         self.group_log_insert("========== 智能分配结果 ==========")
         for group, assigned_accounts in assignment.items():
             account_phones = [a.get('phone', '')[-6:] for a in assigned_accounts if a.get('phone')]
             self.group_log_insert(f"群: {group[:30]}... → 账号: {', '.join(account_phones) if account_phones else '无'}")
 
-        # 执行发送
         async def send_for_account(acc):
             phone = acc.get('phone', '')
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
 
-            # 获取该账号分配到的群组
             assigned_groups = account_assignment.get(phone, [])
             if not assigned_groups:
                 self.group_log_insert(f"[{phone[-6:]}] 未分配到任何群组")
@@ -4597,13 +4570,26 @@ class TelegramFullGUI:
             joined_groups = []
 
             try:
-                client = TelegramClient(session_path, api_id, api_hash)
+                from telethon.sessions import StringSession
+
+                session = None
+                if session_path and os.path.exists(session_path):
+                    try:
+                        with open(session_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        if content and len(content) > 10:
+                            session = StringSession(content)
+                    except:
+                        session = session_path
+                else:
+                    session = MemorySession()
+
+                client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.group_log_insert(f"[{phone[-6:]}] 未登录")
                     return
 
-                # 加入分配到的群组
                 for target in assigned_groups:
                     try:
                         entity = None
@@ -4659,7 +4645,6 @@ class TelegramFullGUI:
                     self.group_log_insert(f"[{phone[-6:]}] 无有效目标群组")
                     return
 
-                # 循环发送（每个群组发送 per_account_limit 条）
                 group_index = 0
                 while sent_count < per_account_limit or per_account_limit == 0:
                     if self.group_stop_flag:
@@ -4667,7 +4652,6 @@ class TelegramFullGUI:
                     while self.group_send_paused:
                         await asyncio.sleep(1)
 
-                    # 取 concurrent 个群组同时发送
                     target_groups = []
                     for i in range(concurrent):
                         if group_index >= len(joined_groups):
@@ -4751,7 +4735,6 @@ class TelegramFullGUI:
                 if client:
                     await client.disconnect()
 
-        # 创建任务并执行（线程数控制）
         tasks = []
         for acc in valid_accounts[:thread_cnt]:
             tasks.append(send_for_account(acc))
@@ -4770,16 +4753,14 @@ class TelegramFullGUI:
         if self.group_send_running and self.group_send_paused:
             self.group_send_paused = False
             self.group_log_insert("继续群发")
-    # ==================== 自动群聊+回复页面 ====================
+
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动群聊+回复")
 
-        # 主容器 - 垂直布局
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 上方内容区域（可滚动，占据所有剩余空间）
         top_frame = ttk.Frame(main_frame)
         top_frame.pack(fill="both", expand=True, pady=(0, 5))
 
@@ -4805,9 +4786,6 @@ class TelegramFullGUI:
             chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         chat_canvas.bind("<MouseWheel>", on_chat_mousewheel)
 
-        # ========== 以下所有设置内容都在 chat_inner 中 ==========
-
-        # 群聊模式 - 一排显示
         mode_frame = ttk.LabelFrame(chat_inner, text="群聊模式")
         mode_frame.pack(fill="x", padx=10, pady=5)
 
@@ -4818,7 +4796,6 @@ class TelegramFullGUI:
         ttk.Radiobutton(mode_row, text="全账号全群", variable=self.chat_mode, value="all").pack(side="left", padx=20)
         ttk.Radiobutton(mode_row, text="分组对应群", variable=self.chat_mode, value="group").pack(side="left", padx=20)
 
-        # 目标群组区域
         group_frame = ttk.LabelFrame(chat_inner, text="目标群组列表")
         group_frame.pack(fill="x", padx=10, pady=5)
 
@@ -4833,7 +4810,6 @@ class TelegramFullGUI:
         self.chat_group_count_label = ttk.Label(group_frame, text="已加载: 0 个群组", foreground="blue")
         self.chat_group_count_label.pack(anchor="w", padx=5, pady=2)
 
-        # 账号选择区域（删除分组筛选和状态筛选，只保留选择账号按钮）
         account_frame = ttk.LabelFrame(chat_inner, text="选择任务账号")
         account_frame.pack(fill="x", padx=10, pady=5)
 
@@ -4846,7 +4822,6 @@ class TelegramFullGUI:
 
         self.selected_chat_accounts = []
 
-        # 话术设置区域
         script_frame = ttk.LabelFrame(chat_inner, text="话术设置")
         script_frame.pack(fill="x", padx=10, pady=5)
 
@@ -4861,7 +4836,6 @@ class TelegramFullGUI:
         self.chat_script_count_label = ttk.Label(script_frame, text="已加载: 0 条话术", foreground="blue")
         self.chat_script_count_label.pack(anchor="w", padx=5, pady=2)
 
-        # 参数设置区域
         param_frame = ttk.LabelFrame(chat_inner, text="发言参数")
         param_frame.pack(fill="x", padx=10, pady=5)
 
@@ -4878,7 +4852,6 @@ class TelegramFullGUI:
         self.chat_max_interval.insert(0, "60")
         self.chat_max_interval.pack(side="left", padx=5)
 
-        # 新增：从第几行话术开始
         ttk.Label(param_row, text="从第几行话术开始:").pack(side="left", padx=20)
         self.chat_start_line = ttk.Entry(param_row, width=10)
         self.chat_start_line.insert(0, "1")
@@ -4888,7 +4861,6 @@ class TelegramFullGUI:
         self.chat_loop_enabled = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_row, text="无限循环", variable=self.chat_loop_enabled).pack(side="left", padx=20)
 
-        # 按钮区域
         btn_frame = ttk.Frame(chat_inner)
         btn_frame.pack(pady=15)
         self.chat_start_btn = ttk.Button(btn_frame, text="启动炒群", command=self.start_auto_chat, width=12)
@@ -4900,14 +4872,12 @@ class TelegramFullGUI:
         self.chat_resume_btn = ttk.Button(btn_frame, text="继续", command=self.resume_auto_chat, width=12)
         self.chat_resume_btn.pack(side="left", padx=5)
 
-        # ========== 运行日志区域 - 放在最底部，固定高度 ==========
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=24)
         self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
 
-        # 初始化变量
-        self.chat_groups = []  # 存储 (group_name, group_link) 元组
+        self.chat_groups = []
         self.chat_scripts = []
         self.chat_script_items = []
         self.chat_running = False
@@ -4940,7 +4910,6 @@ class TelegramFullGUI:
                     if not line:
                         continue
 
-                    # 解析格式：支持 "分组名 - 链接" 或直接 "链接"
                     group_name = None
                     group_link = line
 
@@ -4957,7 +4926,6 @@ class TelegramFullGUI:
                 self.chat_groups = groups
                 self.chat_group_count_label.config(text=f"已加载: {len(groups)} 个群组")
                 self.log("自动群聊", f"导入群组链接: {file_path}, 共 {len(groups)} 个群组")
-                # 解析分组名用于日志
                 group_names = [g['name'] for g in groups if g['name']]
                 if group_names:
                     self.log("自动群聊", f"检测到分组绑定: {', '.join(set(group_names))}")
@@ -5037,7 +5005,6 @@ class TelegramFullGUI:
         self.log("自动群聊", f"话术解析完成，共 {len(self.chat_script_items)} 条有效话术")
 
     def refresh_chat_account_list(self, event=None):
-        # 保留方法以兼容
         pass
 
     def get_selected_chat_accounts(self):
@@ -5101,7 +5068,6 @@ class TelegramFullGUI:
         self.chat_stop_flag = False
         self.chat_current_script_index = {}
 
-        # 清空消息缓存
         self.chat_message_cache = {}
 
         self.log("自动群聊", f"========== 启动自动群聊 ==========")
@@ -5130,25 +5096,20 @@ class TelegramFullGUI:
         threading.Thread(target=run_auto_chat, daemon=True).start()
 
     async def do_auto_chat(self, accounts, groups, script_items, min_interval, max_interval, loop_enabled, start_line):
-        # 构建账号到群组的映射
         account_groups = {}
 
         if self.chat_mode.get() == "group":
-            # 分组对应群模式：根据群链接前的分组名分配
             for acc in accounts:
                 acc_group = acc.get('group', '默认分组')
                 target_links = []
                 for g in groups:
-                    # 如果群有指定的分组名，且匹配账号分组
                     if g.get('name') and g.get('name') == acc_group:
                         target_links.append(g.get('link'))
-                    # 如果没有指定分组名，则所有账号都加入
                     elif not g.get('name'):
                         target_links.append(g.get('link'))
                 if target_links:
                     account_groups[acc.get('phone')] = target_links
         else:
-            # 全账号全群模式：所有账号加入所有群组
             for acc in accounts:
                 account_groups[acc.get('phone')] = [g.get('link') for g in groups]
 
@@ -5158,7 +5119,6 @@ class TelegramFullGUI:
 
         self.log("自动群聊", "正在初始化账号并加入群组...")
 
-        # 并行初始化所有账号
         async def init_account(acc):
             phone = acc.get('phone', '')
             if phone not in account_groups:
@@ -5172,12 +5132,25 @@ class TelegramFullGUI:
                 return None
 
             try:
-                client = TelegramClient(session_path, api_id, api_hash)
+                from telethon.sessions import StringSession
+
+                session = None
+                if session_path and os.path.exists(session_path):
+                    try:
+                        with open(session_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        if content and len(content) > 10:
+                            session = StringSession(content)
+                    except:
+                        session = session_path
+                else:
+                    session = MemorySession()
+
+                client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
                 if not await client.is_user_authorized():
                     return None
 
-                # 并行加入所有目标群组
                 async def join_single_group(group_link):
                     try:
                         entity = None
@@ -5226,7 +5199,6 @@ class TelegramFullGUI:
                     except Exception:
                         return None
 
-                # 并行执行所有加入操作
                 join_tasks = [join_single_group(gl) for gl in target_groups]
                 entities = await asyncio.gather(*join_tasks)
                 group_entities = [e for e in entities if e is not None]
@@ -5235,7 +5207,6 @@ class TelegramFullGUI:
                     await client.disconnect()
                     return None
 
-                # 为每个群组添加消息监听器来更新缓存
                 for entity in group_entities:
                     @client.on(events.NewMessage(chats=entity))
                     async def message_handler(event):
@@ -5267,7 +5238,6 @@ class TelegramFullGUI:
                 self.log("自动群聊", f"[{phone[-6:]}] 初始化失败: {str(e)[:50]}")
                 return None
 
-        # 并行初始化所有账号
         init_tasks = [init_account(acc) for acc in accounts]
         results = await asyncio.gather(*init_tasks)
         account_clients = {}
@@ -5281,11 +5251,9 @@ class TelegramFullGUI:
 
         self.log("自动群聊", f"初始化完成，成功 {len(account_clients)} 个账号")
 
-        # 构建话术执行队列 - 按原始顺序，每个话术项关联对应的账号
         script_queue = []
         for script_item in script_items:
             sender_idx = script_item['sender_idx']
-            # 找到对应序号的账号
             target_acc = None
             for i, a in enumerate(accounts):
                 if i + 1 == sender_idx:
@@ -5302,7 +5270,6 @@ class TelegramFullGUI:
             self.log("自动群聊", "没有可执行的话术队列")
             return
 
-        # 从指定行开始
         if start_line > 0 and start_line < len(script_queue):
             script_queue = script_queue[start_line:]
             self.log("自动群聊", f"从第 {start_line + 1} 行话术开始，剩余 {len(script_queue)} 条")
@@ -5310,7 +5277,7 @@ class TelegramFullGUI:
         self.log("自动群聊", f"话术队列共 {len(script_queue)} 条，将按顺序依次发言")
 
         script_pointer = 0
-        last_phone = None  # 记录上一条话术的账号
+        last_phone = None
 
         while self.chat_running and not self.chat_stop_flag:
             if self.chat_paused:
@@ -5336,14 +5303,12 @@ class TelegramFullGUI:
             client = info['client']
             group_entities = info['groups']
 
-            # 向所有群组发送这条话术
             for entity in group_entities:
                 if self.chat_stop_flag:
                     break
 
                 try:
                     if script_item['reply_to_idx'] > 0:
-                        # 回复模式：查找目标账号在群组中发送的最新消息
                         target_account = None
                         for i, a in enumerate(accounts):
                             if i + 1 == script_item['reply_to_idx']:
@@ -5355,7 +5320,6 @@ class TelegramFullGUI:
                             found_msg = None
                             group_id = entity.id
 
-                            # 先从缓存中查找
                             if group_id in self.chat_message_cache:
                                 cache = self.chat_message_cache[group_id]
                                 if target_phone in cache:
@@ -5433,7 +5397,6 @@ class TelegramFullGUI:
 
                 await asyncio.sleep(2)
 
-            # 话术间隔：如果连续两条话术是同一个账号，则不等待
             if script_pointer < len(script_queue) and script_queue[script_pointer]['phone'] == phone:
                 self.log("自动群聊", f"同一账号连续发言，跳过间隔等待")
                 continue
@@ -5441,7 +5404,6 @@ class TelegramFullGUI:
             interval = random.randint(min_interval, max_interval)
             await asyncio.sleep(interval)
 
-        # 断开所有客户端
         for phone, info in account_clients.items():
             try:
                 await info['client'].disconnect()
@@ -5463,7 +5425,6 @@ class TelegramFullGUI:
             self.chat_paused = False
             self.log("自动群聊", "继续炒群")
 
-    # ==================== 自动注册页面 ====================
     def create_auto_register_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="自动注册账号")
@@ -5504,7 +5465,6 @@ class TelegramFullGUI:
         self.log("自动注册", "批量注册功能需要对接具体接码平台API")
         self.show_centered_info("提示", "请先配置接码平台API")
 
-    # ==================== 监听页面 ====================
     def create_monitor_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="监听群组")
@@ -5545,7 +5505,6 @@ class TelegramFullGUI:
         self.log("监听群组", "停止监听")
         self.running_tasks['monitor'] = False
 
-    # ==================== 直登转协议页面（完善版） ====================
     def create_direct_login_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="直登转协议")
@@ -5553,17 +5512,14 @@ class TelegramFullGUI:
         main_frame = ttk.Frame(page)
         main_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 基本信息区域 - 隐藏API ID和API Hash
         info_frame = ttk.LabelFrame(main_frame, text="账号信息")
         info_frame.pack(fill="x", padx=10, pady=5)
 
-        # 手机号行（带国家代码选择）
         phone_row = ttk.Frame(info_frame)
         phone_row.grid(row=0, column=0, columnspan=3, sticky="ew", padx=5, pady=10)
 
         ttk.Label(phone_row, text="手机号:", font=("微软雅黑", 10)).pack(side="left", padx=5)
 
-        # 国家代码下拉框
         self.direct_country_code = ttk.Combobox(phone_row, values=["+86", "+1", "+44", "+91", "+81", "+82", "+84", "+63", "+60", "+62", "+66", "+852", "+853", "+886", "+7", "+49", "+33", "+39", "+34", "+61", "+55", "+52", "+82", "+971", "+966", "+65", "+64", "+31", "+46", "+41", "+47", "+45", "+358", "+46", "+47", "+41", "+43", "+32", "+36", "+420", "+421", "+48", "+351", "+353", "+30", "+90", "+972", "+98", "+92", "+880", "+94", "+977", "+856", "+855", "+95", "+371", "+372", "+370", "+373", "+355", "+356", "+389", "+381", "+382", "+383", "+387", "+385", "+386", "+374", "+994", "+995", "+996", "+992", "+993", "+998", "+380", "+375", "+359", "+40", "+27", "+234", "+254", "+233", "+256", "+250", "+251", "+237", "+225", "+226", "+228", "+229", "+227", "+235", "+236", "+242", "+241", "+243", "+244", "+245", "+248", "+249", "+252", "+253", "+257", "+258", "+260", "+261", "+262", "+263", "+264", "+265", "+266", "+267", "+268", "+269", "+290", "+291", "+297", "+298", "+299", "+350", "+351", "+352", "+353", "+354", "+355", "+356", "+357", "+358", "+359", "+370", "+371", "+372", "+373", "+374", "+375", "+376", "+377", "+378", "+379", "+380", "+381", "+382", "+383", "+385", "+386", "+387", "+389"], width=8)
         self.direct_country_code.set("+86")
         self.direct_country_code.pack(side="left", padx=2)
@@ -5574,7 +5530,6 @@ class TelegramFullGUI:
         ttk.Button(phone_row, text="📋 粘贴", command=self.paste_phone, width=8).pack(side="left", padx=2)
         ttk.Button(phone_row, text="📂 批量导入", command=self.batch_import_phones, width=10).pack(side="left", padx=2)
 
-        # 保存路径行
         path_row = ttk.Frame(info_frame)
         path_row.grid(row=1, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
@@ -5583,7 +5538,6 @@ class TelegramFullGUI:
         self.direct_save_path.pack(side="left", padx=5)
         ttk.Button(path_row, text="浏览", command=self.select_direct_save_path, width=8).pack(side="left", padx=5)
 
-        # 批量手机号列表区域（用于批量导入）
         batch_frame = ttk.LabelFrame(info_frame, text="批量导入列表")
         batch_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
@@ -5596,7 +5550,6 @@ class TelegramFullGUI:
         self.batch_phones = []
         self.batch_index = 0
 
-        # 验证码区域
         code_frame = ttk.LabelFrame(main_frame, text="登录验证")
         code_frame.pack(fill="x", padx=10, pady=5)
 
@@ -5621,17 +5574,14 @@ class TelegramFullGUI:
         self.direct_twofa.pack(side="left", padx=5)
         ttk.Label(code_row2, text="（如开启了两步验证）", font=("微软雅黑", 8), foreground="gray").pack(side="left", padx=5)
 
-        # 状态显示行
         status_row = ttk.Frame(code_frame)
         status_row.pack(fill="x", padx=5, pady=5)
         self.direct_status = ttk.Label(status_row, text="就绪", foreground="blue")
         self.direct_status.pack(side="left", padx=5)
 
-        # 进度条
         self.direct_progress = ttk.Progressbar(code_frame, length=300, mode='determinate')
         self.direct_progress.pack(fill="x", padx=5, pady=5)
 
-        # 按钮区域
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(pady=15)
 
@@ -5643,7 +5593,6 @@ class TelegramFullGUI:
 
         ttk.Button(btn_frame, text="📋 复制Session", command=self.direct_copy_session, width=14).pack(side="left", padx=10)
 
-        # 批量操作区域
         batch_op_frame = ttk.LabelFrame(main_frame, text="批量操作")
         batch_op_frame.pack(fill="x", padx=10, pady=5)
 
@@ -5669,7 +5618,6 @@ class TelegramFullGUI:
         self.batch_stop_btn.pack(side="left", padx=5)
         self.batch_stop_btn.config(state="disabled")
 
-        # 批量参数
         param_row = ttk.Frame(batch_op_frame)
         param_row.pack(fill="x", padx=5, pady=5)
 
@@ -5688,13 +5636,11 @@ class TelegramFullGUI:
         self.batch_retry_interval.insert(0, "10")
         self.batch_retry_interval.pack(side="left", padx=5)
 
-        # 日志区域
         log_frame = ttk.LabelFrame(main_frame, text="运行日志")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
         self.log_widgets["直登转协议"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["直登转协议"].pack(fill="both", expand=True, padx=5, pady=5)
 
-        # 状态变量
         self.direct_client = None
         self.direct_phone_code_hash = None
         self.direct_current_phone = None
@@ -5740,7 +5686,6 @@ class TelegramFullGUI:
             for line in content.split('\n'):
                 phone = line.strip()
                 if phone and not phone.startswith('#'):
-                    # 自动添加国家代码
                     if not phone.startswith('+'):
                         phone = self.direct_country_code.get() + phone
                     phones.append(phone)
@@ -5771,7 +5716,6 @@ class TelegramFullGUI:
             self.log("直登转协议", "登录进行中，请稍候")
             return
 
-        # 获取当前手机号
         phone = self.direct_phone.get().strip()
         if not phone:
             if self.batch_phones:
@@ -5825,23 +5769,19 @@ class TelegramFullGUI:
                     if not self.direct_client:
                         self.direct_status.config(text="就绪", foreground="blue")
 
-            # ========== 保存 event loop 到 self.direct_loop ==========
             self.direct_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.direct_loop)
             try:
                 self.direct_loop.run_until_complete(send())
             finally:
-                # 不关闭 loop，留给 direct_login 使用
                 pass
 
         threading.Thread(target=do_send_code, daemon=True).start()
 
     def parse_proxy_string(self, proxy_str):
-        """解析代理字符串 - 已删除代理功能"""
         return None
 
     def start_code_timer(self):
-        """验证码倒计时"""
         self.direct_code_countdown = 60
 
         def update_timer():
@@ -5856,7 +5796,6 @@ class TelegramFullGUI:
             self.root.after_cancel(self.direct_code_timer)
         update_timer()
 
-    # ==================== 修复版 direct_login 方法 ====================
     def direct_login(self):
         if self.direct_is_logging:
             return
@@ -5894,7 +5833,6 @@ class TelegramFullGUI:
         client = self.direct_client
         phone_code_hash = self.direct_phone_code_hash
 
-        # 保存登录状态，用于 finally 块判断
         login_success = False
 
         async def login():
@@ -5902,9 +5840,7 @@ class TelegramFullGUI:
             try:
                 self.direct_progress['value'] = 50
 
-                # ========== 核心修复：正确处理2FA ==========
                 try:
-                    # 1. 尝试用验证码登录
                     if code:
                         self.log("直登转协议", f"正在验证验证码...")
                         await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
@@ -5919,7 +5855,6 @@ class TelegramFullGUI:
 
                     self.direct_progress['value'] = 70
 
-                    # 2. 获取用户信息
                     try:
                         me = await client.get_me()
                         self.log("直登转协议", f"登录成功！昵称: {me.first_name or me.username}")
@@ -5927,7 +5862,6 @@ class TelegramFullGUI:
                         self.direct_progress['value'] = 100
                         login_success = True
                     except SessionPasswordNeededError:
-                        # 2FA在get_me时触发
                         self.log("直登转协议", "检测到需要2FA验证(get_me阶段)")
                         if twofa:
                             self.log("直登转协议", "正在验证2FA密码...")
@@ -5957,12 +5891,10 @@ class TelegramFullGUI:
                             return
 
                 except SessionPasswordNeededError:
-                    # ========== sign_in 时触发2FA ==========
                     self.log("直登转协议", "检测到需要2FA验证(sign_in阶段)")
                     if twofa:
                         self.log("直登转协议", "正在验证2FA密码...")
                         try:
-                            # 直接使用2FA密码登录
                             await client.sign_in(password=twofa)
                             self.direct_progress['value'] = 85
                             me = await client.get_me()
@@ -5990,7 +5922,6 @@ class TelegramFullGUI:
 
                 except Exception as e1:
                     error_msg = str(e1)
-                    # 检查是否是验证码错误
                     if "phone_code" in error_msg.lower() or "code" in error_msg.lower() or "invalid" in error_msg.lower():
                         if "phone_code" in error_msg.lower() or "code" in error_msg.lower():
                             self.log("直登转协议", f"验证码错误: {error_msg}")
@@ -6021,12 +5952,9 @@ class TelegramFullGUI:
                 self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
                 self.direct_progress['value'] = 0
             finally:
-                # ========== 关键修复：只在登录成功时关闭 loop ==========
                 self.direct_is_logging = False
                 self.root.after(0, lambda: self.direct_login_btn.config(state="normal", text="🚀 登录并保存"))
 
-                # 只有在登录成功或致命错误时才关闭 event loop
-                # 如果需要2FA密码但用户未输入，则不关闭 loop，保持连接等待用户输入
                 if login_success or "需要2FA" not in self.direct_status.cget("text"):
                     self.direct_progress['value'] = 0
                     if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
@@ -6037,14 +5965,12 @@ class TelegramFullGUI:
                         except:
                             self.direct_loop = None
 
-        # ========== 使用保存的 loop 执行 ==========
         if hasattr(self, 'direct_loop') and self.direct_loop and not self.direct_loop.is_closed():
             try:
                 self.direct_loop.run_until_complete(login())
             except RuntimeError as e:
                 error_msg = str(e)
                 self.log("直登转协议", f"事件循环错误，重新创建: {error_msg}")
-                # 重新创建 loop
                 self.direct_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self.direct_loop)
                 try:
@@ -6067,7 +5993,6 @@ class TelegramFullGUI:
                     except:
                         self.direct_loop = None
         else:
-            # 备用：创建新 loop
             self.direct_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.direct_loop)
             try:
@@ -6081,26 +6006,21 @@ class TelegramFullGUI:
                     except:
                         self.direct_loop = None
 
-    # ==================== 修复版 save_direct_account 方法 ====================
     async def save_direct_account(self, phone, save_path, client=None):
-        """保存账号为二进制Session格式（兼容Telethon默认加载）"""
         try:
             if client is None:
                 client = self.direct_client
 
-            # 获取当前用户信息
             me = await client.get_me()
             self.log("直登转协议", f"当前用户: {me.first_name} (ID: {me.id})")
 
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
 
-            # ===== 使用 .session 作为扩展名（二进制格式） =====
             session_file = os.path.join(save_path, f"{phone}.session")
             json_file = os.path.join(save_path, f"{phone}.json")
 
-            # 从client获取auth_key
-            from telethon.sessions import MemorySession
+            from telethon.sessions import StringSession
             from telethon.crypto import AuthKey
 
             auth_key_bytes = None
@@ -6129,31 +6049,28 @@ class TelegramFullGUI:
 
             self.log("直登转协议", f"auth_key长度: {len(auth_key_bytes)} 字节")
 
-            # ===== 核心修复：使用 MemorySession 保存为二进制格式 =====
-            mem_session = MemorySession()
+            # 使用StringSession保存为文本格式
+            string_session = StringSession()
             if dc_id is not None:
-                mem_session._dc_id = dc_id
+                string_session._dc_id = dc_id
             if server_address:
-                mem_session._server_address = server_address
+                string_session._server_address = server_address
             if port is not None:
-                mem_session._port = port
+                string_session._port = port
 
             auth_key_obj = AuthKey(auth_key_bytes)
-            mem_session._auth_key = auth_key_obj
+            string_session._auth_key = auth_key_obj
 
-            # 保存为二进制文件（Telethon默认格式）
-            session_data = mem_session.save()  # 返回 bytes
+            session_str = string_session.save()
 
-            if session_data is None:
-                raise Exception("MemorySession.save() 返回 None")
+            if session_str:
+                with open(session_file, 'w', encoding='utf-8') as f:
+                    f.write(session_str)
+                self.log("直登转协议", f"✅ Session保存成功: {session_file}")
+                self.log("直登转协议", f"Session字符串长度: {len(session_str)}")
+            else:
+                raise Exception("StringSession导出失败")
 
-            with open(session_file, 'wb') as f:
-                f.write(session_data)
-
-            self.log("直登转协议", f"✅ Session保存成功: {session_file} (二进制格式)")
-            self.log("直登转协议", f"Session大小: {len(session_data)} 字节")
-
-            # 保存JSON文件
             twofa = self.direct_twofa.get().strip()
             account_info = {
                 "phone": phone,
@@ -6173,10 +6090,13 @@ class TelegramFullGUI:
             self.direct_status.config(text="保存成功", foreground="green")
             self.direct_session_path = session_file
 
-            # ===== 验证保存的二进制session =====
             try:
                 self.log("直登转协议", "验证保存的session...")
-                test_client = TelegramClient(session_file, api_id, api_hash)
+                from telethon.sessions import StringSession
+                with open(session_file, 'r', encoding='utf-8') as f:
+                    session_str = f.read()
+                test_session = StringSession(session_str)
+                test_client = TelegramClient(test_session, api_id, api_hash)
                 await test_client.connect()
                 if await test_client.is_user_authorized():
                     test_me = await test_client.get_me()
@@ -6197,7 +6117,6 @@ class TelegramFullGUI:
             raise e
 
     def add_account_from_session(self, phone, session_path, json_path, account_info):
-        """将新登录的账号添加到账号列表"""
         for acc in self.accounts:
             if acc.get('phone') == phone:
                 self.log("直登转协议", f"账号 {phone} 已存在于列表中，更新信息")
@@ -6235,7 +6154,6 @@ class TelegramFullGUI:
         self.log("直登转协议", f"账号 {phone} 已添加到列表")
 
     def direct_cancel(self):
-        """取消当前操作"""
         if self.direct_client and self.direct_client.is_connected():
             async def do_disconnect():
                 await self.direct_client.disconnect()
@@ -6272,7 +6190,6 @@ class TelegramFullGUI:
         self.log("直登转协议", "操作已取消")
 
     def direct_copy_session(self):
-        """复制当前session路径"""
         if self.direct_session_path and os.path.exists(self.direct_session_path):
             self.root.clipboard_clear()
             self.root.clipboard_append(self.direct_session_path)
@@ -6282,9 +6199,7 @@ class TelegramFullGUI:
             self.log("直登转协议", "没有可复制的Session")
             self.show_centered_warning("提示", "请先登录并保存账号")
 
-    # ==================== 批量登录功能 ====================
     def batch_direct_login(self):
-        """批量直登转协议"""
         if not self.batch_phones:
             self.log("直登转协议", "请先导入手机号列表")
             self.show_centered_warning("提示", "请先导入手机号列表")
@@ -6374,7 +6289,6 @@ class TelegramFullGUI:
         threading.Thread(target=do_batch_login, daemon=True).start()
 
     def direct_login_single(self, phone, save_path):
-        """单个手机号登录（用于批量）"""
         try:
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
@@ -6483,14 +6397,12 @@ class TelegramFullGUI:
             return "fail"
 
     def update_batch_progress(self):
-        """更新批量进度显示"""
         self.batch_progress_label.config(text=f"{self.batch_index}/{self.batch_total}")
         self.batch_success_label.config(text=str(self.batch_success_count))
         self.batch_fail_label.config(text=str(self.batch_fail_count))
         self.root.update_idletasks()
 
     def batch_complete(self):
-        """批量完成"""
         self.batch_start_btn.config(state="normal")
         self.batch_stop_btn.config(state="disabled")
         self.log("直登转协议", f"========== 批量登录完成 ==========")
@@ -6498,7 +6410,6 @@ class TelegramFullGUI:
         self.show_centered_info("批量完成", f"总计: {self.batch_total}\n成功: {self.batch_success_count}\n失败: {self.batch_fail_count}")
 
     def batch_stop_login(self):
-        """停止批量登录"""
         self.batch_stop_flag = True
         self.batch_start_btn.config(state="normal")
         self.batch_stop_btn.config(state="disabled")
