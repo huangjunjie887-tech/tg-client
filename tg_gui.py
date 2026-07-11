@@ -5583,22 +5583,19 @@ class TelegramFullGUI:
         self.direct_save_path.pack(side="left", padx=5)
         ttk.Button(path_row, text="浏览", command=self.select_direct_save_path, width=8).pack(side="left", padx=5)
 
-        # 代理设置行
-        proxy_row = ttk.Frame(info_frame)
-        proxy_row.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
-
-        self.direct_use_proxy = tk.BooleanVar(value=False)
-        ttk.Checkbutton(proxy_row, text="使用代理", variable=self.direct_use_proxy, command=self.toggle_direct_proxy).pack(side="left", padx=5)
-
-        self.direct_proxy_entry = ttk.Entry(proxy_row, width=40, state="disabled")
-        self.direct_proxy_entry.pack(side="left", padx=5)
-        self.direct_proxy_entry.insert(0, "socks5://127.0.0.1:1080")
-
-        ttk.Button(proxy_row, text="测试代理", command=self.test_direct_proxy, width=8).pack(side="left", padx=5)
+        # 代理设置行 - 已删除
+        # proxy_row = ttk.Frame(info_frame)
+        # proxy_row.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        # self.direct_use_proxy = tk.BooleanVar(value=False)
+        # ttk.Checkbutton(proxy_row, text="使用代理", variable=self.direct_use_proxy, command=self.toggle_direct_proxy).pack(side="left", padx=5)
+        # self.direct_proxy_entry = ttk.Entry(proxy_row, width=40, state="disabled")
+        # self.direct_proxy_entry.pack(side="left", padx=5)
+        # self.direct_proxy_entry.insert(0, "socks5://127.0.0.1:1080")
+        # ttk.Button(proxy_row, text="测试代理", command=self.test_direct_proxy, width=8).pack(side="left", padx=5)
 
         # 批量手机号列表区域（用于批量导入）
         batch_frame = ttk.LabelFrame(info_frame, text="批量导入列表")
-        batch_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        batch_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
         self.batch_phones_text = scrolledtext.ScrolledText(batch_frame, width=60, height=4, state="disabled")
         self.batch_phones_text.pack(fill="both", expand=True, padx=5, pady=5)
@@ -5626,8 +5623,9 @@ class TelegramFullGUI:
         self.direct_code_timer_label = ttk.Label(code_row1, text="", foreground="red")
         self.direct_code_timer_label.pack(side="left", padx=5)
 
-        self.direct_code_auto_fill = tk.BooleanVar(value=True)
-        ttk.Checkbutton(code_row1, text="自动填充", variable=self.direct_code_auto_fill).pack(side="left", padx=10)
+        # 删除自动填充复选框
+        # self.direct_code_auto_fill = tk.BooleanVar(value=True)
+        # ttk.Checkbutton(code_row1, text="自动填充", variable=self.direct_code_auto_fill).pack(side="left", padx=10)
 
         code_row2 = ttk.Frame(code_frame)
         code_row2.pack(fill="x", padx=5, pady=5)
@@ -5723,61 +5721,12 @@ class TelegramFullGUI:
         self.direct_loop = None
 
     def toggle_direct_proxy(self):
-        if self.direct_use_proxy.get():
-            self.direct_proxy_entry.config(state="normal")
-        else:
-            self.direct_proxy_entry.config(state="disabled")
+        # 已删除代理功能
+        pass
 
     def test_direct_proxy(self):
-        proxy_str = self.direct_proxy_entry.get().strip()
-        if not proxy_str:
-            self.log("直登转协议", "请输入代理地址")
-            return
-
-        self.log("直登转协议", f"测试代理: {proxy_str}")
-
-        def do_test():
-            try:
-                import socket
-                import socks
-
-                # 解析代理
-                proxy_url = proxy_str
-                p_type = "socks5"
-                if "://" in proxy_url:
-                    p_type, proxy_url = proxy_url.split("://", 1)
-
-                # 解析认证信息
-                user, password = "", ""
-                if "@" in proxy_url:
-                    auth, proxy_url = proxy_url.split("@", 1)
-                    if ":" in auth:
-                        user, password = auth.split(":", 1)
-
-                host, port = proxy_url.split(":", 1)
-                port = int(port)
-
-                # 测试连接
-                s = socks.socksocket()
-                if p_type == "socks5":
-                    s.set_proxy(socks.SOCKS5, host, port, username=user, password=password)
-                elif p_type == "socks4":
-                    s.set_proxy(socks.SOCKS4, host, port)
-                else:
-                    s.set_proxy(socks.HTTP, host, port, username=user, password=password)
-
-                s.settimeout(10)
-                s.connect(("1.1.1.1", 53))
-                s.close()
-
-                self.log("直登转协议", f"✅ 代理测试成功: {proxy_str}")
-                self.direct_status.config(text="代理可用", foreground="green")
-
-            except Exception as e:
-                self.log("直登转协议", f"❌ 代理测试失败: {str(e)}")
-                self.direct_status.config(text="代理不可用", foreground="red")
-
-        threading.Thread(target=do_test, daemon=True).start()
+        # 已删除代理功能
+        pass
 
     def paste_phone(self):
         try:
@@ -5861,16 +5810,6 @@ class TelegramFullGUI:
         self.direct_phone.delete(0, tk.END)
         self.direct_phone.insert(0, phone)
 
-        # 获取代理设置
-        proxy = None
-        if self.direct_use_proxy.get():
-            proxy_str = self.direct_proxy_entry.get().strip()
-            if proxy_str:
-                try:
-                    proxy = self.parse_proxy_string(proxy_str)
-                except:
-                    self.log("直登转协议", "代理格式错误，使用无代理模式")
-
         self.direct_send_code_btn.config(state="disabled", text="发送中...")
         self.direct_status.config(text="发送验证码中...", foreground="orange")
 
@@ -5880,7 +5819,7 @@ class TelegramFullGUI:
                     api_id = 34256693
                     api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
 
-                    self.direct_client = TelegramClient(None, api_id, api_hash, proxy=proxy)
+                    self.direct_client = TelegramClient(None, api_id, api_hash)
                     await self.direct_client.connect()
 
                     if not await self.direct_client.is_user_authorized():
@@ -5920,27 +5859,8 @@ class TelegramFullGUI:
         threading.Thread(target=do_send_code, daemon=True).start()
 
     def parse_proxy_string(self, proxy_str):
-        """解析代理字符串"""
-        if "://" not in proxy_str:
-            proxy_str = "socks5://" + proxy_str
-
-        p_type, rest = proxy_str.split("://", 1)
-        user, password = "", ""
-        if "@" in rest:
-            auth, rest = rest.split("@", 1)
-            if ":" in auth:
-                user, password = auth.split(":", 1)
-
-        host, port = rest.split(":", 1)
-        port = int(port)
-
-        return {
-            'proxy_type': p_type,
-            'addr': host,
-            'port': port,
-            'username': user,
-            'password': password
-        }
+        """解析代理字符串 - 已删除代理功能"""
+        return None
 
     def start_code_timer(self):
         """验证码倒计时"""
@@ -6373,10 +6293,18 @@ class TelegramFullGUI:
             self.direct_status.config(text="保存成功", foreground="green")
             self.direct_session_path = session_file
 
-            # 验证保存的session是否可用
+            # ===== 修复：验证保存的session - 使用StringSession加载 =====
             try:
                 self.log("直登转协议", "验证保存的session...")
-                test_client = TelegramClient(session_file, api_id, api_hash)
+                from telethon.sessions import StringSession
+                
+                # 读取刚才保存的session字符串
+                with open(session_file, 'r', encoding='utf-8') as f:
+                    session_str = f.read()
+                
+                # 使用StringSession加载
+                test_session = StringSession(session_str)
+                test_client = TelegramClient(test_session, api_id, api_hash)
                 await test_client.connect()
                 if await test_client.is_user_authorized():
                     test_me = await test_client.get_me()
@@ -6581,19 +6509,10 @@ class TelegramFullGUI:
             api_id = 34256693
             api_hash = "6cb54edb306a8a938d7759b6b8fb82cf"
 
-            proxy = None
-            if self.direct_use_proxy.get():
-                proxy_str = self.direct_proxy_entry.get().strip()
-                if proxy_str:
-                    try:
-                        proxy = self.parse_proxy_string(proxy_str)
-                    except:
-                        pass
-
             async def do_login():
                 client = None
                 try:
-                    client = TelegramClient(None, api_id, api_hash, proxy=proxy)
+                    client = TelegramClient(None, api_id, api_hash)
                     await client.connect()
 
                     if await client.is_user_authorized():
@@ -6631,7 +6550,7 @@ class TelegramFullGUI:
                     session_file = os.path.join(save_path, f"{phone}.session")
                     await client.disconnect()
 
-                    client2 = TelegramClient(session_file, api_id, api_hash, proxy=proxy)
+                    client2 = TelegramClient(session_file, api_id, api_hash)
                     await client2.connect()
 
                     if code:
