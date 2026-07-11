@@ -5583,16 +5583,6 @@ class TelegramFullGUI:
         self.direct_save_path.pack(side="left", padx=5)
         ttk.Button(path_row, text="浏览", command=self.select_direct_save_path, width=8).pack(side="left", padx=5)
 
-        # 代理设置行 - 已删除
-        # proxy_row = ttk.Frame(info_frame)
-        # proxy_row.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
-        # self.direct_use_proxy = tk.BooleanVar(value=False)
-        # ttk.Checkbutton(proxy_row, text="使用代理", variable=self.direct_use_proxy, command=self.toggle_direct_proxy).pack(side="left", padx=5)
-        # self.direct_proxy_entry = ttk.Entry(proxy_row, width=40, state="disabled")
-        # self.direct_proxy_entry.pack(side="left", padx=5)
-        # self.direct_proxy_entry.insert(0, "socks5://127.0.0.1:1080")
-        # ttk.Button(proxy_row, text="测试代理", command=self.test_direct_proxy, width=8).pack(side="left", padx=5)
-
         # 批量手机号列表区域（用于批量导入）
         batch_frame = ttk.LabelFrame(info_frame, text="批量导入列表")
         batch_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
@@ -5622,10 +5612,6 @@ class TelegramFullGUI:
 
         self.direct_code_timer_label = ttk.Label(code_row1, text="", foreground="red")
         self.direct_code_timer_label.pack(side="left", padx=5)
-
-        # 删除自动填充复选框
-        # self.direct_code_auto_fill = tk.BooleanVar(value=True)
-        # ttk.Checkbutton(code_row1, text="自动填充", variable=self.direct_code_auto_fill).pack(side="left", padx=10)
 
         code_row2 = ttk.Frame(code_frame)
         code_row2.pack(fill="x", padx=5, pady=5)
@@ -5719,14 +5705,6 @@ class TelegramFullGUI:
         self.batch_stop_flag = False
         self.direct_session_path = None
         self.direct_loop = None
-
-    def toggle_direct_proxy(self):
-        # 已删除代理功能
-        pass
-
-    def test_direct_proxy(self):
-        # 已删除代理功能
-        pass
 
     def paste_phone(self):
         try:
@@ -5857,10 +5835,6 @@ class TelegramFullGUI:
                 pass
 
         threading.Thread(target=do_send_code, daemon=True).start()
-
-    def parse_proxy_string(self, proxy_str):
-        """解析代理字符串 - 已删除代理功能"""
-        return None
 
     def start_code_timer(self):
         """验证码倒计时"""
@@ -6105,7 +6079,7 @@ class TelegramFullGUI:
 
     # ==================== 修复版 save_direct_account 方法 ====================
     async def save_direct_account(self, phone, save_path, client=None):
-        """保存账号到指定路径 - 直接从client提取auth_key保存"""
+        """保存账号到指定路径 - 保存为Telethon兼容的二进制session格式"""
         try:
             if client is None:
                 client = self.direct_client
@@ -6123,7 +6097,6 @@ class TelegramFullGUI:
             # ===== 核心修复：直接从client获取auth_key =====
             from telethon.sessions import MemorySession
             from telethon.crypto import AuthKey
-            import base64
 
             # 方法1：尝试从client.session获取auth_key
             auth_key_bytes = None
@@ -6226,52 +6199,25 @@ class TelegramFullGUI:
 
             self.log("直登转协议", f"auth_key长度: {len(auth_key_bytes)} 字节")
 
-            # ===== 创建新的session并保存 =====
-            # 使用StringSession保存
-            from telethon.sessions import StringSession
-
-            # 创建StringSession并手动设置数据
-            string_session = StringSession()
-
-            # 设置DC信息
+            # ===== 保存为二进制session格式（Telethon兼容格式） =====
+            # 使用MemorySession保存为二进制格式
+            mem_session = MemorySession()
             if dc_id is not None:
-                string_session._dc_id = dc_id
+                mem_session._dc_id = dc_id
             if server_address:
-                string_session._server_address = server_address
+                mem_session._server_address = server_address
             if port is not None:
-                string_session._port = port
-
-            # 设置auth_key - 需要创建AuthKey对象
+                mem_session._port = port
+            
+            # 创建AuthKey对象
             auth_key_obj = AuthKey(auth_key_bytes)
-            string_session._auth_key = auth_key_obj
+            mem_session._auth_key = auth_key_obj
 
-            # 导出session字符串
-            session_string = string_session.save()
-
-            if session_string:
-                with open(session_file, 'w', encoding='utf-8') as f:
-                    f.write(session_string)
-                self.log("直登转协议", f"✅ Session保存成功: {session_file}")
-                self.log("直登转协议", f"Session字符串长度: {len(session_string)}")
-            else:
-                # 备用方案：使用MemorySession直接保存
-                self.log("直登转协议", "StringSession导出失败，使用MemorySession备用方案...")
-                mem_session = MemorySession()
-                if dc_id is not None:
-                    mem_session._dc_id = dc_id
-                if server_address:
-                    mem_session._server_address = server_address
-                if port is not None:
-                    mem_session._port = port
-                mem_session._auth_key = auth_key_obj
-
-                # 保存为二进制文件
-                with open(session_file + '.mem', 'wb') as f:
-                    f.write(mem_session.save())
-                self.log("直登转协议", f"✅ MemorySession保存成功: {session_file}.mem")
-                # 重命名为.session
-                os.rename(session_file + '.mem', session_file)
-                self.log("直登转协议", f"✅ 已重命名为: {session_file}")
+            # 保存为二进制文件
+            with open(session_file, 'wb') as f:
+                f.write(mem_session.save())
+            
+            self.log("直登转协议", f"✅ Session保存成功: {session_file}")
 
             # 保存JSON文件
             twofa = self.direct_twofa.get().strip()
@@ -6293,18 +6239,10 @@ class TelegramFullGUI:
             self.direct_status.config(text="保存成功", foreground="green")
             self.direct_session_path = session_file
 
-            # ===== 修复：验证保存的session - 使用StringSession加载 =====
+            # 验证保存的session是否可用
             try:
                 self.log("直登转协议", "验证保存的session...")
-                from telethon.sessions import StringSession
-                
-                # 读取刚才保存的session字符串
-                with open(session_file, 'r', encoding='utf-8') as f:
-                    session_str = f.read()
-                
-                # 使用StringSession加载
-                test_session = StringSession(session_str)
-                test_client = TelegramClient(test_session, api_id, api_hash)
+                test_client = TelegramClient(session_file, api_id, api_hash)
                 await test_client.connect()
                 if await test_client.is_user_authorized():
                     test_me = await test_client.get_me()
