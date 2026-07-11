@@ -2922,7 +2922,8 @@ class TelegramFullGUI:
                                         all_results.append(member_info)
                                         self.scraped_members = all_results.copy()
                                         sub_pending.append(member_info)
-                                        total_count += 1                                        sub_count += 1
+                                        total_count += 1
+                                        sub_count += 1
                                     if messages_list:
                                         offset_id = messages_list[-1].id
                                     else:
