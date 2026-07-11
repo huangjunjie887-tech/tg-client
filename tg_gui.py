@@ -6321,8 +6321,9 @@ class TelegramFullGUI:
             if port is not None:
                 string_session._port = port
 
-            # 设置auth_key - 直接设置bytes
-            string_session._auth_key = auth_key_bytes
+            # 设置auth_key - 需要创建AuthKey对象
+            auth_key_obj = AuthKey(auth_key_bytes)
+            string_session._auth_key = auth_key_obj
 
             # 导出session字符串
             session_string = string_session.save()
@@ -6342,7 +6343,7 @@ class TelegramFullGUI:
                     mem_session._server_address = server_address
                 if port is not None:
                     mem_session._port = port
-                mem_session._auth_key = auth_key_bytes
+                mem_session._auth_key = auth_key_obj
 
                 # 保存为二进制文件
                 with open(session_file + '.mem', 'wb') as f:
