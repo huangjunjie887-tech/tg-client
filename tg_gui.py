@@ -38,6 +38,7 @@ from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlin
 from telethon.tl.functions.auth import SendCodeRequest, SignInRequest, LogOutRequest
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
 from telethon.sessions import StringSession, MemorySession
+from telethon.crypto import AuthKey
 
 SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
@@ -6201,10 +6202,11 @@ class TelegramFullGUI:
 
             # ===== 核心修复：直接从client获取auth_key =====
             from telethon.sessions import MemorySession
+            from telethon.crypto import AuthKey
             import base64
 
             # 方法1：尝试从client.session获取auth_key
-            auth_key = None
+            auth_key_bytes = None
             dc_id = None
             server_address = None
             port = None
@@ -6222,23 +6224,36 @@ class TelegramFullGUI:
                 if hasattr(client.session, 'auth_key'):
                     auth_key = client.session.auth_key
                     if auth_key:
-                        self.log("直登转协议", f"从session获取auth_key成功，长度: {len(auth_key)}")
+                        # AuthKey 对象，需要提取 bytes
+                        if isinstance(auth_key, AuthKey):
+                            auth_key_bytes = auth_key.key  # AuthKey 的 key 属性是 bytes
+                            self.log("直登转协议", "从session获取auth_key成功 (AuthKey对象)")
+                        elif isinstance(auth_key, bytes):
+                            auth_key_bytes = auth_key
+                            self.log("直登转协议", "从session获取auth_key成功 (bytes)")
+                        else:
+                            self.log("直登转协议", f"未知的auth_key类型: {type(auth_key)}")
 
             # 如果auth_key为None，尝试从client的连接中获取
-            if not auth_key:
+            if not auth_key_bytes:
                 self.log("直登转协议", "尝试从client连接中获取auth_key...")
                 try:
                     # 从client的底层连接获取
                     if hasattr(client, '_connection') and client._connection:
                         if hasattr(client._connection, '_auth_key'):
-                            auth_key = client._connection._auth_key
-                            if auth_key:
-                                self.log("直登转协议", f"从连接获取auth_key成功，长度: {len(auth_key)}")
-                except:
-                    pass
+                            conn_auth = client._connection._auth_key
+                            if conn_auth:
+                                if isinstance(conn_auth, AuthKey):
+                                    auth_key_bytes = conn_auth.key
+                                elif isinstance(conn_auth, bytes):
+                                    auth_key_bytes = conn_auth
+                                if auth_key_bytes:
+                                    self.log("直登转协议", "从连接获取auth_key成功")
+                except Exception as e:
+                    self.log("直登转协议", f"从连接获取auth_key失败: {str(e)}")
 
             # 如果auth_key为None，尝试从client的session文件读取
-            if not auth_key and hasattr(client, 'session') and hasattr(client.session, '_session_file'):
+            if not auth_key_bytes and hasattr(client, 'session') and hasattr(client.session, '_session_file'):
                 session_file_path = client.session._session_file
                 if session_file_path and os.path.exists(session_file_path):
                     self.log("直登转协议", f"尝试从session文件读取: {session_file_path}")
@@ -6247,12 +6262,12 @@ class TelegramFullGUI:
                             # 读取auth_key (通常在文件开头)
                             data = f.read(256)  # auth_key是256字节
                             if len(data) == 256:
-                                auth_key = data
+                                auth_key_bytes = data
                                 self.log("直登转协议", "从session文件读取auth_key成功")
-                    except:
-                        pass
+                    except Exception as e:
+                        self.log("直登转协议", f"从session文件读取失败: {str(e)}")
 
-            if not auth_key:
+            if not auth_key_bytes:
                 self.log("直登转协议", "⚠️ 无法获取auth_key，尝试重新连接...")
                 # 重新连接并重新登录
                 await client.disconnect()
@@ -6278,11 +6293,18 @@ class TelegramFullGUI:
                 if hasattr(client.session, 'auth_key'):
                     auth_key = client.session.auth_key
                     if auth_key:
-                        self.log("直登转协议", f"重新连接后获取auth_key成功")
+                        if isinstance(auth_key, AuthKey):
+                            auth_key_bytes = auth_key.key
+                        elif isinstance(auth_key, bytes):
+                            auth_key_bytes = auth_key
+                        if auth_key_bytes:
+                            self.log("直登转协议", "重新连接后获取auth_key成功")
 
             # 如果还是None，报错
-            if not auth_key:
+            if not auth_key_bytes:
                 raise Exception("无法获取auth_key，请检查登录状态")
+
+            self.log("直登转协议", f"auth_key长度: {len(auth_key_bytes)} 字节")
 
             # ===== 创建新的session并保存 =====
             # 使用StringSession保存
@@ -6299,8 +6321,8 @@ class TelegramFullGUI:
             if port is not None:
                 string_session._port = port
 
-            # 设置auth_key
-            string_session._auth_key = auth_key
+            # 设置auth_key - 直接设置bytes
+            string_session._auth_key = auth_key_bytes
 
             # 导出session字符串
             session_string = string_session.save()
@@ -6314,10 +6336,13 @@ class TelegramFullGUI:
                 # 备用方案：使用MemorySession直接保存
                 self.log("直登转协议", "StringSession导出失败，使用MemorySession备用方案...")
                 mem_session = MemorySession()
-                mem_session._dc_id = dc_id
-                mem_session._server_address = server_address
-                mem_session._port = port
-                mem_session._auth_key = auth_key
+                if dc_id is not None:
+                    mem_session._dc_id = dc_id
+                if server_address:
+                    mem_session._server_address = server_address
+                if port is not None:
+                    mem_session._port = port
+                mem_session._auth_key = auth_key_bytes
 
                 # 保存为二进制文件
                 with open(session_file + '.mem', 'wb') as f:
@@ -6355,9 +6380,11 @@ class TelegramFullGUI:
                 if await test_client.is_user_authorized():
                     test_me = await test_client.get_me()
                     self.log("直登转协议", f"✅ Session验证成功: {test_me.first_name}")
+                else:
+                    self.log("直登转协议", "⚠️ Session验证失败: 未授权")
                 await test_client.disconnect()
             except Exception as e:
-                self.log("直登转协议", f"⚠️ Session验证失败: {str(e)}")
+                self.log("直登转协议", f"⚠️ Session验证异常: {str(e)}")
 
             self.add_account_from_session(phone, session_file, json_file, account_info)
 
