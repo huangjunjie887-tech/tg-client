@@ -14,7 +14,6 @@ import random
 import sqlite3
 import asyncio
 import re
-import traceback
 from telethon import TelegramClient, events
 from telethon.errors import (
     FloodWaitError, UserDeactivatedError, SessionPasswordNeededError,
@@ -45,121 +44,6 @@ SERVER = "http://172.98.23.64:5000"
 CARD_API = "https://tgpremium.site/tgyinxiao/verify.php"
 CONFIG_FILE = "tg_config.json"
 
-# ===== 全局日志类 =====
-class Logger:
-    """统一日志管理类 - 支持文件写入和GUI显示"""
-    _instance = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-    
-    def __init__(self):
-        if self._initialized:
-            return
-        self._initialized = True
-        self.log_widgets = {}
-        self.data_dir = "data"
-        self.logs_dir = os.path.join(self.data_dir, "logs")
-        self.log_file_path = None
-        self.is_initialized = False
-        
-    def init(self):
-        """初始化日志系统"""
-        if self.is_initialized:
-            return
-        
-        try:
-            if not os.path.exists(self.data_dir):
-                os.makedirs(self.data_dir)
-            if not os.path.exists(self.logs_dir):
-                os.makedirs(self.logs_dir)
-            
-            log_date = datetime.now().strftime("%Y-%m-%d")
-            self.log_file_path = os.path.join(self.logs_dir, f"log_{log_date}.txt")
-            
-            if not os.path.exists(self.log_file_path):
-                with open(self.log_file_path, 'w', encoding='utf-8') as f:
-                    f.write(f"# 良子TG全能营销系统 - 完整操作日志\n")
-                    f.write(f"# 创建时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"# {'=' * 60}\n\n")
-            
-            self.is_initialized = True
-            
-            self.log("=" * 60, "SYSTEM")
-            self.log(f"程序启动 | 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "SYSTEM")
-            self.log("=" * 60, "SYSTEM")
-            
-        except Exception as e:
-            print(f"初始化日志系统失败: {str(e)}")
-    
-    def register_widget(self, page_name, widget):
-        """注册GUI日志控件"""
-        self.log_widgets[page_name] = widget
-    
-    def log(self, message, level="INFO", page_name=None):
-        """记录日志 - 同时写入文件和GUI"""
-        try:
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            full_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            log_entry = f"[{timestamp}] {message}\n"
-            file_entry = f"[{full_timestamp}] [{level}] {message}\n"
-            
-            if page_name and page_name in self.log_widgets:
-                try:
-                    self.log_widgets[page_name].insert(tk.END, log_entry)
-                    self.log_widgets[page_name].see(tk.END)
-                except:
-                    pass
-            else:
-                for widget in self.log_widgets.values():
-                    try:
-                        widget.insert(tk.END, log_entry)
-                        widget.see(tk.END)
-                    except:
-                        pass
-            
-            if self.log_file_path:
-                with open(self.log_file_path, 'a', encoding='utf-8') as f:
-                    f.write(file_entry)
-                    
-        except Exception as e:
-            print(f"日志写入失败: {str(e)}")
-    
-    def log_error(self, message, page_name=None):
-        self.log(f"❌ {message}", "ERROR", page_name)
-    
-    def log_warning(self, message, page_name=None):
-        self.log(f"⚠️ {message}", "WARNING", page_name)
-    
-    def log_success(self, message, page_name=None):
-        self.log(f"✅ {message}", "SUCCESS", page_name)
-    
-    def log_info(self, message, page_name=None):
-        self.log(f"ℹ️ {message}", "INFO", page_name)
-    
-    def log_action(self, action, details, page_name=None):
-        self.log(f"【{action}】{details}", "ACTION", page_name)
-    
-    def log_exception(self, e, context="", page_name=None):
-        error_msg = str(e)
-        trace = traceback.format_exc()
-        self.log(f"❌ 异常: {context} -> {error_msg}", "ERROR", page_name)
-        if self.log_file_path:
-            with open(self.log_file_path, 'a', encoding='utf-8') as f:
-                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [TRACE] {trace}\n")
-    
-    def log_account(self, phone, action, details="", page_name=None):
-        self.log(f"📱 [{phone}] {action} {details}", "ACCOUNT", page_name)
-    
-    def log_task(self, task_name, action, details="", page_name=None):
-        self.log(f"📋 [{task_name}] {action} {details}", "TASK", page_name)
-
-logger = Logger()
-
 class TelegramFullGUI:
     def __init__(self, root):
         self.root = root
@@ -179,14 +63,13 @@ class TelegramFullGUI:
         self.user_list_file_path = None
         self.user_list_lock = threading.Lock()
 
+        # 消息缓存：用于自动群聊的回复功能
         self.chat_message_cache = {}
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("微软雅黑", 11, "bold"), padding=[20, 8])
 
         self.machine_id = self.get_machine_id()
-
-        logger.init()
 
         self.load_config()
 
@@ -221,9 +104,8 @@ class TelegramFullGUI:
                 })
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-            logger.log_action("配置保存", f"账号数: {len(self.accounts)}")
         except Exception as e:
-            logger.log_exception(e, "保存配置")
+            print(f"保存配置失败: {e}")
 
     def load_config(self):
         try:
@@ -238,9 +120,8 @@ class TelegramFullGUI:
                     self.groups = ["默认分组"]
                 if not self.proxy_groups:
                     self.proxy_groups = ["默认分组"]
-                logger.log_action("配置加载", f"账号数: {len(self.accounts)}, 代理数: {len(self.proxies)}")
         except Exception as e:
-            logger.log_exception(e, "加载配置")
+            print(f"加载配置失败: {e}")
 
     def center_window(self, window, width, height):
         window.update_idletasks()
@@ -249,7 +130,6 @@ class TelegramFullGUI:
         window.geometry(f"{width}x{height}+{x}+{y}")
 
     def show_centered_info(self, title, message):
-        logger.log_action("弹窗", f"{title}: {message}")
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         dialog.transient(self.root)
@@ -260,7 +140,6 @@ class TelegramFullGUI:
         ttk.Button(dialog, text="确定", command=dialog.destroy, width=12).pack(pady=10)
 
     def show_centered_warning(self, title, message):
-        logger.log_warning(f"{title}: {message}")
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         dialog.transient(self.root)
@@ -271,7 +150,6 @@ class TelegramFullGUI:
         ttk.Button(dialog, text="确定", command=dialog.destroy, width=12).pack(pady=10)
 
     def show_centered_error(self, title, message):
-        logger.log_error(f"{title}: {message}")
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         dialog.transient(self.root)
@@ -282,7 +160,6 @@ class TelegramFullGUI:
         ttk.Button(dialog, text="确定", command=dialog.destroy, width=12).pack(pady=10)
 
     def show_centered_yesno(self, title, message, callback_yes=None, callback_no=None):
-        logger.log_action("确认弹窗", f"{title}: {message}")
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         dialog.transient(self.root)
@@ -295,13 +172,11 @@ class TelegramFullGUI:
 
         def on_yes():
             dialog.destroy()
-            logger.log_action("确认", f"{title} -> 是")
             if callback_yes:
                 callback_yes()
 
         def on_no():
             dialog.destroy()
-            logger.log_action("确认", f"{title} -> 否")
             if callback_no:
                 callback_no()
 
@@ -310,7 +185,12 @@ class TelegramFullGUI:
         return dialog
 
     def log(self, page_name, msg):
-        logger.log(msg, "GUI", page_name)
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {msg}\n"
+        if page_name in self.log_widgets:
+            self.log_widgets[page_name].insert(tk.END, log_entry)
+            self.log_widgets[page_name].see(tk.END)
+            self.root.update_idletasks()
 
     def update_account_task(self, phone, task_name, is_current=True):
         for acc in self.accounts:
@@ -319,7 +199,6 @@ class TelegramFullGUI:
                     acc['current_task'] = task_name
                 else:
                     acc['last_action'] = task_name
-                logger.log_account(phone, f"任务更新: {task_name}" if is_current else f"上次操作: {task_name}")
                 break
         self.refresh_account_list_filter()
 
@@ -341,8 +220,6 @@ class TelegramFullGUI:
                     acc['status'] = '风控限制'
                 elif error_type == '双向限制' and old_status not in ['封禁', '销号', '频率限制', '风控限制']:
                     acc['status'] = '双向限制'
-                if old_status != acc['status']:
-                    logger.log_account(phone, f"状态变更: {old_status} -> {acc['status']}", error_detail)
                 break
         self.refresh_account_list_filter()
         self.update_status_filter_options()
@@ -384,11 +261,9 @@ class TelegramFullGUI:
                 if removed:
                     with open(target_file, 'w', encoding='utf-8') as f:
                         f.write('\n'.join(new_lines))
-                    logger.log_action("移除用户", f"{username} 从 {os.path.basename(target_file)}")
                     return True
                 return False
             except Exception as e:
-                logger.log_exception(e, f"移除用户 {username}")
                 return False
 
     def parse_unauthorized_error(self, phone, e, operation="检测"):
@@ -458,12 +333,10 @@ class TelegramFullGUI:
         card_code = self.card_entry.get().strip()
         if not card_code:
             self.login_status.config(text="请输入卡密", foreground="red")
-            logger.log_warning("卡密验证: 未输入卡密")
             return
 
         self.login_status.config(text="验证中...", foreground="blue")
         login_window.update()
-        logger.log_action("卡密验证", f"验证卡密: {card_code[:6]}***")
 
         try:
             resp = requests.post(CARD_API, json={"action": "verify", "card": card_code, "machine_id": self.machine_id}, timeout=15, proxies={"http": None, "https": None})
@@ -472,25 +345,20 @@ class TelegramFullGUI:
                 self.is_logged_in = True
                 self.card_info = result
                 self.login_status.config(text="激活成功！正在启动...", foreground="green")
-                logger.log_success(f"卡密激活成功: {card_code[:6]}***")
                 login_window.update()
                 login_window.after(1000, lambda: self.on_login_success(login_window))
             else:
                 error_msg = result.get("error", "卡密无效")
                 self.login_status.config(text=error_msg, foreground="red")
-                logger.log_error(f"卡密验证失败: {error_msg}")
         except Exception as e:
             self.login_status.config(text=f"验证失败: {str(e)[:30]}", foreground="red")
-            logger.log_exception(e, "卡密验证")
 
     def buy_card(self):
         import webbrowser
         webbrowser.open("https://t.me/Liangzi1952")
-        logger.log_action("购买卡密", "打开客服链接")
 
     def on_login_success(self, login_window):
         login_window.destroy()
-        logger.log_success("登录成功，进入主界面")
         self.init_main_interface()
 
     def init_main_interface(self):
@@ -518,7 +386,6 @@ class TelegramFullGUI:
 
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
-        logger.log_success("主界面初始化完成")
 
     def refresh_invite_group_filter(self):
         if hasattr(self, 'invite_group_filter'):
@@ -556,10 +423,6 @@ class TelegramFullGUI:
         help_menu.add_command(label="关于", command=self.about)
 
     def on_exit(self):
-        logger.log("=" * 60, "SYSTEM")
-        logger.log(f"程序退出 | 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "SYSTEM")
-        logger.log(f"当前账号数: {len(self.accounts)}", "SYSTEM")
-        logger.log("=" * 60, "SYSTEM")
         self.save_config()
         self.root.quit()
 
@@ -798,6 +661,7 @@ class TelegramFullGUI:
         self.root.wait_window(dialog)
 
         return selected_accounts
+
     def create_account_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="多账号管理")
@@ -867,7 +731,6 @@ class TelegramFullGUI:
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["多账号管理"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
         self.log_widgets["多账号管理"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("多账号管理", self.log_widgets["多账号管理"])
 
     def login_filtered_accounts(self):
         filtered_accounts = self.get_filtered_accounts()
@@ -877,7 +740,6 @@ class TelegramFullGUI:
             return
 
         self.log("多账号管理", f"开始登录 {len(filtered_accounts)} 个账号（当前筛选结果）...")
-        logger.log_action("批量登录", f"开始登录 {len(filtered_accounts)} 个账号")
 
         def do_login():
             for idx, acc in enumerate(filtered_accounts, 1):
@@ -886,12 +748,12 @@ class TelegramFullGUI:
                 self.login_single_account(acc)
                 time.sleep(2)
             self.log("多账号管理", "登录完成")
-            logger.log_action("批量登录", f"完成 {len(filtered_accounts)} 个账号登录")
             self.save_config()
 
         threading.Thread(target=do_login, daemon=True).start()
 
     def login_single_account(self, acc):
+        """修复版一键登录 - 支持文本格式和二进制格式session"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -936,7 +798,6 @@ class TelegramFullGUI:
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
                     self.log("多账号管理", f"[{phone}] ✅ 登录成功 | 昵称: {nickname}")
-                    logger.log_account(phone, "登录成功", nickname)
                     await client.disconnect()
                     self.update_status_filter_options()
                     return True
@@ -1036,7 +897,7 @@ class TelegramFullGUI:
             return
 
         self.log("多账号管理", f"开始深度检测 {len(filtered_accounts)} 个账号（当前筛选结果）...")
-        logger.log_action("深度检测", f"开始检测 {len(filtered_accounts)} 个账号")
+        self.log("多账号管理", "检测项目: 登录状态 | 封禁/注销")
 
         def do_deep_check():
             for idx, acc in enumerate(filtered_accounts, 1):
@@ -1045,12 +906,12 @@ class TelegramFullGUI:
                 self.deep_check_single_account(acc)
                 time.sleep(2)
             self.log("多账号管理", "深度检测完成")
-            logger.log_action("深度检测", f"完成 {len(filtered_accounts)} 个账号检测")
             self.save_config()
 
         threading.Thread(target=do_deep_check, daemon=True).start()
 
     def deep_check_single_account(self, acc):
+        """修复版深度检测 - 支持文本格式和二进制格式session"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -1188,7 +1049,6 @@ class TelegramFullGUI:
 
         def do_kick():
             self.log("多账号管理", f"开始踢出 {len(filtered_accounts)} 个账号的其他设备...")
-            logger.log_action("踢出设备", f"开始踢出 {len(filtered_accounts)} 个账号的其他设备")
 
             def kick_thread():
                 for idx, acc in enumerate(filtered_accounts, 1):
@@ -1197,7 +1057,6 @@ class TelegramFullGUI:
                     self.kick_single_account_devices(acc)
                     time.sleep(2)
                 self.log("多账号管理", "踢出设备完成")
-                logger.log_action("踢出设备", f"完成 {len(filtered_accounts)} 个账号的设备踢出")
                 self.show_centered_info("完成", f"已完成 {len(filtered_accounts)} 个账号的设备踢出")
 
             threading.Thread(target=kick_thread, daemon=True).start()
@@ -1246,12 +1105,10 @@ class TelegramFullGUI:
                         kicked_count += 1
                         device_name = auth.device_model or "未知设备"
                         self.log("多账号管理", f"[{phone}] 已踢出设备: {device_name}")
-                        logger.log_account(phone, f"已踢出设备: {device_name}")
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 踢出设备失败: {str(e)[:50]}")
 
                 self.log("多账号管理", f"[{phone}] 踢出完成，共踢出 {kicked_count} 个设备，当前设备已保留")
-                logger.log_account(phone, f"踢出完成，共踢出 {kicked_count} 个设备")
 
                 if acc.get('status') != '正常':
                     try:
@@ -1267,7 +1124,6 @@ class TelegramFullGUI:
 
             except Exception as e:
                 self.log("多账号管理", f"[{phone}] 踢出设备异常: {str(e)[:50]}")
-                logger.log_exception(e, f"踢出设备 {phone}")
             finally:
                 if client:
                     try:
@@ -1441,7 +1297,6 @@ class TelegramFullGUI:
 
             dialog.destroy()
             self.log("多账号管理", f"开始批量修改 {len(selected_phones)} 个账号的资料")
-            logger.log_action("批量修改资料", f"开始修改 {len(selected_phones)} 个账号")
 
             def edit_thread():
                 for i, phone in enumerate(selected_phones):
@@ -1457,7 +1312,6 @@ class TelegramFullGUI:
                             self.update_account_task(phone, "修改资料", False)
                             break
                 self.log("多账号管理", "批量修改资料完成")
-                logger.log_action("批量修改资料", f"完成 {len(selected_phones)} 个账号修改")
                 self.root.after(0, lambda: self.show_centered_info("完成", f"已完成 {len(selected_phones)} 个账号的资料修改"))
 
             threading.Thread(target=edit_thread, daemon=True).start()
@@ -1523,11 +1377,9 @@ class TelegramFullGUI:
                         if pwd.has_password:
                             await client.edit_2fa(new_password=new_twofa, current_password=old_twofa)
                             self.log("多账号管理", f"[{phone}] 2FA密码修改成功")
-                            logger.log_account(phone, "2FA密码修改成功")
                         else:
                             await client.edit_2fa(new_password=new_twofa)
                             self.log("多账号管理", f"[{phone}] 2FA密码设置成功")
-                            logger.log_account(phone, "2FA密码设置成功")
 
                         json_path = acc.get('json_path', '')
                         if json_path and os.path.exists(json_path):
@@ -1538,16 +1390,13 @@ class TelegramFullGUI:
                                 json.dump(json_data, f, ensure_ascii=False, indent=2)
                             if acc.get('account_info'):
                                 acc['account_info']['twoFA'] = new_twofa
-                            logger.log_account(phone, "2FA密码已更新到JSON文件")
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 2FA密码修改失败: {str(e)}")
-                        logger.log_exception(e, f"修改2FA密码 {phone}")
 
                 if username:
                     try:
                         await client(UpdateUsernameRequest(username=username))
                         self.log("多账号管理", f"[{phone}] 用户名修改成功: {username}")
-                        logger.log_account(phone, f"用户名修改成功: {username}")
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 用户名修改失败: {str(e)}")
 
@@ -1556,7 +1405,6 @@ class TelegramFullGUI:
                         await client(UpdateProfileRequest(first_name=first_name, last_name=""))
                         self.log("多账号管理", f"[{phone}] 昵称修改成功: {first_name}")
                         acc['nickname'] = first_name
-                        logger.log_account(phone, f"昵称修改成功: {first_name}")
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 昵称修改失败: {str(e)}")
 
@@ -1564,7 +1412,6 @@ class TelegramFullGUI:
                     try:
                         await client(UpdateProfileRequest(about=bio))
                         self.log("多账号管理", f"[{phone}] 简介修改成功")
-                        logger.log_account(phone, "简介修改成功")
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 简介修改失败: {str(e)}")
 
@@ -1575,7 +1422,6 @@ class TelegramFullGUI:
                             await client(DeletePhotosRequest(id=[photos[0]]))
                         await client(UploadProfilePhotoRequest(file=await client.upload_file(photo_path)))
                         self.log("多账号管理", f"[{phone}] 头像修改成功")
-                        logger.log_account(phone, "头像修改成功")
                     except Exception as e:
                         self.log("多账号管理", f"[{phone}] 头像修改失败: {str(e)}")
 
@@ -1584,7 +1430,6 @@ class TelegramFullGUI:
                 self.update_status_filter_options()
             except Exception as e:
                 self.log("多账号管理", f"[{phone}] 修改资料失败: {str(e)}")
-                logger.log_exception(e, f"修改资料 {phone}")
             finally:
                 if client:
                     try:
@@ -1671,7 +1516,6 @@ class TelegramFullGUI:
             self.refresh_invite_group_filter()
             self.save_config()
             self.log("多账号管理", f"移动账号 {self.accounts[idx].get('phone')} 到分组「{target_group}」")
-            logger.log_action("移动账号", f"{self.accounts[idx].get('phone')} -> 分组「{target_group}」")
 
         def refresh_all():
             refresh_account_combo()
@@ -1694,7 +1538,6 @@ class TelegramFullGUI:
             self.refresh_invite_group_filter()
             self.save_config()
             self.log("多账号管理", f"创建分组: {name}")
-            logger.log_action("创建分组", name)
         elif name in self.groups:
             self.show_centered_error("错误", "分组已存在")
 
@@ -1718,7 +1561,6 @@ class TelegramFullGUI:
                 self.refresh_invite_group_filter()
                 self.save_config()
                 self.log("多账号管理", f"重命名分组: {old_name} -> {new_name}")
-                logger.log_action("重命名分组", f"{old_name} -> {new_name}")
                 name_entry.delete(0, tk.END)
 
     def delete_group_from_manager(self, listbox):
@@ -1738,7 +1580,6 @@ class TelegramFullGUI:
                 self.refresh_invite_group_filter()
                 self.save_config()
                 self.log("多账号管理", f"删除分组: {group_name}")
-                logger.log_action("删除分组", group_name)
             self.show_centered_yesno("确认", f"确定删除分组「{group_name}」？账号将移至默认分组", do_delete)
 
     def import_accounts_folder(self):
@@ -1772,7 +1613,6 @@ class TelegramFullGUI:
             return
 
         self.log("多账号管理", f"开始扫描账号文件夹: {folder}")
-        logger.log_action("导入账号", f"扫描文件夹: {folder}")
 
         session_files = []
         json_files = {}
@@ -1839,7 +1679,6 @@ class TelegramFullGUI:
             })
             count += 1
             self.log("多账号管理", f"导入账号: {phone} - 昵称: {nickname if nickname else '无'}")
-            logger.log_account(phone, "导入账号", f"分组: {target_group}")
 
         self.refresh_account_list_filter()
         self.refresh_scrape_accounts()
@@ -1851,7 +1690,6 @@ class TelegramFullGUI:
             statuses.add(status)
         self.account_list_status_filter['values'] = list(statuses)
         self.log("多账号管理", f"导入 {count} 个账号到分组「{target_group}」")
-        logger.log_action("导入账号", f"完成: {count} 个账号到分组「{target_group}」")
         if count > 0:
             self.show_centered_info("导入完成", f"成功导入 {count} 个账号")
 
@@ -1893,7 +1731,6 @@ class TelegramFullGUI:
                     shutil.copy2(json_path, dest_json)
 
         self.log("多账号管理", f"导出完成，共导出 {export_count} 个账号到 {export_folder}")
-        logger.log_action("导出账号", f"导出 {export_count} 个账号到 {export_folder}")
         self.show_centered_info("导出完成", f"成功导出 {export_count} 个账号")
 
     def refresh_account_list(self):
@@ -1929,7 +1766,6 @@ class TelegramFullGUI:
                     statuses.add(status)
                 self.account_list_status_filter['values'] = list(statuses)
                 self.log("多账号管理", f"删除 {len(selected)} 个选中账号")
-                logger.log_action("删除账号", f"删除 {len(selected)} 个账号")
 
             self.show_centered_yesno("确认", f"确定删除 {len(selected)} 个账号？", do_delete)
 
@@ -1963,11 +1799,11 @@ class TelegramFullGUI:
                     statuses.add(status)
                 self.account_list_status_filter['values'] = list(statuses)
                 self.log("多账号管理", f"删除 {len(dead_accounts)} 个已失效账号（当前筛选结果）")
-                logger.log_action("删除死号", f"删除 {len(dead_accounts)} 个已失效账号")
             self.show_centered_yesno("确认", f"确定删除当前筛选结果中的 {len(dead_accounts)} 个已失效账号？", do_delete)
         else:
             self.log("多账号管理", "当前筛选结果中没有发现已失效的账号")
             self.show_centered_info("提示", "当前筛选结果中没有发现已失效的账号")
+
     def create_proxy_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="代理IP")
@@ -2011,7 +1847,6 @@ class TelegramFullGUI:
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
         self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("代理IP", self.log_widgets["代理IP"])
 
     def add_proxy_group(self):
         group_name = simpledialog.askstring("新建分组", "请输入分组名称:", parent=self.root)
@@ -2020,7 +1855,6 @@ class TelegramFullGUI:
             self.refresh_invite_group_filter()
             self.save_config()
             self.log("代理IP", f"创建代理分组: {group_name}")
-            logger.log_action("创建代理分组", group_name)
         elif group_name in self.proxy_groups:
             self.show_centered_warning("提示", "分组已存在")
 
@@ -2154,7 +1988,6 @@ class TelegramFullGUI:
 
             dialog.destroy()
             self.log("代理IP", f"开始为 {len(selected_accounts)} 个账号分配代理")
-            logger.log_action("分配代理", f"为 {len(selected_accounts)} 个账号分配代理")
 
             if assign_mode.get() == "round_robin":
                 for i, phone in enumerate(selected_accounts):
@@ -2167,7 +2000,6 @@ class TelegramFullGUI:
                             acc['proxy'] = proxy_str
                             break
                     self.log("代理IP", f"账号 {phone} 分配代理: {proxy_str}")
-                    logger.log_account(phone, f"分配代理: {proxy_str}")
             else:
                 min_len = min(len(selected_accounts), len(selected_proxies))
                 for i in range(min_len):
@@ -2181,13 +2013,11 @@ class TelegramFullGUI:
                             acc['proxy'] = proxy_str
                             break
                     self.log("代理IP", f"账号 {phone} 分配代理: {proxy_str}")
-                    logger.log_account(phone, f"分配代理: {proxy_str}")
 
             self.refresh_account_list_filter()
             self.refresh_proxy_list()
             self.save_config()
             self.log("代理IP", f"分配完成，共为 {len(selected_accounts)} 个账号分配代理")
-            logger.log_action("分配代理", f"完成: {len(selected_accounts)} 个账号")
             self.show_centered_info("完成", f"已为 {len(selected_accounts)} 个账号分配代理")
 
         ttk.Button(btn_frame, text="确定分配", command=do_assign, width=12).pack(side="left", padx=10)
@@ -2274,14 +2104,12 @@ class TelegramFullGUI:
                 })
                 added_count += 1
                 self.log("代理IP", f"导入代理: {p_type}://{host}:{port} 到分组「{target_group}」")
-                logger.log_action("导入代理", f"{p_type}://{host}:{port} -> 分组「{target_group}」")
 
         self.refresh_proxy_list()
         self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
         self.save_config()
         if added_count > 0:
             self.log("代理IP", f"导入完成，共导入 {added_count} 个代理")
-            logger.log_action("导入代理", f"完成: {added_count} 个代理")
             self.show_centered_info("导入完成", f"成功导入 {added_count} 个代理")
         else:
             self.log("代理IP", "导入失败：未找到有效的代理格式")
@@ -2297,7 +2125,6 @@ class TelegramFullGUI:
             self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
             self.save_config()
             self.log("代理IP", f"删除 {len(selected)} 个代理")
-            logger.log_action("删除代理", f"删除 {len(selected)} 个代理")
 
     def clear_all_proxies(self):
         if self.proxies:
@@ -2307,7 +2134,6 @@ class TelegramFullGUI:
                 self.proxy_count_label.config(text=f"代理数量: 0")
                 self.save_config()
                 self.log("代理IP", "清空所有代理")
-                logger.log_action("清空代理", "所有代理已清空")
             self.show_centered_yesno("确认", "确定要清空所有代理吗？", do_clear)
         else:
             self.log("代理IP", "没有代理需要清空")
@@ -2319,7 +2145,6 @@ class TelegramFullGUI:
             self.show_centered_warning("提示", "没有代理需要检测")
             return
         self.log("代理IP", f"开始检测 {len(self.proxies)} 个代理...")
-        logger.log_action("检测代理", f"开始检测 {len(self.proxies)} 个代理")
 
         def do_check():
             for p in self.proxies:
@@ -2344,7 +2169,6 @@ class TelegramFullGUI:
                     self.log("代理IP", f"{p.get('type')}://{proxy_str}: 不可用")
                 self.root.after(0, self.refresh_proxy_list)
             self.log("代理IP", "代理检测完成")
-            logger.log_action("检测代理", "检测完成")
 
         threading.Thread(target=do_check, daemon=True).start()
 
@@ -2356,6 +2180,7 @@ class TelegramFullGUI:
             p_group = p.get('group', '默认分组')
             self.proxy_tree.insert("", "end", values=(p_group, i, p.get('type', 'socks5'), display_addr, p.get('status', '未检测')))
 
+    # ==================== 采集群成员页面 ====================
     def create_scrape_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="采集群成员")
@@ -2471,7 +2296,6 @@ class TelegramFullGUI:
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["采集群成员"] = scrolledtext.ScrolledText(log_frame, width=100, height=3)
         self.log_widgets["采集群成员"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("采集群成员", self.log_widgets["采集群成员"])
 
         self.is_scraping = False
         self.scraped_members = []
@@ -2494,9 +2318,9 @@ class TelegramFullGUI:
 
         save_dir = self.save_path.get().strip()
         if not save_dir:
-            save_dir = "data/scraped_users"
-            os.makedirs(save_dir, exist_ok=True)
-            self.log("采集群成员", f"使用默认保存目录: {save_dir}")
+            self.log("采集群成员", "请先选择保存目录")
+            self.show_centered_warning("提示", "请先选择保存目录")
+            return False
 
         os.makedirs(save_dir, exist_ok=True)
 
@@ -2514,7 +2338,6 @@ class TelegramFullGUI:
                 with open(save_path, 'w', encoding='utf-8') as f:
                     json.dump(usernames, f, ensure_ascii=False, indent=2)
                 self.log("采集群成员", f"已保存JSON文件: {save_path}, 共 {len(usernames)} 个用户名")
-                logger.log_action("采集保存", f"JSON: {os.path.basename(save_path)} -> {len(usernames)} 个用户")
             else:
                 save_path = os.path.join(save_dir, f"{base_name}.txt")
                 with open(save_path, 'w', encoding='utf-8') as f:
@@ -2522,37 +2345,31 @@ class TelegramFullGUI:
                         if username:
                             f.write(f"@{username}\n")
                 self.log("采集群成员", f"已保存TXT文件: {save_path}, 共 {len(usernames)} 个用户名")
-                logger.log_action("采集保存", f"TXT: {os.path.basename(save_path)} -> {len(usernames)} 个用户")
             return True
         except Exception as e:
             self.log("采集群成员", f"保存文件失败: {str(e)}")
-            logger.log_exception(e, "采集保存")
             return False
 
     def stop_scrape(self):
         if self.is_scraping:
             self.is_scraping = False
             self.log("采集群成员", "用户停止采集，正在保存已采集的数据...")
-            logger.log_action("采集", "用户停止采集")
 
     def complete_scrape(self):
         if self.is_scraping:
             self.is_scraping = False
             self.is_paused = False
             self.log("采集群成员", "用户完成采集，正在保存已采集的数据...")
-            logger.log_action("采集", "用户完成采集")
 
     def pause_scrape(self):
         if self.is_scraping and not self.is_paused:
             self.is_paused = True
             self.log("采集群成员", "用户暂停采集")
-            logger.log_action("采集", "用户暂停采集")
 
     def resume_scrape(self):
         if self.is_scraping and self.is_paused:
             self.is_paused = False
             self.log("采集群成员", "用户继续采集")
-            logger.log_action("采集", "用户继续采集")
 
     def get_online_status_text(self, user_status):
         if user_status is None:
@@ -2658,10 +2475,9 @@ class TelegramFullGUI:
             return
 
         if not save_dir:
-            save_dir = "data/scraped_users"
-            os.makedirs(save_dir, exist_ok=True)
-            self.save_path.insert(0, save_dir)
-            self.log("采集群成员", f"使用默认保存目录: {save_dir}")
+            self.log("采集群成员", "请先选择保存目录")
+            self.show_centered_warning("提示", "请先选择保存目录")
+            return
 
         acc = None
         for a in self.accounts:
@@ -2706,7 +2522,6 @@ class TelegramFullGUI:
         api_id, api_hash = self.get_account_api_credentials(acc)
 
         self.log("采集群成员", f"开始采集群成员: {group_username if group else '多讨论组'}")
-        logger.log_action("采集开始", f"群组: {group_username if group else '多讨论组'}, 账号: {account_phone}")
         if topic_id:
             self.log("采集群成员", f"Topic ID: {topic_id} (精准采集该讨论串)")
         self.log("采集群成员", f"采集模式: {scrape_mode}")
@@ -3252,7 +3067,6 @@ class TelegramFullGUI:
 
                 self.scraped_members = all_results
                 self.log("采集群成员", f"采集完成！累计 {total_count} 人")
-                logger.log_action("采集完成", f"群组: {group_username if group else '多讨论组'}, 共 {total_count} 人")
 
                 if self.scraped_members:
                     is_stop = not self.is_scraping
@@ -3263,7 +3077,6 @@ class TelegramFullGUI:
                 await client.disconnect()
             except Exception as e:
                 self.log("采集群成员", f"采集失败: {str(e)}")
-                logger.log_exception(e, "采集失败")
                 if self.scraped_members:
                     self.save_scraped_members(group_username if group else "multi_groups", True)
             finally:
@@ -3287,6 +3100,7 @@ class TelegramFullGUI:
 
         self.scrape_task = threading.Thread(target=run_scrape, daemon=True)
         self.scrape_task.start()
+
     def create_invite_page(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="批量拉人")
@@ -3443,7 +3257,6 @@ class TelegramFullGUI:
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["批量拉人"] = scrolledtext.ScrolledText(log_frame, width=100, height=24)
         self.log_widgets["批量拉人"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("批量拉人", self.log_widgets["批量拉人"])
 
         self.is_inviting = False
         self.invite_stop_flag = False
@@ -3600,7 +3413,6 @@ class TelegramFullGUI:
             users = users[:total_limit]
 
         self.log("批量拉人", f"========== 开始拉人 ==========")
-        logger.log_action("拉人开始", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'}, 用户: {len(users)}, 账号: {len(selected_accounts)}")
         self.log("批量拉人", f"目标: {targets[0] if len(targets)==1 else f'{len(targets)}个群'} | 用户: {len(users)} | 账号: {len(selected_accounts)} | 每账号限: {per_account_max if per_account_max>0 else '不限'}人")
 
         self.is_inviting = True
@@ -3626,7 +3438,6 @@ class TelegramFullGUI:
                 self.update_account_task(acc.get('phone'), "", False)
                 self.update_account_task(acc.get('phone'), "批量拉人", False)
             self.log("批量拉人", f"========== 拉人完成 ==========")
-            logger.log_action("拉人完成", f"成功:{self.total_success} | 失败:{self.total_fail} | 总处理:{self.total_processed}")
             self.log("批量拉人", f"总统计 | 成功:{self.total_success} | 失败:{self.total_fail} | 总处理:{self.total_processed}")
 
         threading.Thread(target=run_invite_task, daemon=True).start()
@@ -3952,7 +3763,6 @@ class TelegramFullGUI:
         if self.is_inviting:
             self.invite_stop_flag = True
             self.log("批量拉人", "停止拉人")
-            logger.log_action("拉人", "用户停止拉人")
         else:
             self.log("批量拉人", "无进行中的任务")
 
@@ -4055,7 +3865,6 @@ class TelegramFullGUI:
         private_log_frame.pack(fill="both", expand=True, pady=5)
         self.private_log = scrolledtext.ScrolledText(private_log_frame, width=100, height=8)
         self.private_log.pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("群发广告-私发", self.private_log)
 
         group_frame_tab = ttk.Frame(send_notebook)
         send_notebook.add(group_frame_tab, text="群发(群聊)")
@@ -4151,7 +3960,6 @@ class TelegramFullGUI:
         group_log_frame.pack(fill="both", expand=True, pady=5)
         self.group_log = scrolledtext.ScrolledText(group_log_frame, width=100, height=8)
         self.group_log.pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("群发广告-群发", self.group_log)
 
         self.private_image_path = tk.StringVar()
         self.group_image_path = tk.StringVar()
@@ -4196,10 +4004,8 @@ class TelegramFullGUI:
                 self.private_users = users
                 self.private_user_count_label.config(text=f"已加载: {len(users)} 个用户")
                 self.private_log_insert(f"导入用户列表: {file_path}, 共 {len(users)} 个用户")
-                logger.log_action("导入用户列表", f"{file_path}, {len(users)} 个用户")
             except Exception as e:
                 self.private_log_insert(f"导入失败: {str(e)}")
-                logger.log_exception(e, "导入用户列表")
 
     def import_private_user_json(self):
         file_path = filedialog.askopenfilename(title="选择用户列表文件", filetypes=[("JSON文件", "*.json")])
@@ -4226,10 +4032,8 @@ class TelegramFullGUI:
                 self.private_users = users
                 self.private_user_count_label.config(text=f"已加载: {len(users)} 个用户")
                 self.private_log_insert(f"导入用户列表: {file_path}, 共 {len(users)} 个用户")
-                logger.log_action("导入用户列表", f"{file_path}, {len(users)} 个用户")
             except Exception as e:
                 self.private_log_insert(f"导入失败: {str(e)}")
-                logger.log_exception(e, "导入用户列表")
 
     def import_private_ad_text(self):
         file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
@@ -4250,17 +4054,14 @@ class TelegramFullGUI:
                 self.private_ad_text.delete("1.0", tk.END)
                 self.private_ad_text.insert("1.0", content)
                 self.private_log_insert(f"导入文本广告: {file_path}")
-                logger.log_action("导入广告文本", file_path)
             except Exception as e:
                 self.private_log_insert(f"导入失败: {str(e)}")
-                logger.log_exception(e, "导入广告文本")
 
     def import_private_image(self):
         file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
         if file_path:
             self.private_image_path.set(file_path)
             self.private_log_insert(f"选择图片广告: {file_path}")
-            logger.log_action("选择图片广告", file_path)
 
     def import_group_ad_text(self):
         file_path = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt")])
@@ -4281,17 +4082,14 @@ class TelegramFullGUI:
                 self.group_ad_text.delete("1.0", tk.END)
                 self.group_ad_text.insert("1.0", content)
                 self.group_log_insert(f"导入文本广告: {file_path}")
-                logger.log_action("导入广告文本", file_path)
             except Exception as e:
                 self.group_log_insert(f"导入失败: {str(e)}")
-                logger.log_exception(e, "导入广告文本")
 
     def import_group_image(self):
         file_path = filedialog.askopenfilename(filetypes=[("图片文件", "*.jpg *.jpeg *.png *.gif *.bmp")])
         if file_path:
             self.group_image_path.set(file_path)
             self.group_log_insert(f"选择图片广告: {file_path}")
-            logger.log_action("选择图片广告", file_path)
 
     def import_group_targets(self):
         file_path = filedialog.askopenfilename(title="选择群组链接文件", filetypes=[("文本文件", "*.txt")])
@@ -4319,10 +4117,8 @@ class TelegramFullGUI:
                 self.group_targets = targets
                 self.group_target_count_label.config(text=f"已加载: {len(targets)} 个群组")
                 self.group_log_insert(f"导入群组链接: {file_path}, 共 {len(targets)} 个群组")
-                logger.log_action("导入群组链接", f"{file_path}, {len(targets)} 个群组")
             except Exception as e:
                 self.group_log_insert(f"导入失败: {str(e)}")
-                logger.log_exception(e, "导入群组链接")
 
     def private_log_insert(self, msg):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -4379,7 +4175,6 @@ class TelegramFullGUI:
         self.private_user_file_path = self.private_user_list_file.get()
 
         self.private_log_insert(f"========== 开始私发 ==========")
-        logger.log_action("私发开始", f"用户: {len(self.private_users)}, 账号: {len(selected_accounts)}, 每号限: {per_account_limit}")
         self.private_log_insert(f"目标用户: {len(self.private_users)} | 账号: {len(selected_accounts)} | 每号限: {per_account_limit}人 | 线程数: {thread_cnt} | 间隔: {interval}秒")
 
         def run_private_send():
@@ -4389,7 +4184,6 @@ class TelegramFullGUI:
             loop.close()
             self.private_send_running = False
             self.private_log_insert("========== 私发完成 ==========")
-            logger.log_action("私发完成", "所有账号私发任务完成")
 
         threading.Thread(target=run_private_send, daemon=True).start()
 
@@ -4605,7 +4399,6 @@ class TelegramFullGUI:
                 except Exception as e:
                     self.private_log_insert(f"[{phone}] 账号异常: {str(e)[:50]}")
                     self.update_account_status_by_phone(phone, '异常')
-                    logger.log_exception(e, f"私发任务 {phone}")
                 finally:
                     if client:
                         try:
@@ -4625,7 +4418,6 @@ class TelegramFullGUI:
         total_fail = sum(r['fail'] for r in results)
 
         self.private_log_insert(f"发送完成: 成功 {total_success} 个，失败 {total_fail} 个")
-        logger.log_action("私发统计", f"成功: {total_success}, 失败: {total_fail}")
 
         if self.private_user_file_path and os.path.exists(self.private_user_file_path):
             try:
@@ -4643,19 +4435,16 @@ class TelegramFullGUI:
     def stop_private_send(self):
         self.private_stop_flag = True
         self.private_log_insert("停止私发")
-        logger.log_action("私发", "用户停止私发")
 
     def pause_private_send(self):
         if self.private_send_running and not self.private_send_paused:
             self.private_send_paused = True
             self.private_log_insert("暂停私发")
-            logger.log_action("私发", "用户暂停私发")
 
     def resume_private_send(self):
         if self.private_send_running and self.private_send_paused:
             self.private_send_paused = False
             self.private_log_insert("继续私发")
-            logger.log_action("私发", "用户继续私发")
 
     def start_group_send(self):
         if self.group_send_running:
@@ -4695,7 +4484,6 @@ class TelegramFullGUI:
         self.group_stop_flag = False
 
         self.group_log_insert(f"========== 开始群发 ==========")
-        logger.log_action("群发开始", f"群组: {len(self.group_targets)}, 账号: {len(selected_accounts)}, 每号限: {per_account_limit}")
         self.group_log_insert(f"目标群组: {len(self.group_targets)}个 | 账号: {len(selected_accounts)}个 | 每号限: {per_account_limit}条")
 
         def run_group_send():
@@ -4705,7 +4493,6 @@ class TelegramFullGUI:
             loop.close()
             self.group_send_running = False
             self.group_log_insert("========== 群发完成 ==========")
-            logger.log_action("群发完成", "所有账号群发任务完成")
 
         threading.Thread(target=run_group_send, daemon=True).start()
 
@@ -4944,7 +4731,6 @@ class TelegramFullGUI:
 
             except Exception as e:
                 self.group_log_insert(f"[{phone[-6:]}] 异常: {str(e)[:50]}")
-                logger.log_exception(e, f"群发任务 {phone}")
             finally:
                 if client:
                     await client.disconnect()
@@ -4957,19 +4743,16 @@ class TelegramFullGUI:
     def stop_group_send(self):
         self.group_stop_flag = True
         self.group_log_insert("停止群发")
-        logger.log_action("群发", "用户停止群发")
 
     def pause_group_send(self):
         if self.group_send_running and not self.group_send_paused:
             self.group_send_paused = True
             self.group_log_insert("暂停群发")
-            logger.log_action("群发", "用户暂停群发")
 
     def resume_group_send(self):
         if self.group_send_running and self.group_send_paused:
             self.group_send_paused = False
             self.group_log_insert("继续群发")
-            logger.log_action("群发", "用户继续群发")
 
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
@@ -5093,7 +4876,6 @@ class TelegramFullGUI:
         log_frame.pack(fill="x", pady=5)
         self.log_widgets["自动群聊"] = scrolledtext.ScrolledText(log_frame, width=100, height=24)
         self.log_widgets["自动群聊"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("自动群聊", self.log_widgets["自动群聊"])
 
         self.chat_groups = []
         self.chat_scripts = []
@@ -5144,13 +4926,11 @@ class TelegramFullGUI:
                 self.chat_groups = groups
                 self.chat_group_count_label.config(text=f"已加载: {len(groups)} 个群组")
                 self.log("自动群聊", f"导入群组链接: {file_path}, 共 {len(groups)} 个群组")
-                logger.log_action("导入群组链接", f"{file_path}, {len(groups)} 个群组")
                 group_names = [g['name'] for g in groups if g['name']]
                 if group_names:
                     self.log("自动群聊", f"检测到分组绑定: {', '.join(set(group_names))}")
             except Exception as e:
                 self.log("自动群聊", f"导入失败: {str(e)}")
-                logger.log_exception(e, "导入群组链接")
 
     def import_chat_scripts(self):
         file_path = filedialog.askopenfilename(title="选择话术文件", filetypes=[("文本文件", "*.txt"), ("Excel文件", "*.xlsx *.xls")])
@@ -5191,12 +4971,10 @@ class TelegramFullGUI:
                 self.chat_scripts = scripts
                 self.chat_script_count_label.config(text=f"已加载: {len(scripts)} 条话术")
                 self.log("自动群聊", f"导入话术文件: {file_path}, 共 {len(scripts)} 条")
-                logger.log_action("导入话术", f"{file_path}, {len(scripts)} 条")
                 self.parse_scripts()
 
             except Exception as e:
                 self.log("自动群聊", f"导入失败: {str(e)}")
-                logger.log_exception(e, "导入话术")
 
     def parse_scripts(self):
         self.chat_script_items = []
@@ -5293,7 +5071,6 @@ class TelegramFullGUI:
         self.chat_message_cache = {}
 
         self.log("自动群聊", f"========== 启动自动群聊 ==========")
-        logger.log_action("自动群聊启动", f"账号: {len(selected_accounts)}, 群组: {len(self.chat_groups)}, 话术: {len(self.chat_script_items)}")
         self.log("自动群聊", f"账号: {len(selected_accounts)}个 | 群组: {len(self.chat_groups)}个 | 话术: {len(self.chat_script_items)}条")
         self.log("自动群聊", f"间隔: {min_interval}~{max_interval}秒 | 无限循环: {'是' if loop_enabled else '否'}")
         self.log("自动群聊", f"模式: {'全账号全群' if self.chat_mode.get() == 'all' else '分组对应群'}")
@@ -5315,7 +5092,6 @@ class TelegramFullGUI:
                 self.update_account_task(acc.get('phone'), "", False)
                 self.update_account_task(acc.get('phone'), "自动群聊", False)
             self.log("自动群聊", "========== 自动群聊已停止 ==========")
-            logger.log_action("自动群聊", "已停止")
 
         threading.Thread(target=run_auto_chat, daemon=True).start()
 
@@ -5638,19 +5414,16 @@ class TelegramFullGUI:
         self.chat_stop_flag = True
         self.chat_running = False
         self.log("自动群聊", "结束炒群")
-        logger.log_action("自动群聊", "用户结束炒群")
 
     def pause_auto_chat(self):
         if self.chat_running and not self.chat_paused:
             self.chat_paused = True
             self.log("自动群聊", "暂停炒群")
-            logger.log_action("自动群聊", "用户暂停炒群")
 
     def resume_auto_chat(self):
         if self.chat_running and self.chat_paused:
             self.chat_paused = False
             self.log("自动群聊", "继续炒群")
-            logger.log_action("自动群聊", "用户继续炒群")
 
     def create_auto_register_page(self):
         page = ttk.Frame(self.notebook)
@@ -5680,7 +5453,6 @@ class TelegramFullGUI:
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["自动注册"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["自动注册"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("自动注册", self.log_widgets["自动注册"])
 
     def select_register_path(self):
         folder = filedialog.askdirectory(title="选择保存路径")
@@ -5692,7 +5464,6 @@ class TelegramFullGUI:
     def start_register(self):
         self.log("自动注册", "批量注册功能需要对接具体接码平台API")
         self.show_centered_info("提示", "请先配置接码平台API")
-        logger.log_action("自动注册", "用户尝试启动注册功能")
 
     def create_monitor_page(self):
         page = ttk.Frame(self.notebook)
@@ -5725,17 +5496,14 @@ class TelegramFullGUI:
         log_frame.pack(fill="both", expand=True, pady=5)
         self.log_widgets["监听群组"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["监听群组"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("监听群组", self.log_widgets["监听群组"])
 
     def start_monitor(self):
         self.log("监听群组", "监听功能开发中")
         self.show_centered_info("提示", "监听功能开发中")
-        logger.log_action("监听", "用户尝试启动监听功能")
 
     def stop_monitor(self):
         self.log("监听群组", "停止监听")
         self.running_tasks['monitor'] = False
-        logger.log_action("监听", "用户停止监听")
 
     def create_direct_login_page(self):
         page = ttk.Frame(self.notebook)
@@ -5872,7 +5640,6 @@ class TelegramFullGUI:
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
         self.log_widgets["直登转协议"] = scrolledtext.ScrolledText(log_frame, width=100, height=12)
         self.log_widgets["直登转协议"].pack(fill="both", expand=True, padx=5, pady=5)
-        logger.register_widget("直登转协议", self.log_widgets["直登转协议"])
 
         self.direct_client = None
         self.direct_phone_code_hash = None
@@ -5931,13 +5698,11 @@ class TelegramFullGUI:
                 self.batch_phones_text.insert("1.0", "\n".join(phones))
                 self.batch_phones_text.config(state="disabled")
                 self.log("直登转协议", f"导入 {len(phones)} 个手机号")
-                logger.log_action("导入手机号", f"{len(phones)} 个手机号")
                 self.show_centered_info("导入成功", f"成功导入 {len(phones)} 个手机号")
             else:
                 self.log("直登转协议", "未找到有效手机号")
         except Exception as e:
             self.log("直登转协议", f"导入失败: {str(e)}")
-            logger.log_exception(e, "导入手机号")
 
     def select_direct_save_path(self):
         folder = filedialog.askdirectory(title="选择保存路径")
@@ -5984,7 +5749,6 @@ class TelegramFullGUI:
                         self.direct_phone_code_hash = result.phone_code_hash
                         self.direct_status.config(text="验证码已发送", foreground="green")
                         self.log("直登转协议", f"验证码已发送至 {phone}")
-                        logger.log_action("发送验证码", f"发送至 {phone}")
 
                         self.start_code_timer()
                         self.root.after(0, lambda: self.direct_login_btn.config(state="normal"))
@@ -6000,7 +5764,6 @@ class TelegramFullGUI:
                     error_msg = str(e)
                     self.direct_status.config(text=f"发送失败: {error_msg[:30]}", foreground="red")
                     self.log("直登转协议", f"发送验证码失败: {error_msg}")
-                    logger.log_exception(e, "发送验证码")
                 finally:
                     self.root.after(0, lambda: self.direct_send_code_btn.config(state="normal", text="发送验证码"))
                     if not self.direct_client:
@@ -6106,14 +5869,12 @@ class TelegramFullGUI:
                                 await client.sign_in(password=twofa)
                                 me = await client.get_me()
                                 self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
-                                logger.log_account(phone, "2FA验证成功", me.first_name)
                                 await self.save_direct_account(phone, save_path, client)
                                 self.direct_progress['value'] = 100
                                 login_success = True
                             except Exception as e2:
                                 error_msg = str(e2)
                                 self.log("直登转协议", f"2FA验证失败: {error_msg}")
-                                logger.log_exception(e2, f"2FA验证 {phone}")
                                 if "password" in error_msg.lower() or "invalid" in error_msg.lower():
                                     self.log("直登转协议", "2FA密码错误，请重新输入")
                                     self.direct_status.config(text="2FA密码错误", foreground="red")
@@ -6138,14 +5899,12 @@ class TelegramFullGUI:
                             self.direct_progress['value'] = 85
                             me = await client.get_me()
                             self.log("直登转协议", f"2FA验证成功！昵称: {me.first_name or me.username}")
-                            logger.log_account(phone, "2FA验证成功", me.first_name)
                             await self.save_direct_account(phone, save_path, client)
                             self.direct_progress['value'] = 100
                             login_success = True
                         except Exception as e2:
                             error_msg = str(e2)
                             self.log("直登转协议", f"2FA验证失败: {error_msg}")
-                            logger.log_exception(e2, f"2FA验证 {phone}")
                             if "password" in error_msg.lower() or "invalid" in error_msg.lower():
                                 self.log("直登转协议", "2FA密码错误，请重新输入")
                                 self.direct_status.config(text="2FA密码错误", foreground="red")
@@ -6191,7 +5950,6 @@ class TelegramFullGUI:
                 error_msg = str(e)
                 self.log("直登转协议", f"登录失败: {error_msg}")
                 self.direct_status.config(text=f"登录失败: {error_msg[:30]}", foreground="red")
-                logger.log_exception(e, f"登录 {phone}")
                 self.direct_progress['value'] = 0
             finally:
                 self.direct_is_logging = False
@@ -6291,6 +6049,7 @@ class TelegramFullGUI:
 
             self.log("直登转协议", f"auth_key长度: {len(auth_key_bytes)} 字节")
 
+            # 使用StringSession保存为文本格式
             string_session = StringSession()
             if dc_id is not None:
                 string_session._dc_id = dc_id
@@ -6355,7 +6114,6 @@ class TelegramFullGUI:
         except Exception as e:
             error_msg = str(e)
             self.log("直登转协议", f"保存失败: {error_msg}")
-            logger.log_exception(e, f"保存账号 {phone}")
             raise e
 
     def add_account_from_session(self, phone, session_path, json_path, account_info):
@@ -6369,7 +6127,6 @@ class TelegramFullGUI:
                 acc['status'] = '正常'
                 self.refresh_account_list_filter()
                 self.save_config()
-                logger.log_account(phone, "账号信息已更新")
                 return
 
         nickname = account_info.get('first_name', '') or phone
@@ -6395,7 +6152,6 @@ class TelegramFullGUI:
         self.refresh_invite_group_filter()
         self.save_config()
         self.log("直登转协议", f"账号 {phone} 已添加到列表")
-        logger.log_account(phone, "已添加到列表", f"昵称: {nickname}")
 
     def direct_cancel(self):
         if self.direct_client and self.direct_client.is_connected():
@@ -6432,7 +6188,6 @@ class TelegramFullGUI:
             self.direct_code_timer_label.config(text="")
 
         self.log("直登转协议", "操作已取消")
-        logger.log_action("直登转协议", "用户取消操作")
 
     def direct_copy_session(self):
         if self.direct_session_path and os.path.exists(self.direct_session_path):
@@ -6482,7 +6237,6 @@ class TelegramFullGUI:
         self.batch_fail_label.config(text="0")
 
         self.log("直登转协议", f"========== 开始批量登录 ==========")
-        logger.log_action("批量登录", f"总手机号: {self.batch_total}, 并发: {concurrent}")
         self.log("直登转协议", f"总手机号: {self.batch_total} | 并发数: {concurrent} | 重试: {retry_count}次")
 
         def do_batch_login():
@@ -6652,7 +6406,6 @@ class TelegramFullGUI:
         self.batch_start_btn.config(state="normal")
         self.batch_stop_btn.config(state="disabled")
         self.log("直登转协议", f"========== 批量登录完成 ==========")
-        logger.log_action("批量登录完成", f"总计: {self.batch_total}, 成功: {self.batch_success_count}, 失败: {self.batch_fail_count}")
         self.log("直登转协议", f"总计: {self.batch_total} | 成功: {self.batch_success_count} | 失败: {self.batch_fail_count}")
         self.show_centered_info("批量完成", f"总计: {self.batch_total}\n成功: {self.batch_success_count}\n失败: {self.batch_fail_count}")
 
@@ -6661,7 +6414,6 @@ class TelegramFullGUI:
         self.batch_start_btn.config(state="normal")
         self.batch_stop_btn.config(state="disabled")
         self.log("直登转协议", "停止批量登录")
-        logger.log_action("批量登录", "用户停止批量登录")
 
     def export_config(self):
         self.save_config()
@@ -6669,7 +6421,6 @@ class TelegramFullGUI:
         if file_path:
             shutil.copy(CONFIG_FILE, file_path)
             self.log("多账号管理", "配置已导出")
-            logger.log_action("导出配置", file_path)
 
     def import_config(self):
         file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
@@ -6686,10 +6437,9 @@ class TelegramFullGUI:
                 statuses.add(status)
             self.account_list_status_filter['values'] = list(statuses)
             self.log("多账号管理", "配置已导入")
-            logger.log_action("导入配置", file_path)
 
     def about(self):
-        self.show_centered_info("关于", "良子TG全能营销系统\n联系@Liangzi1952\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊+回复\n- 自动注册\n- 监听群组\n- 直登转协议\n\n所有操作日志自动保存到 data/logs/ 目录")
+        self.show_centered_info("关于", "良子TG全能营销系统\n联系@Liangzi1952\n版本: 2.0\n\n功能：\n- 多账号管理\n- 代理IP管理\n- 采集群成员\n- 批量拉人\n- 群发广告\n- 自动群聊+回复\n- 自动注册\n- 监听群组\n- 直登转协议")
 
 if __name__ == "__main__":
     root = tk.Tk()
