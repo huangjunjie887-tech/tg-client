@@ -4408,11 +4408,34 @@ class TelegramFullGUI:
 
                 return {'phone': phone, 'success': success_count, 'fail': fail_count}
 
-        tasks = []
-        for acc, user_list in account_tasks:
-            tasks.append(send_for_account(acc, user_list))
+        # ========== 修复：分批执行 ==========
+        # 将账号分成批次，每批最多 thread_cnt 个账号并发
+        # 每批完成后等待 interval 秒
+        total_batches = (len(account_tasks) + thread_cnt - 1) // thread_cnt
 
-        results = await asyncio.gather(*tasks)
+        for batch_idx in range(total_batches):
+            if self.private_stop_flag:
+                self.private_log_insert("收到停止信号，停止发送")
+                break
+
+            start = batch_idx * thread_cnt
+            end = min(start + thread_cnt, len(account_tasks))
+            batch_tasks = account_tasks[start:end]
+
+            batch_num = batch_idx + 1
+            self.private_log_insert(f"========== 第 {batch_num}/{total_batches} 批开始 (账号数: {len(batch_tasks)}) ==========")
+
+            # 并发执行当前批次
+            tasks = []
+            for acc, user_list in batch_tasks:
+                tasks.append(send_for_account(acc, user_list))
+
+            await asyncio.gather(*tasks)
+
+            # 如果还有下一批，等待间隔
+            if batch_idx < total_batches - 1 and not self.private_stop_flag:
+                self.private_log_insert(f"第 {batch_num} 批完成，等待 {interval} 秒后开始下一批...")
+                await asyncio.sleep(interval)
 
         total_success = sum(r['success'] for r in results)
         total_fail = sum(r['fail'] for r in results)
