@@ -37,7 +37,6 @@ from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotos
 from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlineBotResultRequest
 from telethon.tl.functions.auth import SendCodeRequest, SignInRequest, LogOutRequest
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
-from telethon.tl.functions.contacts import ResolveUsernameRequest
 from telethon.sessions import StringSession, MemorySession
 from telethon.crypto import AuthKey
 
@@ -4295,18 +4294,12 @@ class TelegramFullGUI:
         self.private_log_insert(f"========== 全部发送完成 ==========")
         self.private_log_insert(f"成功: {send_stats['success']} 条, 失败: {send_stats['fail']} 条")
 
-        # 更新用户列表
+        # 更新用户列表（只重新读取，不删除任何用户，删除已在send_single_message中处理）
         if self.private_user_file_path and os.path.exists(self.private_user_file_path):
             try:
                 with open(self.private_user_file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                 new_users = [line.strip() for line in content.split('\n') if line.strip()]
-                # 移除已发送的用户
-                for _ in range(min(user_index, len(new_users))):
-                    if new_users:
-                        new_users.pop(0)
-                with open(self.private_user_file_path, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(new_users))
                 self.private_users = new_users
                 self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
                 self.private_log_insert(f"用户列表已更新，剩余 {len(self.private_users)} 个用户")
@@ -4348,24 +4341,28 @@ class TelegramFullGUI:
             clean_username = username.lstrip('@')
             self.private_log_insert(f"[{phone}] 发送给: {clean_username}")
 
-            # 修复：使用 ResolveUsernameRequest 获取用户，更稳定
-            from telethon.tl.functions.contacts import ResolveUsernameRequest
+            # 使用 get_entity 获取用户，支持多种格式
             try:
-                result = await client(ResolveUsernameRequest(clean_username))
-                if result.users:
-                    user_entity = result.users[0]
-                else:
-                    self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
-                    send_stats['fail'] += 1
-                    return
-            except Exception as e:
-                error_msg = str(e).lower()
-                if "invalid" in error_msg:
-                    self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
-                else:
-                    self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {error_msg[:30]}")
-                send_stats['fail'] += 1
-                return
+                user_entity = await client.get_entity(clean_username)
+            except Exception as e1:
+                # 如果失败，尝试带 @ 前缀
+                try:
+                    user_entity = await client.get_entity(f"@{clean_username}")
+                except Exception as e2:
+                    # 尝试通过 ResolveUsernameRequest 获取
+                    try:
+                        from telethon.tl.functions.contacts import ResolveUsernameRequest
+                        result = await client(ResolveUsernameRequest(clean_username))
+                        if result.users:
+                            user_entity = result.users[0]
+                        else:
+                            self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username}")
+                            send_stats['fail'] += 1
+                            return
+                    except Exception as e3:
+                        self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username}")
+                        send_stats['fail'] += 1
+                        return
 
             if ad_text.strip().startswith('@PostBot'):
                 parts = ad_text.strip().split(' ')
@@ -4387,6 +4384,9 @@ class TelegramFullGUI:
                             ))
                             self.private_log_insert(f"[{phone}] ✅ PostBot成功 | {clean_username}")
                             send_stats['success'] += 1
+                            # 发送成功后从文件删除
+                            if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                                self.remove_user_from_file(username, self.private_user_file_path)
                         else:
                             self.private_log_insert(f"[{phone}] ❌ PostBot无结果 | {clean_username}")
                             send_stats['fail'] += 1
@@ -4412,14 +4412,16 @@ class TelegramFullGUI:
                     await client.send_file(user_entity.id, file)
                 self.private_log_insert(f"[{phone}] ✅ 图片发送成功 | {clean_username}")
                 send_stats['success'] += 1
+                # 发送成功后从文件删除
+                if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                    self.remove_user_from_file(username, self.private_user_file_path)
             else:
                 await client.send_message(user_entity.id, ad_text)
                 self.private_log_insert(f"[{phone}] ✅ 文本发送成功 | {clean_username}")
                 send_stats['success'] += 1
-
-            # 从文件中移除已发送的用户
-            if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-                self.remove_user_from_file(username, self.private_user_file_path)
+                # 发送成功后从文件删除
+                if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                    self.remove_user_from_file(username, self.private_user_file_path)
 
         except FloodWaitError as e:
             self.private_log_insert(f"[{phone}] ⚠️ 频率限制，等待{e.seconds}秒 | {clean_username}")
