@@ -37,6 +37,7 @@ from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotos
 from telethon.tl.functions.messages import GetInlineBotResultsRequest, SendInlineBotResultRequest
 from telethon.tl.functions.auth import SendCodeRequest, SignInRequest, LogOutRequest
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+from telethon.tl.functions.contacts import ResolveUsernameRequest
 from telethon.sessions import StringSession, MemorySession
 from telethon.crypto import AuthKey
 
@@ -4320,6 +4321,7 @@ class TelegramFullGUI:
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
 
+        client = None
         try:
             from telethon.sessions import StringSession
 
@@ -4346,109 +4348,126 @@ class TelegramFullGUI:
             clean_username = username.lstrip('@')
             self.private_log_insert(f"[{phone}] 发送给: {clean_username}")
 
+            # 修复：使用 ResolveUsernameRequest 获取用户，更稳定
+            from telethon.tl.functions.contacts import ResolveUsernameRequest
             try:
-                user_entity = await client.get_entity(clean_username)
-
-                if ad_text.strip().startswith('@PostBot'):
-                    parts = ad_text.strip().split(' ')
-                    if len(parts) >= 2:
-                        command = parts[1]
-                        try:
-                            postbot_entity = await client.get_entity('PostBot')
-                            result = await client(GetInlineBotResultsRequest(
-                                bot=postbot_entity,
-                                peer=user_entity.id,
-                                query=command,
-                                offset=''
-                            ))
-                            if result.results:
-                                await client(SendInlineBotResultRequest(
-                                    peer=user_entity.id,
-                                    query_id=result.query_id,
-                                    id=result.results[0].id
-                                ))
-                                self.private_log_insert(f"[{phone}] ✅ PostBot成功 | {clean_username}")
-                                send_stats['success'] += 1
-                            else:
-                                self.private_log_insert(f"[{phone}] ❌ PostBot无结果 | {clean_username}")
-                                send_stats['fail'] += 1
-                        except Exception as e:
-                            error_msg = str(e)
-                            if "PAYMENT_REQUIRED" in error_msg:
-                                self.private_log_insert(f"[{phone}] ❌ 需要Premium | {clean_username}")
-                                self.update_account_status_by_phone(phone, '需要Premium')
-                            elif "Too many requests" in error_msg:
-                                self.private_log_insert(f"[{phone}] ⚠️ 请求过于频繁 | {clean_username}")
-                                self.update_account_status_by_phone(phone, '频率限制')
-                            else:
-                                self.private_log_insert(f"[{phone}] ❌ PostBot失败: {error_msg[:50]} | {clean_username}")
-                            send_stats['fail'] += 1
-                    else:
-                        self.private_log_insert(f"[{phone}] ❌ PostBot命令格式错误")
-                        send_stats['fail'] += 1
-                elif image_path and os.path.exists(image_path):
-                    file = await client.upload_file(image_path)
-                    if ad_text:
-                        await client.send_file(user_entity.id, file, caption=ad_text)
-                    else:
-                        await client.send_file(user_entity.id, file)
-                    self.private_log_insert(f"[{phone}] ✅ 图片发送成功 | {clean_username}")
-                    send_stats['success'] += 1
+                result = await client(ResolveUsernameRequest(clean_username))
+                if result.users:
+                    user_entity = result.users[0]
                 else:
-                    await client.send_message(user_entity.id, ad_text)
-                    self.private_log_insert(f"[{phone}] ✅ 文本发送成功 | {clean_username}")
-                    send_stats['success'] += 1
-
-                # 从文件中移除已发送的用户
-                if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-                    self.remove_user_from_file(username, self.private_user_file_path)
-
-            except FloodWaitError as e:
-                self.private_log_insert(f"[{phone}] ⚠️ 频率限制，等待{e.seconds}秒 | {clean_username}")
-                self.update_account_status_by_phone(phone, '频率限制')
-                send_stats['fail'] += 1
-                await asyncio.sleep(min(e.seconds, 300))
-
-            except UserNotMutualContactError:
-                self.private_log_insert(f"[{phone}] ❌ 双向限制 | {clean_username}")
-                self.update_account_status_by_phone(phone, '双向限制')
-                send_stats['fail'] += 1
-
-            except PeerFloodError:
-                self.private_log_insert(f"[{phone}] ⚠️ 账号风控限制 | {clean_username}")
-                self.update_account_status_by_phone(phone, '风控限制')
-                send_stats['fail'] += 1
-
-            except UserPrivacyRestrictedError:
-                self.private_log_insert(f"[{phone}] ❌ 隐私保护 | {clean_username}")
-                send_stats['fail'] += 1
-
-            except UserDeactivatedError:
-                self.private_log_insert(f"[{phone}] ❌ 对方已注销 | {clean_username}")
-                send_stats['fail'] += 1
-
+                    self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
+                    send_stats['fail'] += 1
+                    return
             except Exception as e:
                 error_msg = str(e).lower()
-                if "banned" in error_msg:
-                    self.private_log_insert(f"[{phone}] ⚠️ 账号被封禁 | {clean_username}")
-                    self.update_account_status_by_phone(phone, '封禁')
-                elif "deactivated" in error_msg:
-                    self.private_log_insert(f"[{phone}] ⚠️ 账号已注销 | {clean_username}")
-                    self.update_account_status_by_phone(phone, '销号')
-                elif "too many requests" in error_msg:
-                    self.private_log_insert(f"[{phone}] ⚠️ 请求过于频繁 | {clean_username}")
-                    self.update_account_status_by_phone(phone, '频率限制')
-                elif "invalid" in error_msg:
-                    self.private_log_insert(f"[{phone}] ❌ 用户名无效 | {clean_username}")
+                if "invalid" in error_msg:
+                    self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
                 else:
-                    self.private_log_insert(f"[{phone}] ❌ 发送失败: {str(e)[:50]} | {clean_username}")
+                    self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {error_msg[:30]}")
                 send_stats['fail'] += 1
+                return
 
-            await client.disconnect()
+            if ad_text.strip().startswith('@PostBot'):
+                parts = ad_text.strip().split(' ')
+                if len(parts) >= 2:
+                    command = parts[1]
+                    try:
+                        postbot_entity = await client.get_entity('PostBot')
+                        result = await client(GetInlineBotResultsRequest(
+                            bot=postbot_entity,
+                            peer=user_entity.id,
+                            query=command,
+                            offset=''
+                        ))
+                        if result.results:
+                            await client(SendInlineBotResultRequest(
+                                peer=user_entity.id,
+                                query_id=result.query_id,
+                                id=result.results[0].id
+                            ))
+                            self.private_log_insert(f"[{phone}] ✅ PostBot成功 | {clean_username}")
+                            send_stats['success'] += 1
+                        else:
+                            self.private_log_insert(f"[{phone}] ❌ PostBot无结果 | {clean_username}")
+                            send_stats['fail'] += 1
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "PAYMENT_REQUIRED" in error_msg:
+                            self.private_log_insert(f"[{phone}] ❌ 需要Premium | {clean_username}")
+                            self.update_account_status_by_phone(phone, '需要Premium')
+                        elif "Too many requests" in error_msg:
+                            self.private_log_insert(f"[{phone}] ⚠️ 请求过于频繁 | {clean_username}")
+                            self.update_account_status_by_phone(phone, '频率限制')
+                        else:
+                            self.private_log_insert(f"[{phone}] ❌ PostBot失败: {error_msg[:50]} | {clean_username}")
+                        send_stats['fail'] += 1
+                else:
+                    self.private_log_insert(f"[{phone}] ❌ PostBot命令格式错误")
+                    send_stats['fail'] += 1
+            elif image_path and os.path.exists(image_path):
+                file = await client.upload_file(image_path)
+                if ad_text:
+                    await client.send_file(user_entity.id, file, caption=ad_text)
+                else:
+                    await client.send_file(user_entity.id, file)
+                self.private_log_insert(f"[{phone}] ✅ 图片发送成功 | {clean_username}")
+                send_stats['success'] += 1
+            else:
+                await client.send_message(user_entity.id, ad_text)
+                self.private_log_insert(f"[{phone}] ✅ 文本发送成功 | {clean_username}")
+                send_stats['success'] += 1
+
+            # 从文件中移除已发送的用户
+            if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                self.remove_user_from_file(username, self.private_user_file_path)
+
+        except FloodWaitError as e:
+            self.private_log_insert(f"[{phone}] ⚠️ 频率限制，等待{e.seconds}秒 | {clean_username}")
+            self.update_account_status_by_phone(phone, '频率限制')
+            send_stats['fail'] += 1
+            await asyncio.sleep(min(e.seconds, 300))
+
+        except UserNotMutualContactError:
+            self.private_log_insert(f"[{phone}] ❌ 双向限制 | {clean_username}")
+            self.update_account_status_by_phone(phone, '双向限制')
+            send_stats['fail'] += 1
+
+        except PeerFloodError:
+            self.private_log_insert(f"[{phone}] ⚠️ 账号风控限制 | {clean_username}")
+            self.update_account_status_by_phone(phone, '风控限制')
+            send_stats['fail'] += 1
+
+        except UserPrivacyRestrictedError:
+            self.private_log_insert(f"[{phone}] ❌ 隐私保护 | {clean_username}")
+            send_stats['fail'] += 1
+
+        except UserDeactivatedError:
+            self.private_log_insert(f"[{phone}] ❌ 对方已注销 | {clean_username}")
+            send_stats['fail'] += 1
 
         except Exception as e:
-            self.private_log_insert(f"[{phone}] 账号异常: {str(e)[:50]}")
-            self.update_account_status_by_phone(phone, '异常')
+            error_msg = str(e).lower()
+            if "banned" in error_msg:
+                self.private_log_insert(f"[{phone}] ⚠️ 账号被封禁 | {clean_username}")
+                self.update_account_status_by_phone(phone, '封禁')
+            elif "deactivated" in error_msg:
+                self.private_log_insert(f"[{phone}] ⚠️ 账号已注销 | {clean_username}")
+                self.update_account_status_by_phone(phone, '销号')
+            elif "too many requests" in error_msg:
+                self.private_log_insert(f"[{phone}] ⚠️ 请求过于频繁 | {clean_username}")
+                self.update_account_status_by_phone(phone, '频率限制')
+            elif "invalid" in error_msg:
+                self.private_log_insert(f"[{phone}] ❌ 用户名无效 | {clean_username}")
+            else:
+                self.private_log_insert(f"[{phone}] ❌ 发送失败: {str(e)[:50]} | {clean_username}")
+            send_stats['fail'] += 1
+
+        finally:
+            if client:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
 
     def stop_private_send(self):
         self.private_stop_flag = True
