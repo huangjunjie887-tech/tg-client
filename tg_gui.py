@@ -752,12 +752,65 @@ class TelegramFullGUI:
 
         threading.Thread(target=do_login, daemon=True).start()
 
+    def parse_proxy_string(self, proxy_str):
+        """解析代理字符串，支持多种格式"""
+        if not proxy_str:
+            return None
+        try:
+            # 格式1: 标准格式 socks5://user:pass@host:port
+            pattern = r'^(socks5|socks4|http|https)://(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)$'
+            match = re.match(pattern, proxy_str)
+            if match:
+                proxy_type = match.group(1)
+                username = match.group(2)
+                password = match.group(3)
+                host = match.group(4)
+                port = int(match.group(5))
+                if username and password:
+                    return (proxy_type, host, port, username, password)
+                else:
+                    return (proxy_type, host, port)
+
+            # 格式2: user:pass@host:port (默认socks5)
+            pattern2 = r'^([^:]+):([^@]+)@([^:]+):(\d+)$'
+            match = re.match(pattern2, proxy_str)
+            if match:
+                username = match.group(1)
+                password = match.group(2)
+                host = match.group(3)
+                port = int(match.group(4))
+                return ('socks5', host, port, username, password)
+
+            # 格式3: host:port##user##pass (默认socks5)
+            pattern3 = r'^([^:]+):(\d+)##([^#]+)##([^#]+)$'
+            match = re.match(pattern3, proxy_str)
+            if match:
+                host = match.group(1)
+                port = int(match.group(2))
+                username = match.group(4)
+                password = match.group(3)
+                return ('socks5', host, port, username, password)
+
+            # 格式4: host:port (无认证，默认socks5)
+            pattern4 = r'^([^:]+):(\d+)$'
+            match = re.match(pattern4, proxy_str)
+            if match:
+                host = match.group(1)
+                port = int(match.group(2))
+                return ('socks5', host, port)
+
+            return None
+        except Exception as e:
+            return None
+
     def login_single_account(self, acc):
-        """修复版一键登录 - 支持文本格式和二进制格式session"""
+        """修复版一键登录 - 支持文本格式和二进制格式session，支持代理"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         twofa = self.get_account_twofa(acc)
+        proxy_str = acc.get('proxy', '')
+        proxy = self.parse_proxy_string(proxy_str)
 
         async def do_login():
             client = None
@@ -780,7 +833,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
 
                 if await client.is_user_authorized():
@@ -797,7 +850,7 @@ class TelegramFullGUI:
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] ✅ 登录成功 | 昵称: {nickname}")
+                    self.log("多账号管理", f"[{phone}] ✅ 登录成功 | 昵称: {nickname} | 代理: {proxy_str if proxy_str else '无'}")
                     await client.disconnect()
                     self.update_status_filter_options()
                     return True
@@ -847,7 +900,7 @@ class TelegramFullGUI:
                             if content:
                                 from telethon.sessions import StringSession
                                 session = StringSession(content)
-                                client = TelegramClient(session, api_id, api_hash)
+                                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                                 await client.connect()
                                 if await client.is_user_authorized():
                                     me = await client.get_me()
@@ -911,11 +964,13 @@ class TelegramFullGUI:
         threading.Thread(target=do_deep_check, daemon=True).start()
 
     def deep_check_single_account(self, acc):
-        """修复版深度检测 - 支持文本格式和二进制格式session"""
+        """修复版深度检测 - 支持文本格式和二进制格式session，支持代理"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
         twofa = self.get_account_twofa(acc)
+        proxy_str = acc.get('proxy', '')
+        proxy = self.parse_proxy_string(proxy_str)
 
         async def do_check():
             client = None
@@ -936,7 +991,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
 
                 if not await client.is_user_authorized():
@@ -987,7 +1042,7 @@ class TelegramFullGUI:
                     self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
 
                 acc['status'] = '正常'
-                self.log("多账号管理", f"[{phone}] 检测结果: 正常(可登录)")
+                self.log("多账号管理", f"[{phone}] 检测结果: 正常(可登录) | 代理: {proxy_str if proxy_str else '无'}")
                 await client.disconnect()
                 self.update_status_filter_options()
 
@@ -1067,6 +1122,8 @@ class TelegramFullGUI:
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
+        proxy_str = acc.get('proxy', '')
+        proxy = self.parse_proxy_string(proxy_str)
 
         async def do_kick():
             client = None
@@ -1085,7 +1142,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
 
                 if not await client.is_user_authorized():
@@ -1347,6 +1404,8 @@ class TelegramFullGUI:
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
+        proxy_str = acc.get('proxy', '')
+        proxy = self.parse_proxy_string(proxy_str)
 
         async def do_edit():
             client = None
@@ -1365,7 +1424,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.log("多账号管理", f"[{phone}] 账号未登录")
@@ -1992,9 +2051,10 @@ class TelegramFullGUI:
             if assign_mode.get() == "round_robin":
                 for i, phone in enumerate(selected_accounts):
                     p = selected_proxies[i % len(selected_proxies)]
-                    proxy_str = f"{p['type']}://{p['host']}:{p['port']}"
+                    proxy_str = f"{p['type']}://"
                     if p.get('user') and p.get('password'):
-                        proxy_str = f"{p['type']}://{p['user']}:{p['password']}@{p['host']}:{p['port']}"
+                        proxy_str += f"{p['user']}:{p['password']}@"
+                    proxy_str += f"{p['host']}:{p['port']}"
                     for acc in self.accounts:
                         if acc.get('phone') == phone:
                             acc['proxy'] = proxy_str
@@ -2005,9 +2065,10 @@ class TelegramFullGUI:
                 for i in range(min_len):
                     phone = selected_accounts[i]
                     p = selected_proxies[i]
-                    proxy_str = f"{p['type']}://{p['host']}:{p['port']}"
+                    proxy_str = f"{p['type']}://"
                     if p.get('user') and p.get('password'):
-                        proxy_str = f"{p['type']}://{p['user']}:{p['password']}@{p['host']}:{p['port']}"
+                        proxy_str += f"{p['user']}:{p['password']}@"
+                    proxy_str += f"{p['host']}:{p['port']}"
                     for acc in self.accounts:
                         if acc.get('phone') == phone:
                             acc['proxy'] = proxy_str
@@ -2520,6 +2581,8 @@ class TelegramFullGUI:
 
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
+        proxy_str = acc.get('proxy', '')
+        proxy = self.parse_proxy_string(proxy_str)
 
         self.log("采集群成员", f"开始采集群成员: {group_username if group else '多讨论组'}")
         if topic_id:
@@ -2553,7 +2616,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.log("采集群成员", "账号未登录")
@@ -3626,6 +3689,8 @@ class TelegramFullGUI:
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
+        proxy_str = acc.get('proxy', '')
+        proxy = self.parse_proxy_string(proxy_str)
 
         client = None
         account_invited_count = 0
@@ -3645,7 +3710,7 @@ class TelegramFullGUI:
             else:
                 session = MemorySession()
 
-            client = TelegramClient(session, api_id, api_hash)
+            client = TelegramClient(session, api_id, api_hash, proxy=proxy)
             await client.connect()
             if not await client.is_user_authorized():
                 self.log("批量拉人", f"[{phone[-6:]}] 未登录")
@@ -4313,6 +4378,8 @@ class TelegramFullGUI:
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
+        proxy_str = acc.get('proxy', '')
+        proxy = self.parse_proxy_string(proxy_str)
 
         client = None
         try:
@@ -4330,7 +4397,7 @@ class TelegramFullGUI:
             else:
                 session = MemorySession()
 
-            client = TelegramClient(session, api_id, api_hash)
+            client = TelegramClient(session, api_id, api_hash, proxy=proxy)
             await client.connect()
 
             if not await client.is_user_authorized():
@@ -4341,7 +4408,7 @@ class TelegramFullGUI:
             clean_username = username.lstrip('@')
             self.private_log_insert(f"[{phone}] 发送给: {clean_username}")
 
-            # 使用 get_entity 获取用户，支持多种格式
+            # 使用 get_entity 获取用户
             try:
                 user_entity = await client.get_entity(clean_username)
             except Exception as e1:
@@ -4598,6 +4665,8 @@ class TelegramFullGUI:
             phone = acc.get('phone', '')
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
+            proxy_str = acc.get('proxy', '')
+            proxy = self.parse_proxy_string(proxy_str)
 
             assigned_groups = account_assignment.get(phone, [])
             if not assigned_groups:
@@ -4623,7 +4692,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
                 if not await client.is_user_authorized():
                     self.group_log_insert(f"[{phone[-6:]}] 未登录")
@@ -5165,6 +5234,8 @@ class TelegramFullGUI:
 
             session_path = acc.get('session_path', '')
             api_id, api_hash = self.get_account_api_credentials(acc)
+            proxy_str = acc.get('proxy', '')
+            proxy = self.parse_proxy_string(proxy_str)
             target_groups = account_groups.get(phone, [])
 
             if not target_groups:
@@ -5185,7 +5256,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
                 if not await client.is_user_authorized():
                     return None
