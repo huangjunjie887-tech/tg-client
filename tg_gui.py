@@ -2158,8 +2158,19 @@ class TelegramFullGUI:
             if not line:
                 continue
 
-            # 先尝试解析 user:pass@host:port 格式
-            match = re.match(r'^([^:]+):([^@]+)@([^:]+):(\d+)$', line)
+            proxy_line = line
+            # 先去掉协议头（如果有）
+            if proxy_line.startswith('http://'):
+                proxy_line = proxy_line[7:]
+            elif proxy_line.startswith('https://'):
+                proxy_line = proxy_line[8:]
+            elif proxy_line.startswith('socks5://'):
+                proxy_line = proxy_line[9:]
+            elif proxy_line.startswith('socks4://'):
+                proxy_line = proxy_line[9:]
+
+            # 尝试解析 user:pass@host:port 格式
+            match = re.match(r'^([^:]+):([^@]+)@([^:]+):(\d+)$', proxy_line)
             if match:
                 user = match.group(1)
                 password = match.group(2)
