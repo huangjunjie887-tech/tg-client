@@ -757,47 +757,51 @@ class TelegramFullGUI:
         if not proxy_str:
             return None
         try:
-            # 格式1: 标准格式 socks5://user:pass@host:port
-            pattern = r'^(socks5|socks4|http|https)://(?:([^:@]+):([^@]+)@)?([^:]+):(\d+)$'
-            match = re.match(pattern, proxy_str)
-            if match:
-                proxy_type = match.group(1)
-                username = match.group(2)
-                password = match.group(3)
-                host = match.group(4)
-                port = int(match.group(5))
-                if username and password:
-                    return (proxy_type, host, port, username, password)
-                else:
-                    return (proxy_type, host, port)
+            # 先提取协议类型
+            proxy_type = 'socks5'
+            original = proxy_str
+            
+            # 检查是否有协议头
+            if proxy_str.startswith('http://'):
+                proxy_type = 'http'
+                proxy_str = proxy_str[7:]  # 去掉 http://
+            elif proxy_str.startswith('https://'):
+                proxy_type = 'https'
+                proxy_str = proxy_str[8:]  # 去掉 https://
+            elif proxy_str.startswith('socks5://'):
+                proxy_type = 'socks5'
+                proxy_str = proxy_str[9:]  # 去掉 socks5://
+            elif proxy_str.startswith('socks4://'):
+                proxy_type = 'socks4'
+                proxy_str = proxy_str[9:]  # 去掉 socks4://
 
-            # 格式2: user:pass@host:port (默认socks5)
-            pattern2 = r'^([^:]+):([^@]+)@([^:]+):(\d+)$'
-            match = re.match(pattern2, proxy_str)
+            # 格式: user:pass@host:port
+            pattern = r'^([^:]+):([^@]+)@([^:]+):(\d+)$'
+            match = re.match(pattern, proxy_str)
             if match:
                 username = match.group(1)
                 password = match.group(2)
                 host = match.group(3)
                 port = int(match.group(4))
-                return ('socks5', host, port, username, password)
+                return (proxy_type, host, port, username, password)
 
-            # 格式3: host:port##user##pass (默认socks5)
-            pattern3 = r'^([^:]+):(\d+)##([^#]+)##([^#]+)$'
-            match = re.match(pattern3, proxy_str)
+            # 格式: host:port##user##pass
+            pattern2 = r'^([^:]+):(\d+)##([^#]+)##([^#]+)$'
+            match = re.match(pattern2, proxy_str)
             if match:
                 host = match.group(1)
                 port = int(match.group(2))
                 username = match.group(4)
                 password = match.group(3)
-                return ('socks5', host, port, username, password)
+                return (proxy_type, host, port, username, password)
 
-            # 格式4: host:port (无认证，默认socks5)
-            pattern4 = r'^([^:]+):(\d+)$'
-            match = re.match(pattern4, proxy_str)
+            # 格式: host:port
+            pattern3 = r'^([^:]+):(\d+)$'
+            match = re.match(pattern3, proxy_str)
             if match:
                 host = match.group(1)
                 port = int(match.group(2))
-                return ('socks5', host, port)
+                return (proxy_type, host, port)
 
             return None
         except Exception as e:
