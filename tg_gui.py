@@ -2088,7 +2088,7 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="确定分配", command=do_assign, width=12).pack(side="left", padx=10)
         ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
 
-    def import_proxies(self):
+def import_proxies(self):
     group_dialog = tk.Toplevel(self.root)
     group_dialog.title("选择代理分组")
     group_dialog.geometry("300x150")
