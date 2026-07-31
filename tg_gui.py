@@ -2089,136 +2089,136 @@ class TelegramFullGUI:
         ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=12).pack(side="left", padx=10)
 
     def import_proxies(self):
-        group_dialog = tk.Toplevel(self.root)
-        group_dialog.title("选择代理分组")
-        group_dialog.geometry("300x150")
-        group_dialog.resizable(False, False)
-        group_dialog.transient(self.root)
-        group_dialog.grab_set()
-        self.center_window(group_dialog, 300, 150)
+    group_dialog = tk.Toplevel(self.root)
+    group_dialog.title("选择代理分组")
+    group_dialog.geometry("300x150")
+    group_dialog.resizable(False, False)
+    group_dialog.transient(self.root)
+    group_dialog.grab_set()
+    self.center_window(group_dialog, 300, 150)
 
-        ttk.Label(group_dialog, text="请选择导入代理的目标分组:").pack(pady=15)
-        group_var = tk.StringVar()
-        group_combo = ttk.Combobox(group_dialog, textvariable=group_var, values=self.proxy_groups, width=25)
-        group_combo.pack(pady=5)
-        if self.proxy_groups:
-            group_combo.set(self.proxy_groups[0])
+    ttk.Label(group_dialog, text="请选择导入代理的目标分组:").pack(pady=15)
+    group_var = tk.StringVar()
+    group_combo = ttk.Combobox(group_dialog, textvariable=group_var, values=self.proxy_groups, width=25)
+    group_combo.pack(pady=5)
+    if self.proxy_groups:
+        group_combo.set(self.proxy_groups[0])
 
-        result_group = [None]
-        def confirm_group():
-            result_group[0] = group_var.get() or "默认分组"
-            group_dialog.destroy()
-        ttk.Button(group_dialog, text="确定", command=confirm_group).pack(pady=15)
-        self.root.wait_window(group_dialog)
-        if result_group[0] is None:
-            return
-        target_group = result_group[0]
+    result_group = [None]
+    def confirm_group():
+        result_group[0] = group_var.get() or "默认分组"
+        group_dialog.destroy()
+    ttk.Button(group_dialog, text="确定", command=confirm_group).pack(pady=15)
+    self.root.wait_window(group_dialog)
+    if result_group[0] is None:
+        return
+    target_group = result_group[0]
 
-        file_path = filedialog.askopenfilename(title="选择代理文件", filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
-        if not file_path:
-            return
+    file_path = filedialog.askopenfilename(title="选择代理文件", filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+    if not file_path:
+        return
 
-        type_dialog = tk.Toplevel(self.root)
-        type_dialog.title("选择代理类型")
-        type_dialog.geometry("350x200")
-        type_dialog.resizable(False, False)
-        type_dialog.transient(self.root)
-        type_dialog.grab_set()
-        self.center_window(type_dialog, 350, 200)
+    type_dialog = tk.Toplevel(self.root)
+    type_dialog.title("选择代理类型")
+    type_dialog.geometry("350x200")
+    type_dialog.resizable(False, False)
+    type_dialog.transient(self.root)
+    type_dialog.grab_set()
+    self.center_window(type_dialog, 350, 200)
 
-        ttk.Label(type_dialog, text="请选择代理类型:", font=("微软雅黑", 12)).pack(pady=25)
-        proxy_type = ttk.Combobox(type_dialog, values=["socks5", "socks4", "http", "https"], width=15, font=("微软雅黑", 11))
-        proxy_type.set("socks5")
-        proxy_type.pack(pady=10)
+    ttk.Label(type_dialog, text="请选择代理类型:", font=("微软雅黑", 12)).pack(pady=25)
+    proxy_type = ttk.Combobox(type_dialog, values=["socks5", "socks4", "http", "https"], width=15, font=("微软雅黑", 11))
+    proxy_type.set("socks5")
+    proxy_type.pack(pady=10)
 
-        result_type = [None]
-        def confirm_type():
-            result_type[0] = proxy_type.get()
-            type_dialog.destroy()
-        button_frame = ttk.Frame(type_dialog)
-        button_frame.pack(pady=20)
-        ttk.Button(button_frame, text="确定", command=confirm_type, width=12).pack(side="left", padx=15)
-        ttk.Button(button_frame, text="取消", command=type_dialog.destroy, width=12).pack(side="left", padx=15)
-        self.root.wait_window(type_dialog)
-        if not result_type[0]:
-            return
-        p_type = result_type[0]
+    result_type = [None]
+    def confirm_type():
+        result_type[0] = proxy_type.get()
+        type_dialog.destroy()
+    button_frame = ttk.Frame(type_dialog)
+    button_frame.pack(pady=20)
+    ttk.Button(button_frame, text="确定", command=confirm_type, width=12).pack(side="left", padx=15)
+    ttk.Button(button_frame, text="取消", command=type_dialog.destroy, width=12).pack(side="left", padx=15)
+    self.root.wait_window(type_dialog)
+    if not result_type[0]:
+        return
+    p_type = result_type[0]
 
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except Exception as e:
-            self.show_centered_error("错误", f"读取文件失败: {str(e)}")
-            return
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        self.show_centered_error("错误", f"读取文件失败: {str(e)}")
+        return
 
-        lines = content.strip().split('\n')
-        added_count = 0
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+    lines = content.strip().split('\n')
+    added_count = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
 
-            proxy_line = line
-            # 先去掉协议头（如果有）
-            if proxy_line.startswith('http://'):
-                proxy_line = proxy_line[7:]
-            elif proxy_line.startswith('https://'):
-                proxy_line = proxy_line[8:]
-            elif proxy_line.startswith('socks5://'):
-                proxy_line = proxy_line[9:]
-            elif proxy_line.startswith('socks4://'):
-                proxy_line = proxy_line[9:]
+        proxy_line = line
+        # 先去掉协议头（如果有）
+        if proxy_line.startswith('http://'):
+            proxy_line = proxy_line[7:]
+        elif proxy_line.startswith('https://'):
+            proxy_line = proxy_line[8:]
+        elif proxy_line.startswith('socks5://'):
+            proxy_line = proxy_line[9:]
+        elif proxy_line.startswith('socks4://'):
+            proxy_line = proxy_line[9:]
 
-            # 尝试解析 user:pass@host:port 格式
-            match = re.match(r'^([^:]+):([^@]+)@([^:]+):(\d+)$', proxy_line)
-            if match:
-                user = match.group(1)
-                password = match.group(2)
-                host = match.group(3)
-                port = match.group(4)
+        # 尝试解析 user:pass@host:port 格式
+        match = re.match(r'^([^:]+):([^@]+)@([^:]+):(\d+)$', proxy_line)
+        if match:
+            user = match.group(1)
+            password = match.group(2)
+            host = match.group(3)
+            port = match.group(4)
+            self.proxies.append({
+                "type": p_type,
+                "host": host,
+                "port": port,
+                "user": user,
+                "password": password,
+                "address": f"{host}:{port}",
+                "status": "未检测",
+                "group": target_group
+            })
+            added_count += 1
+            self.log("代理IP", f"导入代理: {p_type}://{host}:{port} 到分组「{target_group}」")
+            continue
+
+        # 如果匹配不上，尝试 host:port 格式（无认证）
+        parts = line.split(':')
+        if len(parts) >= 2:
+            host = parts[0]
+            port = parts[1]
+            # 检查端口是否是纯数字
+            if port.isdigit():
                 self.proxies.append({
                     "type": p_type,
                     "host": host,
                     "port": port,
-                    "user": user,
-                    "password": password,
+                    "user": "",
+                    "password": "",
                     "address": f"{host}:{port}",
                     "status": "未检测",
                     "group": target_group
                 })
                 added_count += 1
                 self.log("代理IP", f"导入代理: {p_type}://{host}:{port} 到分组「{target_group}」")
-                continue
 
-            # 如果匹配不上，尝试其他格式
-            parts = line.split(':')
-            if len(parts) >= 2:
-                host = parts[0]
-                port = parts[1]
-                user = parts[2] if len(parts) >= 3 else ""
-                password = parts[3] if len(parts) >= 4 else ""
-                self.proxies.append({
-                    "type": p_type,
-                    "host": host,
-                    "port": port,
-                    "user": user,
-                    "password": password,
-                    "address": f"{host}:{port}",
-                    "status": "未检测",
-                    "group": target_group
-                })
-                added_count += 1
-                self.log("代理IP", f"导入代理: {p_type}://{host}:{port} 到分组「{target_group}」")
-
-        self.refresh_proxy_list()
-        self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
-        self.save_config()
-        if added_count > 0:
-            self.log("代理IP", f"导入完成，共导入 {added_count} 个代理")
-            self.show_centered_info("导入完成", f"成功导入 {added_count} 个代理")
-        else:
-            self.log("代理IP", "导入失败：未找到有效的代理格式")
-            self.show_centered_warning("导入失败", "未找到有效的代理格式")
+    self.refresh_proxy_list()
+    self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
+    self.save_config()
+    if added_count > 0:
+        self.log("代理IP", f"导入完成，共导入 {added_count} 个代理")
+        self.show_centered_info("导入完成", f"成功导入 {added_count} 个代理")
+    else:
+        self.log("代理IP", "导入失败：未找到有效的代理格式")
+        self.show_centered_warning("导入失败", "未找到有效的代理格式")
 
     def delete_proxy(self):
         selected = self.proxy_tree.selection()
