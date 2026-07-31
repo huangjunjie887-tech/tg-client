@@ -1880,12 +1880,28 @@ class TelegramFullGUI:
         self.proxy_count_label = ttk.Label(toolbar, text=f"代理数量: {len(self.proxies)}", font=("微软雅黑", 10))
         self.proxy_count_label.pack(side="left", padx=10)
 
-        ttk.Button(toolbar, text="新建分组", command=self.add_proxy_group).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="分组管理", command=self.open_proxy_group_manager).pack(side="left", padx=2)
         ttk.Button(toolbar, text="导入代理", command=self.import_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="删除选中代理", command=self.delete_proxy).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="检测选中代理", command=self.check_selected_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="检测所有代理", command=self.check_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="清空所有代理", command=self.clear_all_proxies).pack(side="left", padx=2)
         ttk.Button(toolbar, text="分配代理IP", command=self.assign_proxies_to_accounts).pack(side="left", padx=2)
+
+        filter_bar = ttk.Frame(main_frame)
+        filter_bar.pack(fill="x", pady=5)
+
+        ttk.Label(filter_bar, text="分组筛选:").pack(side="left", padx=5)
+        self.proxy_list_group_filter = ttk.Combobox(filter_bar, values=["全部"] + self.proxy_groups, width=15)
+        self.proxy_list_group_filter.set("全部")
+        self.proxy_list_group_filter.pack(side="left", padx=5)
+        self.proxy_list_group_filter.bind("<<ComboboxSelected>>", self.refresh_proxy_list)
+
+        ttk.Label(filter_bar, text="状态筛选:").pack(side="left", padx=20)
+        self.proxy_list_status_filter = ttk.Combobox(filter_bar, values=["全部", "未检测", "可用", "不可用", "检测失败", "代理连接失败", "连接被拒绝", "连接超时", "不可用(代理错误)", "不可用(超时)", "不可用(连接错误)"], width=15)
+        self.proxy_list_status_filter.set("全部")
+        self.proxy_list_status_filter.pack(side="left", padx=5)
+        self.proxy_list_status_filter.bind("<<ComboboxSelected>>", self.refresh_proxy_list)
 
         frame = ttk.LabelFrame(main_frame, text="代理列表")
         frame.pack(fill="both", expand=True, pady=5)
@@ -1911,10 +1927,155 @@ class TelegramFullGUI:
         self.log_widgets["代理IP"] = scrolledtext.ScrolledText(log_frame, width=100, height=4)
         self.log_widgets["代理IP"].pack(fill="both", expand=True, padx=5, pady=5)
 
+    def open_proxy_group_manager(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("代理分组管理")
+        dialog.geometry("550x500")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self.center_window(dialog, 550, 500)
+
+        group_frame = ttk.LabelFrame(dialog, text="分组列表")
+        group_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        group_listbox = tk.Listbox(group_frame, height=8)
+        group_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        for g in self.proxy_groups:
+            group_listbox.insert(tk.END, g)
+
+        btn_frame = ttk.Frame(group_frame)
+        btn_frame.pack(fill="x", pady=5)
+
+        ttk.Label(btn_frame, text="分组名称:").pack(side="left", padx=5)
+        group_name_entry = ttk.Entry(btn_frame, width=15)
+        group_name_entry.pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="新建", command=lambda: self.add_proxy_group_from_manager(group_name_entry, group_listbox)).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="重命名", command=lambda: self.rename_proxy_group(group_name_entry, group_listbox)).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="删除", command=lambda: self.delete_proxy_group_from_manager(group_listbox)).pack(side="left", padx=2)
+
+        move_frame = ttk.LabelFrame(dialog, text="移动代理到分组")
+        move_frame.pack(fill="x", padx=10, pady=10)
+
+        proxy_frame = ttk.Frame(move_frame)
+        proxy_frame.pack(fill="x", padx=5, pady=5)
+
+        ttk.Label(proxy_frame, text="选择代理:").pack(side="left", padx=5)
+        proxy_var = tk.StringVar()
+        proxy_combo = ttk.Combobox(proxy_frame, textvariable=proxy_var, width=50)
+        proxy_combo.pack(side="left", padx=5, fill="x", expand=True)
+
+        def refresh_proxy_combo():
+            proxy_list = [f"{i+1}. {p.get('host')}:{p.get('port')} [{p.get('group', '默认分组')}]" for i, p in enumerate(self.proxies)]
+            proxy_combo['values'] = proxy_list
+            if proxy_list:
+                proxy_combo.set(proxy_list[0])
+        refresh_proxy_combo()
+
+        target_frame = ttk.Frame(move_frame)
+        target_frame.pack(fill="x", padx=5, pady=5)
+
+        ttk.Label(target_frame, text="目标分组:").pack(side="left", padx=5)
+        target_group_var = tk.StringVar()
+        target_group_combo = ttk.Combobox(target_frame, textvariable=target_group_var, values=self.proxy_groups, width=20)
+        target_group_combo.pack(side="left", padx=5)
+        if self.proxy_groups:
+            target_group_combo.set(self.proxy_groups[0])
+
+        button_line = ttk.Frame(move_frame)
+        button_line.pack(pady=10)
+
+        def move_proxy_to_group():
+            if not self.proxies:
+                self.show_centered_warning("提示", "没有代理可移动")
+                return
+            selected_proxy = proxy_var.get()
+            target_group = target_group_var.get()
+            if not selected_proxy or not target_group:
+                self.show_centered_warning("提示", "请选择代理和目标分组")
+                return
+            idx = int(selected_proxy.split('.')[0]) - 1
+            self.proxies[idx]['group'] = target_group
+            self.refresh_proxy_list()
+            refresh_proxy_combo()
+            self.save_config()
+            self.log("代理IP", f"移动代理 {self.proxies[idx].get('host')}:{self.proxies[idx].get('port')} 到分组「{target_group}」")
+
+        def refresh_all_proxy_groups():
+            refresh_proxy_combo()
+            target_group_combo['values'] = self.proxy_groups
+            if self.proxy_groups:
+                target_group_combo.set(self.proxy_groups[0])
+            group_listbox.delete(0, tk.END)
+            for g in self.proxy_groups:
+                group_listbox.insert(tk.END, g)
+
+        ttk.Button(button_line, text="移动代理", command=move_proxy_to_group, width=12).pack(side="left", padx=5)
+        ttk.Button(button_line, text="刷新列表", command=refresh_all_proxy_groups, width=12).pack(side="left", padx=5)
+
+    def add_proxy_group_from_manager(self, name_entry, listbox):
+        name = name_entry.get().strip()
+        if name and name not in self.proxy_groups:
+            self.proxy_groups.append(name)
+            listbox.insert(tk.END, name)
+            name_entry.delete(0, tk.END)
+            self.refresh_proxy_list()
+            if hasattr(self, 'proxy_list_group_filter'):
+                self.proxy_list_group_filter['values'] = ["全部"] + self.proxy_groups
+            self.save_config()
+            self.log("代理IP", f"创建代理分组: {name}")
+        elif name in self.proxy_groups:
+            self.show_centered_error("错误", "分组已存在")
+
+    def rename_proxy_group(self, name_entry, listbox):
+        selected = listbox.curselection()
+        if selected:
+            old_name = listbox.get(selected[0])
+            if old_name == "默认分组":
+                self.show_centered_warning("提示", "默认分组不能重命名")
+                return
+            new_name = name_entry.get().strip()
+            if new_name and new_name not in self.proxy_groups:
+                for p in self.proxies:
+                    if p.get('group') == old_name:
+                        p['group'] = new_name
+                idx = self.proxy_groups.index(old_name)
+                self.proxy_groups[idx] = new_name
+                listbox.delete(selected[0])
+                listbox.insert(selected[0], new_name)
+                self.refresh_proxy_list()
+                if hasattr(self, 'proxy_list_group_filter'):
+                    self.proxy_list_group_filter['values'] = ["全部"] + self.proxy_groups
+                self.save_config()
+                self.log("代理IP", f"重命名代理分组: {old_name} -> {new_name}")
+                name_entry.delete(0, tk.END)
+
+    def delete_proxy_group_from_manager(self, listbox):
+        selected = listbox.curselection()
+        if selected:
+            group_name = listbox.get(selected[0])
+            if group_name == "默认分组":
+                self.show_centered_warning("提示", "默认分组不能删除")
+                return
+            def do_delete():
+                for p in self.proxies:
+                    if p.get('group') == group_name:
+                        p['group'] = '默认分组'
+                self.proxy_groups.remove(group_name)
+                listbox.delete(selected[0])
+                self.refresh_proxy_list()
+                if hasattr(self, 'proxy_list_group_filter'):
+                    self.proxy_list_group_filter['values'] = ["全部"] + self.proxy_groups
+                self.save_config()
+                self.log("代理IP", f"删除代理分组: {group_name}")
+            self.show_centered_yesno("确认", f"确定删除代理分组「{group_name}」？代理将移至默认分组", do_delete)
+
     def add_proxy_group(self):
         group_name = simpledialog.askstring("新建分组", "请输入分组名称:", parent=self.root)
         if group_name and group_name not in self.proxy_groups:
             self.proxy_groups.append(group_name)
+            if hasattr(self, 'proxy_list_group_filter'):
+                self.proxy_list_group_filter['values'] = ["全部"] + self.proxy_groups
             self.refresh_invite_group_filter()
             self.save_config()
             self.log("代理IP", f"创建代理分组: {group_name}")
@@ -2238,6 +2399,130 @@ class TelegramFullGUI:
             self.save_config()
             self.log("代理IP", f"删除 {len(selected)} 个代理")
 
+    def check_selected_proxies(self):
+        selected = self.proxy_tree.selection()
+        if not selected:
+            self.log("代理IP", "请先选择要检测的代理")
+            self.show_centered_warning("提示", "请先选择要检测的代理")
+            return
+
+        indices = [int(self.proxy_tree.item(item)['values'][1]) - 1 for item in selected]
+        self.log("代理IP", f"开始检测选中的 {len(indices)} 个代理...")
+
+        def do_check_selected():
+            for idx in indices:
+                if idx >= len(self.proxies):
+                    continue
+                p = self.proxies[idx]
+                self._check_single_proxy(p)
+                self.root.after(0, self.refresh_proxy_list)
+            self.log("代理IP", "选中代理检测完成")
+
+        threading.Thread(target=do_check_selected, daemon=True).start()
+
+    def check_proxies(self):
+        if not self.proxies:
+            self.log("代理IP", "没有代理需要检测")
+            self.show_centered_warning("提示", "没有代理需要检测")
+            return
+        self.log("代理IP", f"开始检测 {len(self.proxies)} 个代理...")
+
+        def do_check():
+            for p in self.proxies:
+                self._check_single_proxy(p)
+                self.root.after(0, self.refresh_proxy_list)
+            self.log("代理IP", "代理检测完成")
+
+        threading.Thread(target=do_check, daemon=True).start()
+
+    def _check_single_proxy(self, p):
+        """检测单个代理的通用方法"""
+        proxy_str = f"{p.get('host')}:{p.get('port')}"
+        proxy_type = p.get('type', 'http')
+        
+        try:
+            if proxy_type in ['http', 'https']:
+                proxy_url = f"{proxy_type}://"
+                if p.get('user') and p.get('password'):
+                    proxy_url += f"{p.get('user')}:{p.get('password')}@"
+                proxy_url += f"{p.get('host')}:{p.get('port')}"
+                
+                proxies = {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
+                
+                start_time = time.time()
+                resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
+                elapsed = time.time() - start_time
+                if resp.status_code == 200:
+                    p['status'] = f"可用 ({elapsed:.1f}s) - IP: {resp.text}"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用")
+                else:
+                    p['status'] = "不可用"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 (状态码: {resp.status_code})")
+            else:
+                # SOCKS代理使用socks库检测
+                try:
+                    import socks
+                    import socket
+                    
+                    sock = socks.socksocket()
+                    sock.set_proxy(socks.SOCKS5 if proxy_type == 'socks5' else socks.SOCKS4, 
+                                  p.get('host'), int(p.get('port')), 
+                                  username=p.get('user'), password=p.get('password'))
+                    sock.settimeout(10)
+                    sock.connect(('api.ipify.org', 80))
+                    sock.send(b'GET / HTTP/1.1\r\nHost: api.ipify.org\r\n\r\n')
+                    data = sock.recv(1024)
+                    sock.close()
+                    if data:
+                        p['status'] = f"可用"
+                        self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用")
+                    else:
+                        p['status'] = "不可用"
+                        self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用")
+                except ImportError:
+                    p['status'] = "需要安装socks库"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 需要安装socks库 (pip install PySocks)")
+                except Exception as e:
+                    p['status'] = "不可用"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 - {str(e)[:30]}")
+                
+        except requests.exceptions.ProxyError as e:
+            p['status'] = "不可用(代理错误)"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 代理连接失败")
+        except requests.exceptions.ConnectTimeout:
+            p['status'] = "不可用(超时)"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接超时")
+        except requests.exceptions.ConnectionError:
+            p['status'] = "不可用(连接错误)"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接被拒绝")
+        except Exception as e:
+            p['status'] = f"不可用"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 检测失败 - {str(e)[:30]}")
+
+    def refresh_proxy_list(self, event=None):
+        for item in self.proxy_tree.get_children():
+            self.proxy_tree.delete(item)
+        
+        filter_group = self.proxy_list_group_filter.get() if hasattr(self, 'proxy_list_group_filter') else "全部"
+        filter_status = self.proxy_list_status_filter.get() if hasattr(self, 'proxy_list_status_filter') else "全部"
+        
+        i = 1
+        for p in self.proxies:
+            p_group = p.get('group', '默认分组')
+            if filter_group != "全部" and p_group != filter_group:
+                continue
+            if filter_status != "全部" and p.get('status', '未检测') != filter_status:
+                continue
+            
+            display_addr = p.get('address', f"{p.get('host')}:{p.get('port')}")
+            self.proxy_tree.insert("", "end", values=(p_group, i, p.get('type', 'socks5'), display_addr, p.get('status', '未检测')))
+            i += 1
+        
+        self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
+
     def clear_all_proxies(self):
         if self.proxies:
             def do_clear():
@@ -2250,96 +2535,6 @@ class TelegramFullGUI:
         else:
             self.log("代理IP", "没有代理需要清空")
             self.show_centered_info("提示", "没有代理需要清空")
-
-    def check_proxies(self):
-        if not self.proxies:
-            self.log("代理IP", "没有代理需要检测")
-            self.show_centered_warning("提示", "没有代理需要检测")
-            return
-        self.log("代理IP", f"开始检测 {len(self.proxies)} 个代理...")
-
-        def do_check():
-            for p in self.proxies:
-                proxy_str = f"{p.get('host')}:{p.get('port')}"
-                try:
-                    # 构建代理URL
-                    proxy_type = p.get('type', 'http')
-                    proxy_url = ""
-                    
-                    # 对于HTTP/HTTPS代理
-                    if proxy_type in ['http', 'https']:
-                        proxy_url = f"{proxy_type}://"
-                        if p.get('user') and p.get('password'):
-                            proxy_url += f"{p.get('user')}:{p.get('password')}@"
-                        proxy_url += f"{p.get('host')}:{p.get('port')}"
-                        
-                        proxies = {
-                            'http': proxy_url,
-                            'https': proxy_url
-                        }
-                        
-                        start_time = time.time()
-                        resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
-                        elapsed = time.time() - start_time
-                        if resp.status_code == 200:
-                            p['status'] = f"可用 ({elapsed:.1f}s) - IP: {resp.text}"
-                            self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用")
-                        else:
-                            p['status'] = "不可用"
-                            self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 (状态码: {resp.status_code})")
-                    else:
-                        # SOCKS代理使用socks库检测
-                        try:
-                            import socks
-                            import socket
-                            
-                            sock = socks.socksocket()
-                            sock.set_proxy(socks.SOCKS5 if proxy_type == 'socks5' else socks.SOCKS4, 
-                                          p.get('host'), int(p.get('port')), 
-                                          username=p.get('user'), password=p.get('password'))
-                            sock.settimeout(10)
-                            sock.connect(('api.ipify.org', 80))
-                            sock.send(b'GET / HTTP/1.1\r\nHost: api.ipify.org\r\n\r\n')
-                            data = sock.recv(1024)
-                            sock.close()
-                            if data:
-                                p['status'] = f"可用"
-                                self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用")
-                            else:
-                                p['status'] = "不可用"
-                                self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用")
-                        except ImportError:
-                            p['status'] = "需要安装socks库"
-                            self.log("代理IP", f"{proxy_type}://{proxy_str}: 需要安装socks库 (pip install PySocks)")
-                        except Exception as e:
-                            p['status'] = "不可用"
-                            self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 - {str(e)[:30]}")
-                        
-                except requests.exceptions.ProxyError as e:
-                    p['status'] = "不可用(代理错误)"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 代理连接失败")
-                except requests.exceptions.ConnectTimeout:
-                    p['status'] = "不可用(超时)"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接超时")
-                except requests.exceptions.ConnectionError:
-                    p['status'] = "不可用(连接错误)"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接被拒绝")
-                except Exception as e:
-                    p['status'] = f"不可用"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 检测失败 - {str(e)[:30]}")
-                    
-                self.root.after(0, self.refresh_proxy_list)
-            self.log("代理IP", "代理检测完成")
-
-        threading.Thread(target=do_check, daemon=True).start()
-
-    def refresh_proxy_list(self):
-        for item in self.proxy_tree.get_children():
-            self.proxy_tree.delete(item)
-        for i, p in enumerate(self.proxies, 1):
-            display_addr = p.get('address', f"{p.get('host')}:{p.get('port')}")
-            p_group = p.get('group', '默认分组')
-            self.proxy_tree.insert("", "end", values=(p_group, i, p.get('type', 'socks5'), display_addr, p.get('status', '未检测')))
 
     # ==================== 采集群成员页面 ====================
     def create_scrape_page(self):
@@ -6655,3 +6850,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = TelegramFullGUI(root)
     root.mainloop()
+            
