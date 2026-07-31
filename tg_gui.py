@@ -2157,6 +2157,29 @@ class TelegramFullGUI:
             line = line.strip()
             if not line:
                 continue
+
+            # 先尝试解析 user:pass@host:port 格式
+            match = re.match(r'^([^:]+):([^@]+)@([^:]+):(\d+)$', line)
+            if match:
+                user = match.group(1)
+                password = match.group(2)
+                host = match.group(3)
+                port = match.group(4)
+                self.proxies.append({
+                    "type": p_type,
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "password": password,
+                    "address": f"{host}:{port}",
+                    "status": "未检测",
+                    "group": target_group
+                })
+                added_count += 1
+                self.log("代理IP", f"导入代理: {p_type}://{host}:{port} 到分组「{target_group}」")
+                continue
+
+            # 如果匹配不上，尝试其他格式
             parts = line.split(':')
             if len(parts) >= 2:
                 host = parts[0]
@@ -2164,8 +2187,14 @@ class TelegramFullGUI:
                 user = parts[2] if len(parts) >= 3 else ""
                 password = parts[3] if len(parts) >= 4 else ""
                 self.proxies.append({
-                    "type": p_type, "host": host, "port": port, "user": user, "password": password,
-                    "address": f"{host}:{port}", "status": "未检测", "group": target_group
+                    "type": p_type,
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "password": password,
+                    "address": f"{host}:{port}",
+                    "status": "未检测",
+                    "group": target_group
                 })
                 added_count += 1
                 self.log("代理IP", f"导入代理: {p_type}://{host}:{port} 到分组「{target_group}」")
