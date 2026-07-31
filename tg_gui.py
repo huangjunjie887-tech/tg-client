@@ -2944,7 +2944,8 @@ class TelegramFullGUI:
                                 pending_infos.clear()
                                 last_ui_update = current_time
                             if messages_list:
-                                offset_id = messages_list[-1].id                            else:
+                                offset_id = messages_list[-1].id
+                            else:
                                 break
                         except FloodWaitError as e:
                             self.log("采集群成员", f"等待 {e.seconds} 秒...")
@@ -4361,8 +4362,7 @@ class TelegramFullGUI:
                     round_users.append(users[user_index])
                     user_index += 1
                 else:
-                    # 用户用完了，重新从头开始
-                    user_index = 0
+                    # 用户用完了，重新从头开始                    user_index = 0
                     round_users.append(users[user_index])
                     user_index += 1
 
