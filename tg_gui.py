@@ -22,7 +22,7 @@ from telethon.errors import (
     ChannelInvalidError, ChannelPrivateError, UsernameInvalidError,
     UserKickedError, UserBannedInChannelError, ChatAdminRequiredError,
     UserNotMutualContactError, ChatWriteForbiddenError, UserChannelsTooMuchError,
-    AuthKeyUnregisteredError, SessionRevokedError
+    AuthKeyUnregisteredError, SessionRevokedError, RPCError
 )
 from telethon.tl.functions.channels import InviteToChannelRequest, GetParticipantsRequest, JoinChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
@@ -4923,7 +4923,7 @@ class TelegramFullGUI:
         self.refresh_account_list_filter()
 
     async def send_single_message_v2_with_type(self, acc, username, ad_text, image_path, send_stats, auto_skip):
-        """单个账号发送单条消息，返回 (是否成功, 错误类型)"""
+        """单个账号发送单条消息，返回 (是否成功, 错误类型) - 修复版"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -4957,26 +4957,65 @@ class TelegramFullGUI:
             clean_username = username.lstrip('@')
             self.private_log_insert(f"[{phone}] 发送给: {clean_username}")
 
+            # ========== 修复：增强用户获取逻辑 ==========
+            user_entity = None
             try:
+                # 先尝试直接获取
                 user_entity = await client.get_entity(clean_username)
-            except Exception:
+            except ValueError as e:
+                # ValueError 表示用户不存在
+                self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
+                send_stats['fail'] += 1
+                return False, "用户无效"
+            except Exception as e:
+                # 其他异常，尝试带@
+                error_msg = str(e)
                 try:
                     user_entity = await client.get_entity(f"@{clean_username}")
-                except Exception:
+                except ValueError:
+                    self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
+                    send_stats['fail'] += 1
+                    return False, "用户无效"
+                except Exception as e2:
+                    # 最后尝试 ResolveUsername
                     try:
                         from telethon.tl.functions.contacts import ResolveUsernameRequest
                         result = await client(ResolveUsernameRequest(clean_username))
                         if result.users:
                             user_entity = result.users[0]
                         else:
-                            self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username}")
+                            self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
                             send_stats['fail'] += 1
                             return False, "用户无效"
-                    except Exception:
-                        self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username}")
+                    except Exception as e3:
+                        error_msg3 = str(e3)
+                        self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username} - {error_msg3[:50]}")
                         send_stats['fail'] += 1
                         return False, "用户无效"
 
+            if not user_entity:
+                self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username}")
+                send_stats['fail'] += 1
+                return False, "用户无效"
+
+            # 确保 user_entity 有 id 属性
+            try:
+                user_id = user_entity.id
+                if not user_id:
+                    raise AttributeError("user_entity.id is None")
+            except AttributeError:
+                try:
+                    input_entity = await client.get_input_entity(clean_username)
+                    user_id = input_entity.user_id if hasattr(input_entity, 'user_id') else None
+                    if user_id:
+                        # 尝试通过ID重新获取完整用户对象
+                        user_entity = await client.get_entity(user_id)
+                except:
+                    self.private_log_insert(f"[{phone}] ❌ 无法获取用户ID: {clean_username}")
+                    send_stats['fail'] += 1
+                    return False, "用户无效"
+
+            # ========== 发送消息 ==========
             if ad_text.strip().startswith('@PostBot'):
                 parts = ad_text.strip().split(' ')
                 if len(parts) >= 2:
@@ -5012,6 +5051,11 @@ class TelegramFullGUI:
                             return False, "需要Premium"
                         elif "Too many requests" in error_msg:
                             self.private_log_insert(f"[{phone}] ⚠️ 请求过于频繁 | {clean_username}")
+                            self.update_account_status_by_phone(phone, '频率限制')
+                            send_stats['fail'] += 1
+                            return False, "频率限制"
+                        elif "FLOOD" in error_msg:
+                            self.private_log_insert(f"[{phone}] ⚠️ 账号被限流 | {clean_username}")
                             self.update_account_status_by_phone(phone, '频率限制')
                             send_stats['fail'] += 1
                             return False, "频率限制"
@@ -5093,10 +5137,19 @@ class TelegramFullGUI:
                 self.update_account_status_by_phone(phone, '频率限制')
                 send_stats['fail'] += 1
                 return False, "频率限制"
+            elif "flood" in error_msg:
+                self.private_log_insert(f"[{phone}] ⚠️ 账号被限流 | {clean_username}")
+                self.update_account_status_by_phone(phone, '频率限制')
+                send_stats['fail'] += 1
+                return False, "频率限制"
             elif "invalid" in error_msg:
                 self.private_log_insert(f"[{phone}] ❌ 用户名无效 | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "用户无效"
+            elif "timeout" in error_msg or "timed out" in error_msg:
+                self.private_log_insert(f"[{phone}] ⚠️ 连接超时 | {clean_username}")
+                send_stats['fail'] += 1
+                return False, "网络超时"
             else:
                 self.private_log_insert(f"[{phone}] ❌ 发送失败: {str(e)[:50]} | {clean_username}")
                 send_stats['fail'] += 1
