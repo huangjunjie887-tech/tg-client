@@ -4731,11 +4731,10 @@ class TelegramFullGUI:
 
     async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
         """
-        私发功能 - 逐轮淘汰制
-        每轮所有剩余账号都发用户列表的第1个用户
-        账号成功 → 继续下一轮
-        账号问题 → 永久淘汰
-        用户问题 → 删除用户，账号继续下一轮
+        私发功能 - 每个账号按顺序发送不同的用户
+        账号A发用户1，账号B发用户2，账号C发用户3...
+        发送成功或用户问题 → 删除该用户
+        账号问题 → 淘汰该账号
         """
         if not accounts or not users:
             self.private_log_insert("账号或用户列表为空")
@@ -4778,6 +4777,11 @@ class TelegramFullGUI:
                 if self.private_stop_flag:
                     break
 
+            # 检查是否还有用户
+            if not user_list:
+                self.private_log_insert("用户列表已为空，停止发送")
+                break
+
             # 获取当前轮次可用账号（未被淘汰且未达上限）
             available_accounts = [acc for acc in active_accounts 
                                   if acc.get('phone') not in eliminated_accounts 
@@ -4791,22 +4795,12 @@ class TelegramFullGUI:
                     self.private_log_insert(f"所有账号已达到发送上限({per_account_limit}人)，停止发送")
                 break
 
-            # 检查是否还有用户
-            if not user_list:
-                self.private_log_insert("用户列表已为空，停止发送")
-                break
-
-            # 取用户列表的第1个用户
-            current_user = user_list[0]
-            
             self.private_log_insert(f"")
             self.private_log_insert(f"========== 第 {round_num} 轮 ==========")
-            self.private_log_insert(f"参与账号: {len(available_accounts)}个, 目标用户: {current_user}")
-            self.private_log_insert(f"剩余用户: {len(user_list)}个, 已淘汰: {len(eliminated_accounts)}个账号")
+            self.private_log_insert(f"参与账号: {len(available_accounts)}个, 剩余用户: {len(user_list)}个, 已淘汰: {len(eliminated_accounts)}个账号")
 
             # 分批发送
             total_batches = (len(available_accounts) + thread_cnt - 1) // thread_cnt
-            user_deleted = False  # 标记当前用户是否已被删除
             
             for batch_idx in range(total_batches):
                 if self.private_stop_flag:
@@ -4826,9 +4820,14 @@ class TelegramFullGUI:
                 for acc in batch_accounts:
                     if self.private_stop_flag:
                         break
+                        
+                    # 检查是否还有用户
+                    if not user_list:
+                        break
+                        
                     phone = acc.get('phone', '')
                     
-                    # 检查账号是否已被淘汰（可能在之前的批次中被淘汰）
+                    # 检查账号是否已被淘汰
                     if phone in eliminated_accounts:
                         continue
                         
@@ -4836,9 +4835,8 @@ class TelegramFullGUI:
                     if account_sent_count.get(phone, 0) >= per_account_limit:
                         continue
                     
-                    # 如果用户已被删除，跳出循环
-                    if user_deleted:
-                        break
+                    # 取用户列表的第1个用户（每个账号取不同的用户）
+                    current_user = user_list[0]
                     
                     # 发送消息
                     result, error_type = await self.send_single_message_v2_with_type(
@@ -4847,10 +4845,18 @@ class TelegramFullGUI:
                     )
                     
                     if result:
-                        # 发送成功
+                        # 发送成功 → 删除用户，账号继续
                         account_sent_count[phone] = account_sent_count.get(phone, 0) + 1
                         send_stats['success'] += 1
                         self.private_log_insert(f"  [{phone}] ✅ 成功 | {current_user} ({account_sent_count[phone]}/{per_account_limit})")
+                        
+                        # 删除用户
+                        if user_list and user_list[0] == current_user:
+                            deleted_user = user_list.pop(0)
+                            self.private_log_insert(f"  🗑️ 用户已删除: {deleted_user} (剩余: {len(user_list)}个)")
+                            if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                                self.remove_user_from_file(deleted_user, self.private_user_file_path)
+                        
                     else:
                         # 发送失败
                         account_level_errors = ["封禁", "销号", "风控限制", "频率限制", "未授权", "发言限制", "双向限制", "限制加群", "需要2FA重新登录"]
@@ -4859,7 +4865,6 @@ class TelegramFullGUI:
                             eliminated_accounts.add(phone)
                             total_eliminated += 1
                             self.private_log_insert(f"  [{phone}] ❌ 账号淘汰({error_type}) | {current_user}")
-                            # 更新账号状态
                             status_map = {
                                 "封禁": "封禁",
                                 "销号": "销号",
@@ -4873,29 +4878,17 @@ class TelegramFullGUI:
                             }
                             if error_type in status_map:
                                 self.update_account_status_by_phone(phone, status_map[error_type])
+                            # 账号淘汰，但用户还在，留给下一个账号发送
                         else:
-                            # 用户问题：删除该用户，跳出当前批次
+                            # 用户问题：删除用户，账号继续
                             self.private_log_insert(f"  [{phone}] ⚠️ 用户问题({error_type}) | {current_user} → 删除用户")
-                            user_deleted = True
-                            break
+                            if user_list and user_list[0] == current_user:
+                                deleted_user = user_list.pop(0)
+                                self.private_log_insert(f"  🗑️ 用户已删除: {deleted_user} (剩余: {len(user_list)}个)")
+                                if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                                    self.remove_user_from_file(deleted_user, self.private_user_file_path)
 
                     await asyncio.sleep(1)
-
-            # 处理用户删除
-            if user_deleted or send_stats['success'] > 0:
-                # 有账号成功发送 或 遇到用户问题，删除当前用户
-                if user_list and user_list[0] == current_user:
-                    deleted_user = user_list.pop(0)
-                    self.private_log_insert(f"🗑️ 用户已删除: {deleted_user} (剩余: {len(user_list)}个)")
-                    # 从文件中删除
-                    if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-                        self.remove_user_from_file(deleted_user, self.private_user_file_path)
-            else:
-                # 没有任何账号成功发送，且没有用户问题
-                # 这种情况很少发生，但以防万一，也删除用户避免死循环
-                if user_list and user_list[0] == current_user:
-                    deleted_user = user_list.pop(0)
-                    self.private_log_insert(f"⚠️ 无账号成功发送，强制删除用户: {deleted_user} (剩余: {len(user_list)}个)")
 
             # 检查是否所有账号都已淘汰或达到上限
             remaining_accounts = [acc for acc in active_accounts 
