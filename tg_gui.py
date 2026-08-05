@@ -2833,16 +2833,36 @@ class TelegramFullGUI:
         if 't.me/' in link:
             clean_link = link.replace('https://', '').replace('http://', '')
             path = clean_link.split('t.me/')[-1].strip('/')
-            parts = path.split('/')
-            group_username = parts[0]
-            if group_username.startswith('+') or group_username == 'joinchat':
-                group_username = path
-            if len(parts) >= 2 and parts[1].isdigit():
-                topic_id = int(parts[1])
+            
+            # 处理 joinchat 格式
+            if path.startswith('joinchat'):
+                parts = path.split('/')
+                if len(parts) >= 2:
+                    group_username = parts[1]
+                else:
+                    group_username = path
+            elif path.startswith('+'):
+                group_username = path[1:]
+            else:
+                parts = path.split('/')
+                group_username = parts[0]
+                if group_username.startswith('+'):
+                    group_username = group_username[1:]
+                if len(parts) >= 2 and parts[1].isdigit():
+                    topic_id = int(parts[1])
         elif 'https://' in link:
             group_username = link.split('/')[-1]
         else:
             group_username = link
+        
+        # 去掉开头的 +
+        if group_username and group_username.startswith('+'):
+            group_username = group_username[1:]
+        
+        # 如果是 joinchat/xxx 格式，只取哈希
+        if group_username and group_username.startswith('joinchat/'):
+            group_username = group_username.replace('joinchat/', '')
+        
         return group_username, topic_id
 
     def start_scrape(self):
@@ -2952,6 +2972,64 @@ class TelegramFullGUI:
                     self.log("采集群成员", "账号未登录")
                     return
 
+                # 获取群组实体 - 支持邀请链接格式
+                try:
+                    entity = None
+                    
+                    # 如果是邀请链接哈希值（纯字母数字，包含 + 或 joinchat）
+                    if group_username and (group_username.startswith('+') or 'joinchat' in group_username):
+                        # 提取邀请哈希
+                        if group_username.startswith('+'):
+                            invite_hash = group_username[1:]
+                        else:
+                            invite_hash = group_username.split('/')[-1] if '/' in group_username else group_username
+                        
+                        self.log("采集群成员", f"使用邀请链接加入群组，哈希: {invite_hash}")
+                        
+                        try:
+                            # 尝试通过 ImportChatInviteRequest 加入
+                            result = await client(ImportChatInviteRequest(invite_hash))
+                            if result.chats:
+                                entity = result.chats[0]
+                                self.log("采集群成员", f"✅ 成功加入隐私群: {getattr(entity, 'title', '未知')}")
+                        except UserAlreadyParticipantError:
+                            self.log("采集群成员", "已经是群组成员，正在查找...")
+                            # 已经是成员，尝试通过对话框查找
+                            async for dialog in client.iter_dialogs():
+                                if dialog.is_group:
+                                    try:
+                                        # 检查是否是这个群
+                                        if invite_hash in str(dialog.entity):
+                                            entity = dialog.entity
+                                            break
+                                    except:
+                                        pass
+                        except Exception as e:
+                            error_msg = str(e)
+                            if "You tried to use a method that" in error_msg or "deactivated" in error_msg.lower():
+                                self.log("采集群成员", f"账号已注销")
+                                return
+                            self.log("采集群成员", f"加入群组失败: {error_msg[:50]}")
+                            return
+                        
+                        if not entity:
+                            self.log("采集群成员", "无法获取群组实体，尝试使用 get_entity...")
+                            try:
+                                entity = await client.get_entity(invite_hash)
+                            except Exception as e:
+                                self.log("采集群成员", f"获取群组失败: {str(e)}")
+                                return
+                    else:
+                        # 原有的 get_entity 逻辑
+                        if group_username.isdigit():
+                            entity = await client.get_entity(int(group_username))
+                        else:
+                            entity = await client.get_entity(group_username)
+                            
+                except Exception as e:
+                    self.log("采集群成员", f"获取群组失败: {str(e)}")
+                    return
+
                 if self.filter_admin.get():
                     try:
                         if scrape_mode == "多讨论组采集(多个子群)":
@@ -2961,16 +3039,12 @@ class TelegramFullGUI:
                                 try:
                                     sub_username, sub_topic = self.parse_group_link(link)
                                     if sub_username:
-                                        entity = await client.get_entity(sub_username)
-                                        async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
+                                        sub_entity = await client.get_entity(sub_username)
+                                        async for user in client.iter_participants(sub_entity, filter=ChannelParticipantsAdmins):
                                             admin_ids.add(user.id)
                                 except:
                                     pass
                         else:
-                            if group_username.isdigit():
-                                entity = await client.get_entity(int(group_username))
-                            else:
-                                entity = await client.get_entity(group_username)
                             async for user in client.iter_participants(entity, filter=ChannelParticipantsAdmins):
                                 admin_ids.add(user.id)
                         self.log("采集群成员", f"获取到 {len(admin_ids)} 个管理员")
@@ -2979,10 +3053,6 @@ class TelegramFullGUI:
 
                 if scrape_mode == "获取全部成员(公开群)":
                     self.log("采集群成员", "开始采集成员（获取全部成员）...")
-                    if group_username.isdigit():
-                        entity = await client.get_entity(int(group_username))
-                    else:
-                        entity = await client.get_entity(group_username)
                     async for user in client.iter_participants(entity):
                         if not self.is_scraping:
                             break
@@ -3027,11 +3097,6 @@ class TelegramFullGUI:
 
                 elif scrape_mode == "获取发言用户(隐藏群)":
                     self.log("采集群成员", "开始采集发言用户（极速模式）...")
-                    if group_username.isdigit():
-                        entity = await client.get_entity(int(group_username))
-                    else:
-                        entity = await client.get_entity(group_username)
-
                     offset_id = 0
                     batch_size = 3000
                     input_peer = InputPeerChannel(entity.id, entity.access_hash)
@@ -3132,11 +3197,6 @@ class TelegramFullGUI:
 
                 elif scrape_mode == "隐私群采集(仅邀请链接)":
                     self.log("采集群成员", "开始隐私群采集（通过聊天记录获取发言用户）...")
-                    if group_username.isdigit():
-                        entity = await client.get_entity(int(group_username))
-                    else:
-                        entity = await client.get_entity(group_username)
-
                     offset_id = 0
                     batch_size = 3000
                     input_peer = InputPeerChannel(entity.id, entity.access_hash)
@@ -3256,10 +3316,10 @@ class TelegramFullGUI:
                             if not sub_username:
                                 self.log("采集群成员", f"无效的子群链接: {link}")
                                 continue
-                            entity = await client.get_entity(sub_username)
+                            sub_entity = await client.get_entity(sub_username)
                             offset_id = 0
                             batch_size = 3000
-                            input_peer = InputPeerChannel(entity.id, entity.access_hash)
+                            input_peer = InputPeerChannel(sub_entity.id, sub_entity.access_hash)
                             sub_pending = []
                             sub_count = 0
                             while self.is_scraping:
@@ -3269,7 +3329,7 @@ class TelegramFullGUI:
                                     break
                                 try:
                                     if sub_topic:
-                                        messages = await client.get_messages(entity, limit=batch_size, offset_id=offset_id, reply_to=sub_topic)
+                                        messages = await client.get_messages(sub_entity, limit=batch_size, offset_id=offset_id, reply_to=sub_topic)
                                         messages_list = messages
                                     else:
                                         request_args = {
@@ -3353,11 +3413,6 @@ class TelegramFullGUI:
 
                 elif scrape_mode == "频道评论采集":
                     self.log("采集群成员", "开始频道评论采集...")
-                    if group_username.isdigit():
-                        entity = await client.get_entity(int(group_username))
-                    else:
-                        entity = await client.get_entity(group_username)
-
                     offset_id = 0
                     batch_size = 3000
                     input_peer = InputPeerChannel(entity.id, entity.access_hash)
