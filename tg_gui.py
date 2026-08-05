@@ -2719,7 +2719,16 @@ class TelegramFullGUI:
         current_date = datetime.now().strftime('%Y%m%d')
         current_time = datetime.now().strftime('%H%M%S')
         action = "stop" if is_stop else "complete"
-        base_name = f"members_{group_username}_{current_date}_{current_time}_{action}"
+        
+        # 清理文件名中的特殊字符
+        import re
+        clean_group_name = re.sub(r'[<>:"/\\|?*]', '_', group_username)
+        clean_group_name = clean_group_name.replace(' ', '_')
+        # 限制文件名长度
+        if len(clean_group_name) > 50:
+            clean_group_name = clean_group_name[:50]
+        
+        base_name = f"members_{clean_group_name}_{current_date}_{current_time}_{action}"
 
         usernames = list(set([m.get('username', '') for m in self.scraped_members if m.get('username')]))
 
@@ -2830,40 +2839,51 @@ class TelegramFullGUI:
     def parse_group_link(self, link):
         topic_id = None
         group_username = None
+        is_invite_link = False
+        invite_hash = None
+        
         if 't.me/' in link:
             clean_link = link.replace('https://', '').replace('http://', '')
             path = clean_link.split('t.me/')[-1].strip('/')
             
             # 处理 joinchat 格式
             if path.startswith('joinchat'):
+                is_invite_link = True
                 parts = path.split('/')
                 if len(parts) >= 2:
-                    group_username = parts[1]
+                    invite_hash = parts[1]
                 else:
-                    group_username = path
+                    invite_hash = path
+                group_username = invite_hash
             elif path.startswith('+'):
-                group_username = path[1:]
+                is_invite_link = True
+                invite_hash = path[1:]
+                group_username = invite_hash
             else:
                 parts = path.split('/')
                 group_username = parts[0]
                 if group_username.startswith('+'):
-                    group_username = group_username[1:]
+                    is_invite_link = True
+                    invite_hash = group_username[1:]
+                    group_username = invite_hash
                 if len(parts) >= 2 and parts[1].isdigit():
                     topic_id = int(parts[1])
         elif 'https://' in link:
-            group_username = link.split('/')[-1]
+            path = link.split('/')[-1]
+            if path.startswith('+') or path.startswith('joinchat'):
+                is_invite_link = True
+                invite_hash = path[1:] if path.startswith('+') else path.split('/')[-1] if '/' in path else path
+                group_username = invite_hash
+            else:
+                group_username = path
         else:
             group_username = link
+            if group_username.startswith('+'):
+                is_invite_link = True
+                invite_hash = group_username[1:]
+                group_username = invite_hash
         
-        # 去掉开头的 +
-        if group_username and group_username.startswith('+'):
-            group_username = group_username[1:]
-        
-        # 如果是 joinchat/xxx 格式，只取哈希
-        if group_username and group_username.startswith('joinchat/'):
-            group_username = group_username.replace('joinchat/', '')
-        
-        return group_username, topic_id
+        return group_username, topic_id, is_invite_link, invite_hash
 
     def start_scrape(self):
         if self.is_scraping:
@@ -2906,7 +2926,7 @@ class TelegramFullGUI:
             return
 
         os.makedirs(save_dir, exist_ok=True)
-        group_username, topic_id = self.parse_group_link(group)
+        group_username, topic_id, is_invite_link, invite_hash = self.parse_group_link(group)
 
         keywords_text = self.filter_keywords.get().strip()
         ad_keywords = [kw.strip().lower() for kw in keywords_text.split(',') if kw.strip()]
@@ -2976,14 +2996,8 @@ class TelegramFullGUI:
                 try:
                     entity = None
                     
-                    # 如果是邀请链接哈希值（纯字母数字，包含 + 或 joinchat）
-                    if group_username and (group_username.startswith('+') or 'joinchat' in group_username):
-                        # 提取邀请哈希
-                        if group_username.startswith('+'):
-                            invite_hash = group_username[1:]
-                        else:
-                            invite_hash = group_username.split('/')[-1] if '/' in group_username else group_username
-                        
+                    # 如果是邀请链接
+                    if is_invite_link and invite_hash:
                         self.log("采集群成员", f"使用邀请链接加入群组，哈希: {invite_hash}")
                         
                         try:
@@ -2998,12 +3012,20 @@ class TelegramFullGUI:
                             async for dialog in client.iter_dialogs():
                                 if dialog.is_group:
                                     try:
-                                        # 检查是否是这个群
                                         if invite_hash in str(dialog.entity):
                                             entity = dialog.entity
+                                            self.log("采集群成员", f"✅ 找到已加入的群组: {dialog.name}")
                                             break
                                     except:
                                         pass
+                            if not entity:
+                                try:
+                                    if invite_hash.isdigit():
+                                        entity = await client.get_entity(int(invite_hash))
+                                    else:
+                                        entity = await client.get_entity(invite_hash)
+                                except:
+                                    pass
                         except Exception as e:
                             error_msg = str(e)
                             if "You tried to use a method that" in error_msg or "deactivated" in error_msg.lower():
@@ -3013,12 +3035,8 @@ class TelegramFullGUI:
                             return
                         
                         if not entity:
-                            self.log("采集群成员", "无法获取群组实体，尝试使用 get_entity...")
-                            try:
-                                entity = await client.get_entity(invite_hash)
-                            except Exception as e:
-                                self.log("采集群成员", f"获取群组失败: {str(e)}")
-                                return
+                            self.log("采集群成员", "❌ 无法获取群组实体，请检查邀请链接是否有效")
+                            return
                     else:
                         # 原有的 get_entity 逻辑
                         if group_username.isdigit():
@@ -3037,7 +3055,7 @@ class TelegramFullGUI:
                             sub_group_links = [link.strip() for link in sub_groups_text.split('\n') if link.strip()]
                             for link in sub_group_links:
                                 try:
-                                    sub_username, sub_topic = self.parse_group_link(link)
+                                    sub_username, sub_topic, sub_is_invite, sub_hash = self.parse_group_link(link)
                                     if sub_username:
                                         sub_entity = await client.get_entity(sub_username)
                                         async for user in client.iter_participants(sub_entity, filter=ChannelParticipantsAdmins):
@@ -3312,7 +3330,7 @@ class TelegramFullGUI:
                             break
                         self.log("采集群成员", f"正在采集第 {idx}/{len(sub_group_links)} 个子群: {link}")
                         try:
-                            sub_username, sub_topic = self.parse_group_link(link)
+                            sub_username, sub_topic, sub_is_invite, sub_hash = self.parse_group_link(link)
                             if not sub_username:
                                 self.log("采集群成员", f"无效的子群链接: {link}")
                                 continue
@@ -3518,7 +3536,15 @@ class TelegramFullGUI:
 
                 if self.scraped_members:
                     is_stop = not self.is_scraping
-                    self.save_scraped_members(group_username if group else "multi_groups", is_stop)
+                    # 使用清理后的名称保存
+                    if group_username:
+                        clean_group_name = re.sub(r'[<>:"/\\|?*]', '_', group_username)
+                        clean_group_name = clean_group_name.replace(' ', '_')
+                        if len(clean_group_name) > 50:
+                            clean_group_name = clean_group_name[:50]
+                        self.save_scraped_members(clean_group_name, is_stop)
+                    else:
+                        self.save_scraped_members("unknown", is_stop)
                     self.root.after(0, lambda: self.show_centered_info("采集完成" if not is_stop else "采集已停止", f"共采集 {len(self.scraped_members)} 个有用户名的成员\n保存目录: {self.save_path.get()}"))
                 else:
                     self.log("采集群成员", "没有采集到任何成员")
@@ -3526,7 +3552,14 @@ class TelegramFullGUI:
             except Exception as e:
                 self.log("采集群成员", f"采集失败: {str(e)}")
                 if self.scraped_members:
-                    self.save_scraped_members(group_username if group else "multi_groups", True)
+                    if group_username:
+                        clean_group_name = re.sub(r'[<>:"/\\|?*]', '_', group_username)
+                        clean_group_name = clean_group_name.replace(' ', '_')
+                        if len(clean_group_name) > 50:
+                            clean_group_name = clean_group_name[:50]
+                        self.save_scraped_members(clean_group_name, True)
+                    else:
+                        self.save_scraped_members("unknown", True)
             finally:
                 self.is_scraping = False
                 self.is_paused = False
@@ -4681,7 +4714,7 @@ class TelegramFullGUI:
         send_stats = {'success': 0, 'fail': 0}
         user_index = 0
 
-        # 记录已失败的账号
+        # 记录已失败的账号（仅账号级别问题）
         failed_accounts = set()
 
         for round_num in range(per_account_limit):
@@ -4730,7 +4763,7 @@ class TelegramFullGUI:
                 batch_num = batch_idx + 1
                 self.private_log_insert(f"第 {round_num + 1} 轮 第 {batch_num}/{total_batches} 批 (账号: {len(batch_accounts)}个)")
 
-                # 逐个发送，失败后立即记录
+                # 逐个发送，失败后根据错误类型决定是否跳过账号
                 for acc, username in zip(batch_accounts, batch_users):
                     if self.private_stop_flag:
                         break
@@ -4740,15 +4773,20 @@ class TelegramFullGUI:
                     if phone in failed_accounts:
                         continue
                         
-                    result = await self.send_single_message_v2(
+                    result, error_type = await self.send_single_message_v2_with_type(
                         acc, username, ad_text, image_path,
                         send_stats, auto_skip
                     )
                     
-                    # 如果发送失败，记录该账号
+                    # 只有账号级别的问题才跳过账号
                     if not result:
-                        failed_accounts.add(phone)
-                        self.private_log_insert(f"[{phone}] ❌ 发送失败，已跳过该账号")
+                        account_level_errors = ["封禁", "销号", "风控限制", "频率限制", "未授权", "发言限制", "双向限制", "限制加群"]
+                        if error_type in account_level_errors:
+                            failed_accounts.add(phone)
+                            self.private_log_insert(f"[{phone}] ❌ 账号异常，已跳过该账号")
+                        else:
+                            # 用户级别的问题（需要Premium、用户不存在、隐私保护等），不跳过账号
+                            self.private_log_insert(f"[{phone}] ⚠️ 用户问题，继续使用该账号")
 
                     await asyncio.sleep(1)
 
@@ -4782,8 +4820,8 @@ class TelegramFullGUI:
 
         self.refresh_account_list_filter()
 
-    async def send_single_message_v2(self, acc, username, ad_text, image_path, send_stats, auto_skip):
-        """单个账号发送单条消息，返回 True=成功，False=失败"""
+    async def send_single_message_v2_with_type(self, acc, username, ad_text, image_path, send_stats, auto_skip):
+        """单个账号发送单条消息，返回 (是否成功, 错误类型)"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -4812,7 +4850,7 @@ class TelegramFullGUI:
             if not await client.is_user_authorized():
                 self.private_log_insert(f"[{phone}] 账号未登录")
                 self.update_account_status_by_phone(phone, '未授权')
-                return False
+                return False, "未授权"
 
             clean_username = username.lstrip('@')
             self.private_log_insert(f"[{phone}] 发送给: {clean_username}")
@@ -4831,11 +4869,11 @@ class TelegramFullGUI:
                         else:
                             self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username}")
                             send_stats['fail'] += 1
-                            return False
+                            return False, "用户无效"
                     except Exception:
                         self.private_log_insert(f"[{phone}] ❌ 获取用户失败: {clean_username}")
                         send_stats['fail'] += 1
-                        return False
+                        return False, "用户无效"
 
             if ad_text.strip().startswith('@PostBot'):
                 parts = ad_text.strip().split(' ')
@@ -4859,27 +4897,30 @@ class TelegramFullGUI:
                             send_stats['success'] += 1
                             if self.private_user_file_path and os.path.exists(self.private_user_file_path):
                                 self.remove_user_from_file(username, self.private_user_file_path)
-                            return True
+                            return True, None
                         else:
                             self.private_log_insert(f"[{phone}] ❌ PostBot无结果 | {clean_username}")
                             send_stats['fail'] += 1
-                            return False
+                            return False, "PostBot无结果"
                     except Exception as e:
                         error_msg = str(e)
                         if "PAYMENT_REQUIRED" in error_msg:
-                            self.private_log_insert(f"[{phone}] ❌ 需要Premium | {clean_username}")
-                            self.update_account_status_by_phone(phone, '需要Premium')
+                            self.private_log_insert(f"[{phone}] ⚠️ 对方需要Premium | {clean_username}")
+                            send_stats['fail'] += 1
+                            return False, "需要Premium"
                         elif "Too many requests" in error_msg:
                             self.private_log_insert(f"[{phone}] ⚠️ 请求过于频繁 | {clean_username}")
                             self.update_account_status_by_phone(phone, '频率限制')
+                            send_stats['fail'] += 1
+                            return False, "频率限制"
                         else:
                             self.private_log_insert(f"[{phone}] ❌ PostBot失败: {error_msg[:50]} | {clean_username}")
-                        send_stats['fail'] += 1
-                        return False
+                            send_stats['fail'] += 1
+                            return False, "PostBot失败"
                 else:
                     self.private_log_insert(f"[{phone}] ❌ PostBot命令格式错误")
                     send_stats['fail'] += 1
-                    return False
+                    return False, "命令错误"
             elif image_path and os.path.exists(image_path):
                 file = await client.upload_file(image_path)
                 if ad_text:
@@ -4890,61 +4931,74 @@ class TelegramFullGUI:
                 send_stats['success'] += 1
                 if self.private_user_file_path and os.path.exists(self.private_user_file_path):
                     self.remove_user_from_file(username, self.private_user_file_path)
-                return True
+                return True, None
             else:
                 await client.send_message(user_entity.id, ad_text)
                 self.private_log_insert(f"[{phone}] ✅ 文本发送成功 | {clean_username}")
                 send_stats['success'] += 1
                 if self.private_user_file_path and os.path.exists(self.private_user_file_path):
                     self.remove_user_from_file(username, self.private_user_file_path)
-                return True
+                return True, None
 
         except FloodWaitError as e:
             self.private_log_insert(f"[{phone}] ⚠️ 频率限制，等待{e.seconds}秒 | {clean_username}")
             self.update_account_status_by_phone(phone, '频率限制')
             send_stats['fail'] += 1
             await asyncio.sleep(min(e.seconds, 300))
-            return False
+            return False, "频率限制"
 
         except UserNotMutualContactError:
             self.private_log_insert(f"[{phone}] ❌ 双向限制 | {clean_username}")
             self.update_account_status_by_phone(phone, '双向限制')
             send_stats['fail'] += 1
-            return False
+            return False, "双向限制"
 
         except PeerFloodError:
             self.private_log_insert(f"[{phone}] ⚠️ 账号风控限制 | {clean_username}")
             self.update_account_status_by_phone(phone, '风控限制')
             send_stats['fail'] += 1
-            return False
+            return False, "风控限制"
 
         except UserPrivacyRestrictedError:
             self.private_log_insert(f"[{phone}] ❌ 隐私保护 | {clean_username}")
             send_stats['fail'] += 1
-            return False
+            return False, "用户隐私"
 
         except UserDeactivatedError:
             self.private_log_insert(f"[{phone}] ❌ 对方已注销 | {clean_username}")
             send_stats['fail'] += 1
-            return False
+            return False, "用户已注销"
 
         except Exception as e:
             error_msg = str(e).lower()
-            if "banned" in error_msg:
+            if "payment_required" in error_msg or "premium" in error_msg:
+                # 需要Premium - 用户问题，不跳过账号
+                self.private_log_insert(f"[{phone}] ⚠️ 对方需要Premium | {clean_username}")
+                send_stats['fail'] += 1
+                return False, "需要Premium"
+            elif "banned" in error_msg:
                 self.private_log_insert(f"[{phone}] ⚠️ 账号被封禁 | {clean_username}")
                 self.update_account_status_by_phone(phone, '封禁')
+                send_stats['fail'] += 1
+                return False, "封禁"
             elif "deactivated" in error_msg:
                 self.private_log_insert(f"[{phone}] ⚠️ 账号已注销 | {clean_username}")
                 self.update_account_status_by_phone(phone, '销号')
+                send_stats['fail'] += 1
+                return False, "销号"
             elif "too many requests" in error_msg:
                 self.private_log_insert(f"[{phone}] ⚠️ 请求过于频繁 | {clean_username}")
                 self.update_account_status_by_phone(phone, '频率限制')
+                send_stats['fail'] += 1
+                return False, "频率限制"
             elif "invalid" in error_msg:
                 self.private_log_insert(f"[{phone}] ❌ 用户名无效 | {clean_username}")
+                send_stats['fail'] += 1
+                return False, "用户无效"
             else:
                 self.private_log_insert(f"[{phone}] ❌ 发送失败: {str(e)[:50]} | {clean_username}")
-            send_stats['fail'] += 1
-            return False
+                send_stats['fail'] += 1
+                return False, "未知错误"
 
         finally:
             if client:
