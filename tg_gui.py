@@ -2992,107 +2992,107 @@ class TelegramFullGUI:
                     self.log("采集群成员", "账号未登录")
                     return
 
-# 获取群组实体
-try:
-    entity = None
-    
-    # 如果是邀请链接
-    if is_invite_link and invite_hash:
-        self.log("采集群成员", f"使用邀请链接查找群组，哈希: {invite_hash}")
-        
-        # 先尝试通过 ImportChatInviteRequest 加入
-        try:
-            result = await client(ImportChatInviteRequest(invite_hash))
-            if result.chats:
-                entity = result.chats[0]
-                self.log("采集群成员", f"✅ 成功加入隐私群: {getattr(entity, 'title', '未知')}")
-        except UserAlreadyParticipantError:
-            self.log("采集群成员", "已经是群组成员，正在遍历对话框查找...")
-            # 通过遍历所有对话框查找
-            async for dialog in client.iter_dialogs():
-                if dialog.is_group or dialog.is_channel:
-                    try:
-                        full_entity = dialog.entity
-                        dialog_id = str(dialog.id)
-                        # 移除-100前缀进行比较
-                        str_dialog_id = dialog_id.replace('-100', '')
-                        if invite_hash in str_dialog_id or str_dialog_id.endswith(invite_hash):
-                            entity = full_entity
-                            self.log("采集群成员", f"✅ 通过ID匹配找到群组: {dialog.name} (ID: {dialog.id})")
-                            break
-                        # 检查群组标题
-                        if hasattr(full_entity, 'title') and full_entity.title and invite_hash in full_entity.title:
-                            entity = full_entity
-                            self.log("采集群成员", f"✅ 通过标题匹配找到群组: {dialog.name}")
-                            break
-                    except:
-                        continue
-        except Exception as e:
-            error_msg = str(e)
-            if "You tried to use a method that" in error_msg or "deactivated" in error_msg.lower():
-                self.log("采集群成员", f"账号已注销")
-                return
-            self.log("采集群成员", f"加入群组失败: {error_msg[:50]}")
-            return
-        
-        if not entity:
-            self.log("采集群成员", "❌ 无法获取群组实体")
-            return
-    else:
-        # 处理群组ID（带-100前缀或不带）
-        if group_username:
-            # 如果是纯数字ID（可能带-100前缀）
-            if group_username.lstrip('-').isdigit():
+                # ========== 修复后的群组获取逻辑 ==========
                 try:
-                    # 先尝试直接用原始ID
-                    entity = await client.get_entity(int(group_username))
-                    self.log("采集群成员", f"✅ 通过ID获取群组: {group_username}")
-                except Exception as e1:
-                    self.log("采集群成员", f"直接获取失败: {str(e1)[:30]}")
-                    try:
-                        # 如果失败，尝试去掉-100前缀
-                        clean_id = group_username.replace('-100', '')
-                        if clean_id.isdigit():
-                            entity = await client.get_entity(int(clean_id))
-                            self.log("采集群成员", f"✅ 通过清理后的ID获取群组: {clean_id}")
-                    except Exception as e2:
-                        self.log("采集群成员", f"清理ID获取失败: {str(e2)[:30]}")
-                        # 最后尝试通过对话框查找
-                        self.log("采集群成员", "尝试通过遍历对话框查找群组...")
-                        async for dialog in client.iter_dialogs():
-                            if dialog.is_group or dialog.is_channel:
-                                dialog_id = str(dialog.id)
-                                # 匹配带-100和不带-100的ID
-                                clean_group_id = group_username.replace('-100', '')
-                                if group_username in dialog_id or dialog_id.endswith(clean_group_id):
-                                    entity = dialog.entity
-                                    self.log("采集群成员", f"✅ 通过对话框找到群组: {dialog.name} (ID: {dialog.id})")
-                                    break
-            else:
-                # 尝试作为用户名获取
-                try:
-                    entity = await client.get_entity(group_username)
-                    self.log("采集群成员", f"✅ 通过用户名获取群组: {group_username}")
-                except:
-                    pass
-            
-            # 如果通过ID和用户名都找不到，尝试通过群名称查找
-            if not entity and group_username and len(group_username) > 2:
-                self.log("采集群成员", f"尝试通过群组名称查找: {group_username}")
-                async for dialog in client.iter_dialogs():
-                    if dialog.is_group or dialog.is_channel:
-                        if dialog.name and group_username in dialog.name:
-                            entity = dialog.entity
-                            self.log("采集群成员", f"✅ 通过名称找到群组: {dialog.name} (ID: {dialog.id})")
-                            break
-            
-            if not entity:
-                self.log("采集群成员", f"❌ 无法获取群组实体")
-                return
-                
-except Exception as e:
-    self.log("采集群成员", f"获取群组失败: {str(e)}")
-    return
+                    entity = None
+                    
+                    # 如果是邀请链接
+                    if is_invite_link and invite_hash:
+                        self.log("采集群成员", f"使用邀请链接查找群组，哈希: {invite_hash}")
+                        
+                        # 先尝试通过 ImportChatInviteRequest 加入
+                        try:
+                            result = await client(ImportChatInviteRequest(invite_hash))
+                            if result.chats:
+                                entity = result.chats[0]
+                                self.log("采集群成员", f"✅ 成功加入隐私群: {getattr(entity, 'title', '未知')}")
+                        except UserAlreadyParticipantError:
+                            self.log("采集群成员", "已经是群组成员，正在遍历对话框查找...")
+                            # 通过遍历所有对话框查找
+                            async for dialog in client.iter_dialogs():
+                                if dialog.is_group or dialog.is_channel:
+                                    try:
+                                        full_entity = dialog.entity
+                                        dialog_id = str(dialog.id)
+                                        # 移除-100前缀进行比较
+                                        str_dialog_id = dialog_id.replace('-100', '')
+                                        if invite_hash in str_dialog_id or str_dialog_id.endswith(invite_hash):
+                                            entity = full_entity
+                                            self.log("采集群成员", f"✅ 通过ID匹配找到群组: {dialog.name} (ID: {dialog.id})")
+                                            break
+                                        # 检查群组标题
+                                        if hasattr(full_entity, 'title') and full_entity.title and invite_hash in full_entity.title:
+                                            entity = full_entity
+                                            self.log("采集群成员", f"✅ 通过标题匹配找到群组: {dialog.name}")
+                                            break
+                                    except:
+                                        continue
+                        except Exception as e:
+                            error_msg = str(e)
+                            if "You tried to use a method that" in error_msg or "deactivated" in error_msg.lower():
+                                self.log("采集群成员", f"账号已注销")
+                                return
+                            self.log("采集群成员", f"加入群组失败: {error_msg[:50]}")
+                            return
+                        
+                        if not entity:
+                            self.log("采集群成员", "❌ 无法获取群组实体")
+                            return
+                    else:
+                        # 处理群组ID（带-100前缀或不带）
+                        if group_username:
+                            # 如果是纯数字ID（可能带-100前缀）
+                            if group_username.lstrip('-').isdigit():
+                                try:
+                                    # 先尝试直接用原始ID
+                                    entity = await client.get_entity(int(group_username))
+                                    self.log("采集群成员", f"✅ 通过ID获取群组: {group_username}")
+                                except Exception as e1:
+                                    self.log("采集群成员", f"直接获取失败: {str(e1)[:30]}")
+                                    try:
+                                        # 如果失败，尝试去掉-100前缀
+                                        clean_id = group_username.replace('-100', '')
+                                        if clean_id.isdigit():
+                                            entity = await client.get_entity(int(clean_id))
+                                            self.log("采集群成员", f"✅ 通过清理后的ID获取群组: {clean_id}")
+                                    except Exception as e2:
+                                        self.log("采集群成员", f"清理ID获取失败: {str(e2)[:30]}")
+                                        # 最后尝试通过对话框查找
+                                        self.log("采集群成员", "尝试通过遍历对话框查找群组...")
+                                        async for dialog in client.iter_dialogs():
+                                            if dialog.is_group or dialog.is_channel:
+                                                dialog_id = str(dialog.id)
+                                                # 匹配带-100和不带-100的ID
+                                                clean_group_id = group_username.replace('-100', '')
+                                                if group_username in dialog_id or dialog_id.endswith(clean_group_id):
+                                                    entity = dialog.entity
+                                                    self.log("采集群成员", f"✅ 通过对话框找到群组: {dialog.name} (ID: {dialog.id})")
+                                                    break
+                            else:
+                                # 尝试作为用户名获取
+                                try:
+                                    entity = await client.get_entity(group_username)
+                                    self.log("采集群成员", f"✅ 通过用户名获取群组: {group_username}")
+                                except:
+                                    pass
+                            
+                            # 如果通过ID和用户名都找不到，尝试通过群名称查找
+                            if not entity and group_username and len(group_username) > 2:
+                                self.log("采集群成员", f"尝试通过群组名称查找: {group_username}")
+                                async for dialog in client.iter_dialogs():
+                                    if dialog.is_group or dialog.is_channel:
+                                        if dialog.name and group_username in dialog.name:
+                                            entity = dialog.entity
+                                            self.log("采集群成员", f"✅ 通过名称找到群组: {dialog.name} (ID: {dialog.id})")
+                                            break
+                            
+                            if not entity:
+                                self.log("采集群成员", f"❌ 无法获取群组实体")
+                                return
+                                
+                except Exception as e:
+                    self.log("采集群成员", f"获取群组失败: {str(e)}")
+                    return
 
                 if self.filter_admin.get():
                     try:
