@@ -4731,7 +4731,11 @@ class TelegramFullGUI:
 
     async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
         """
-        私发功能 - 失败后立即跳过该账号
+        私发功能 - 逐轮淘汰制
+        每轮所有剩余账号都发用户列表的第1个用户
+        账号成功 → 继续下一轮
+        账号问题 → 永久淘汰
+        用户问题 → 删除用户，账号继续下一轮
         """
         if not accounts or not users:
             self.private_log_insert("账号或用户列表为空")
@@ -4741,58 +4745,69 @@ class TelegramFullGUI:
             self.private_log_insert("每账号发送数量必须大于0")
             return
 
-        # 准备账号列表
+        # 初始化：所有正常账号参与
         active_accounts = [acc for acc in accounts if acc.get('status') == '正常']
         if not active_accounts:
             self.private_log_insert("没有可用的正常账号")
             return
 
-        total_needed = len(active_accounts) * per_account_limit
-        if total_needed > len(users):
-            self.private_log_insert(f"用户数量({len(users)})不足，实际需要{total_needed}个，将循环使用用户列表")
-            extended_users = []
-            while len(extended_users) < total_needed:
-                extended_users.extend(users)
-            users = extended_users[:total_needed]
-
-        self.private_log_insert(f"分配完成: {len(active_accounts)}个账号, 共{total_needed}个用户, 每账号{per_account_limit}人")
-
+        # 共享用户列表
+        user_list = users.copy()
+        
+        # 记录已淘汰的账号（账号级别问题）
+        eliminated_accounts = set()
+        
+        # 每个账号已发送数量
+        account_sent_count = {acc.get('phone'): 0 for acc in active_accounts}
+        
         send_stats = {'success': 0, 'fail': 0}
-        user_index = 0
+        round_num = 1
+        total_eliminated = 0
+        
+        self.private_log_insert(f"========== 开始私发 ==========")
+        self.private_log_insert(f"初始账号: {len(active_accounts)}个, 用户: {len(user_list)}个, 每号限: {per_account_limit}人")
 
-        # 记录已失败的账号（仅账号级别问题）
-        failed_accounts = set()
-
-        for round_num in range(per_account_limit):
+        while True:
+            # 检查停止标志
             if self.private_stop_flag:
                 self.private_log_insert("收到停止信号，停止发送")
                 break
-
+                
             while self.private_send_paused:
                 await asyncio.sleep(1)
                 if self.private_stop_flag:
                     break
 
-            # 过滤掉已失败的账号
-            current_accounts = [acc for acc in active_accounts if acc.get('phone') not in failed_accounts]
-            if not current_accounts:
-                self.private_log_insert("所有账号均已失败，停止发送")
+            # 获取当前轮次可用账号（未被淘汰且未达上限）
+            available_accounts = [acc for acc in active_accounts 
+                                  if acc.get('phone') not in eliminated_accounts 
+                                  and account_sent_count.get(acc.get('phone'), 0) < per_account_limit]
+            
+            # 检查是否还有可用账号
+            if not available_accounts:
+                if len(eliminated_accounts) == len(active_accounts):
+                    self.private_log_insert(f"所有账号已被淘汰，停止发送")
+                else:
+                    self.private_log_insert(f"所有账号已达到发送上限({per_account_limit}人)，停止发送")
                 break
 
-            self.private_log_insert(f"========== 第 {round_num + 1}/{per_account_limit} 轮开始 ==========")
+            # 检查是否还有用户
+            if not user_list:
+                self.private_log_insert("用户列表已为空，停止发送")
+                break
 
-            round_users = []
-            for acc in current_accounts:
-                if user_index < len(users):
-                    round_users.append(users[user_index])
-                    user_index += 1
-                else:
-                    user_index = 0
-                    round_users.append(users[user_index])
-                    user_index += 1
+            # 取用户列表的第1个用户
+            current_user = user_list[0]
+            
+            self.private_log_insert(f"")
+            self.private_log_insert(f"========== 第 {round_num} 轮 ==========")
+            self.private_log_insert(f"参与账号: {len(available_accounts)}个, 目标用户: {current_user}")
+            self.private_log_insert(f"剩余用户: {len(user_list)}个, 已淘汰: {len(eliminated_accounts)}个账号")
 
-            total_batches = (len(current_accounts) + thread_cnt - 1) // thread_cnt
-
+            # 分批发送
+            total_batches = (len(available_accounts) + thread_cnt - 1) // thread_cnt
+            user_deleted = False  # 标记当前用户是否已被删除
+            
             for batch_idx in range(total_batches):
                 if self.private_stop_flag:
                     break
@@ -4802,68 +4817,116 @@ class TelegramFullGUI:
                         break
 
                 start = batch_idx * thread_cnt
-                end = min(start + thread_cnt, len(current_accounts))
-                batch_accounts = current_accounts[start:end]
-                batch_users = round_users[start:end]
-
+                end = min(start + thread_cnt, len(available_accounts))
+                batch_accounts = available_accounts[start:end]
+                
                 batch_num = batch_idx + 1
-                self.private_log_insert(f"第 {round_num + 1} 轮 第 {batch_num}/{total_batches} 批 (账号: {len(batch_accounts)}个)")
+                self.private_log_insert(f"第 {batch_num}/{total_batches} 批 (账号: {len(batch_accounts)}个)")
 
-                # 逐个发送，失败后根据错误类型决定是否跳过账号
-                for acc, username in zip(batch_accounts, batch_users):
+                for acc in batch_accounts:
                     if self.private_stop_flag:
                         break
                     phone = acc.get('phone', '')
                     
-                    # 如果已失败，跳过
-                    if phone in failed_accounts:
+                    # 检查账号是否已被淘汰（可能在之前的批次中被淘汰）
+                    if phone in eliminated_accounts:
                         continue
                         
+                    # 检查账号是否已达上限
+                    if account_sent_count.get(phone, 0) >= per_account_limit:
+                        continue
+                    
+                    # 如果用户已被删除，跳出循环
+                    if user_deleted:
+                        break
+                    
+                    # 发送消息
                     result, error_type = await self.send_single_message_v2_with_type(
-                        acc, username, ad_text, image_path,
+                        acc, current_user, ad_text, image_path,
                         send_stats, auto_skip
                     )
                     
-                    # 只有账号级别的问题才跳过账号
-                    if not result:
-                        account_level_errors = ["封禁", "销号", "风控限制", "频率限制", "未授权", "发言限制", "双向限制", "限制加群"]
+                    if result:
+                        # 发送成功
+                        account_sent_count[phone] = account_sent_count.get(phone, 0) + 1
+                        send_stats['success'] += 1
+                        self.private_log_insert(f"  [{phone}] ✅ 成功 | {current_user} ({account_sent_count[phone]}/{per_account_limit})")
+                    else:
+                        # 发送失败
+                        account_level_errors = ["封禁", "销号", "风控限制", "频率限制", "未授权", "发言限制", "双向限制", "限制加群", "需要2FA重新登录"]
                         if error_type in account_level_errors:
-                            failed_accounts.add(phone)
-                            self.private_log_insert(f"[{phone}] ❌ 账号异常，已跳过该账号")
+                            # 账号问题：永久淘汰
+                            eliminated_accounts.add(phone)
+                            total_eliminated += 1
+                            self.private_log_insert(f"  [{phone}] ❌ 账号淘汰({error_type}) | {current_user}")
+                            # 更新账号状态
+                            status_map = {
+                                "封禁": "封禁",
+                                "销号": "销号",
+                                "风控限制": "风控限制",
+                                "频率限制": "频率限制",
+                                "未授权": "未授权",
+                                "发言限制": "发言限制",
+                                "双向限制": "双向限制",
+                                "限制加群": "限制加群",
+                                "需要2FA重新登录": "需要2FA重新登录"
+                            }
+                            if error_type in status_map:
+                                self.update_account_status_by_phone(phone, status_map[error_type])
                         else:
-                            # 用户级别的问题（需要Premium、用户不存在、隐私保护等），不跳过账号
-                            self.private_log_insert(f"[{phone}] ⚠️ 用户问题，继续使用该账号")
+                            # 用户问题：删除该用户，跳出当前批次
+                            self.private_log_insert(f"  [{phone}] ⚠️ 用户问题({error_type}) | {current_user} → 删除用户")
+                            user_deleted = True
+                            break
 
                     await asyncio.sleep(1)
 
-                # 重新过滤有效账号
-                current_accounts = [acc for acc in current_accounts if acc.get('phone') not in failed_accounts]
-                if not current_accounts:
-                    self.private_log_insert("所有账号均已失败，停止发送")
-                    break
+            # 处理用户删除
+            if user_deleted or send_stats['success'] > 0:
+                # 有账号成功发送 或 遇到用户问题，删除当前用户
+                if user_list and user_list[0] == current_user:
+                    deleted_user = user_list.pop(0)
+                    self.private_log_insert(f"🗑️ 用户已删除: {deleted_user} (剩余: {len(user_list)}个)")
+                    # 从文件中删除
+                    if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                        self.remove_user_from_file(deleted_user, self.private_user_file_path)
+            else:
+                # 没有任何账号成功发送，且没有用户问题
+                # 这种情况很少发生，但以防万一，也删除用户避免死循环
+                if user_list and user_list[0] == current_user:
+                    deleted_user = user_list.pop(0)
+                    self.private_log_insert(f"⚠️ 无账号成功发送，强制删除用户: {deleted_user} (剩余: {len(user_list)}个)")
 
-                if batch_idx < total_batches - 1 and not self.private_stop_flag:
-                    self.private_log_insert(f"第 {round_num + 1} 轮 第 {batch_num} 批完成，等待 {interval} 秒...")
-                    await asyncio.sleep(interval)
+            # 检查是否所有账号都已淘汰或达到上限
+            remaining_accounts = [acc for acc in active_accounts 
+                                  if acc.get('phone') not in eliminated_accounts 
+                                  and account_sent_count.get(acc.get('phone'), 0) < per_account_limit]
+            
+            if not remaining_accounts:
+                if len(eliminated_accounts) == len(active_accounts):
+                    self.private_log_insert(f"所有账号已被淘汰，停止发送")
+                else:
+                    self.private_log_insert(f"所有账号已达到发送上限({per_account_limit}人)，停止发送")
+                break
 
-            if round_num < per_account_limit - 1 and not self.private_stop_flag:
-                self.private_log_insert(f"第 {round_num + 1} 轮完成，等待 {interval} 秒后开始下一轮...")
-                await asyncio.sleep(interval)
+            # 检查是否还有用户
+            if not user_list:
+                self.private_log_insert("用户列表已为空，停止发送")
+                break
 
+            round_num += 1
+
+        self.private_log_insert(f"")
         self.private_log_insert(f"========== 全部发送完成 ==========")
-        self.private_log_insert(f"成功: {send_stats['success']} 条, 失败: {send_stats['fail']} 条")
-
-        if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-            try:
-                with open(self.private_user_file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                new_users = [line.strip() for line in content.split('\n') if line.strip()]
-                self.private_users = new_users
-                self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
-                self.private_log_insert(f"用户列表已更新，剩余 {len(self.private_users)} 个用户")
-            except:
-                pass
-
+        self.private_log_insert(f"✅ 成功发送: {send_stats['success']} 条")
+        self.private_log_insert(f"❌ 账号淘汰: {total_eliminated} 个")
+        self.private_log_insert(f"📊 剩余账号: {len([acc for acc in active_accounts if acc.get('phone') not in eliminated_accounts])} 个")
+        self.private_log_insert(f"📊 剩余用户: {len(user_list)} 个")
+        
+        # 更新用户列表显示
+        self.private_users = user_list
+        self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
+        
         self.refresh_account_list_filter()
 
     async def send_single_message_v2_with_type(self, acc, username, ad_text, image_path, send_stats, auto_skip):
