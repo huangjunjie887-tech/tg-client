@@ -62,6 +62,7 @@ class TelegramFullGUI:
         self.is_paused = False
         self.user_list_file_path = None
         self.user_list_lock = threading.Lock()
+        self.is_minimized = False
 
         self.chat_message_cache = {}
 
@@ -72,7 +73,36 @@ class TelegramFullGUI:
 
         self.load_config()
 
+        # 防假死机制
+        self.root.bind("<Unmap>", self.on_minimize)
+        self.root.bind("<Map>", self.on_restore)
+        self.keep_alive()
+
         self.show_card_login()
+
+    def on_minimize(self, event):
+        """窗口最小化时标记状态"""
+        self.is_minimized = True
+
+    def on_restore(self, event):
+        """窗口恢复时刷新界面"""
+        self.is_minimized = False
+        try:
+            self.root.update_idletasks()
+        except:
+            pass
+
+    def keep_alive(self):
+        """防假死心跳检测 - 每500ms唤醒一次主循环"""
+        try:
+            if not self.is_minimized:
+                self.root.update_idletasks()
+                self.root.update()
+        except (tk.TclError, RuntimeError):
+            return
+        except Exception:
+            pass
+        self.root.after(500, self.keep_alive)
 
     def get_machine_id(self):
         try:
@@ -484,7 +514,8 @@ class TelegramFullGUI:
 
     def refresh_scrape_accounts(self):
         if hasattr(self, 'scrape_account'):
-            account_list = [a.get('phone', '') for a in self.accounts if a.get('status') == '正常']
+            # 显示所有账号，不限制状态
+            account_list = [a.get('phone', '') for a in self.accounts]
             self.scrape_account['values'] = account_list
             if account_list:
                 self.scrape_account.set(account_list[0])
