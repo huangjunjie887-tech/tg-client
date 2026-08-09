@@ -947,7 +947,7 @@ class TelegramFullGUI:
             return
 
         self.log("多账号管理", f"开始深度检测 {len(filtered_accounts)} 个账号（当前筛选结果）...")
-        self.log("多账号管理", "检测项目: 登录状态 | 封禁/注销")
+        self.log("多账号管理", "检测项目: 登录状态 | SpamBot官方限制检测")
 
         def do_deep_check():
             for idx, acc in enumerate(filtered_accounts, 1):
@@ -961,6 +961,15 @@ class TelegramFullGUI:
         threading.Thread(target=do_deep_check, daemon=True).start()
 
     def deep_check_single_account(self, acc):
+        """
+        深度检测单个账号 - 多维度综合检测
+        
+        检测流程：
+        第1层：登录状态检测 (get_me)
+        第2层：SpamBot官方限制检测 (/start)
+        
+        业务能力检测由实际任务执行时实时更新状态
+        """
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -972,6 +981,9 @@ class TelegramFullGUI:
             client = None
             try:
                 from telethon.sessions import StringSession, MemorySession
+                from telethon.tl.functions.messages import GetHistoryRequest
+                import re
+                from datetime import datetime
 
                 session = None
                 if session_path and os.path.exists(session_path):
@@ -990,6 +1002,7 @@ class TelegramFullGUI:
                 client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
 
+                # ==================== 第1层：登录检测 ====================
                 if not await client.is_user_authorized():
                     try:
                         await asyncio.wait_for(client.get_me(), timeout=5)
@@ -1037,10 +1050,70 @@ class TelegramFullGUI:
                     days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
                     self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
 
-                acc['status'] = '正常'
-                self.log("多账号管理", f"[{phone}] 检测结果: 正常(可登录) | 代理: {proxy_str if proxy_str else '无'}")
-                await client.disconnect()
+                # ==================== 第2层：SpamBot检测 ====================
+                spam_status = "UNKNOWN"
+                spam_detail = ""
+                restricted_until = None
+
+                try:
+                    spambot = await client.get_entity('@SpamBot')
+                    if spambot:
+                        # 发送 /start 命令
+                        await client.send_message(spambot, '/start')
+                        await asyncio.sleep(2)
+
+                        # 获取最近的回复消息
+                        history = await client(GetHistoryRequest(
+                            peer=spambot,
+                            limit=3,
+                            offset_date=None,
+                            offset_id=0,
+                            max_id=0,
+                            min_id=0,
+                            add_offset=0,
+                            hash=0
+                        ))
+
+                        if history and history.messages:
+                            for msg in history.messages:
+                                if msg.out:
+                                    continue
+                                if msg.message:
+                                    msg_text = msg.message
+                                    # 检测是否有限制信息
+                                    if 'limited until' in msg_text.lower():
+                                        spam_status = "RESTRICTED"
+                                        spam_detail = "账号被Spam限制"
+                                        # 解析限制日期
+                                        date_match = re.search(r'limited until (\d{4}-\d{2}-\d{2})', msg_text, re.IGNORECASE)
+                                        if date_match:
+                                            restricted_until = date_match.group(1)
+                                        break
+                                    elif 'good news' in msg_text.lower() and 'no limits' in msg_text.lower():
+                                        spam_status = "NORMAL"
+                                        spam_detail = "账号无Spam限制"
+                                        break
+                                    elif 'suspicious' in msg_text.lower():
+                                        spam_status = "RESTRICTED"
+                                        spam_detail = "账号可疑，需要验证"
+                                        break
+
+                except Exception as e:
+                    spam_detail = f"SpamBot检测失败: {str(e)[:30]}"
+
+                # ==================== 综合判定 ====================
+                # 优先级：封禁/销号 > Spam限制 > 正常
+                if acc.get('status') in ['销号', '封禁']:
+                    pass  # 状态已设置
+                elif spam_status == "RESTRICTED":
+                    acc['status'] = 'Spam限制'
+                    self.log("多账号管理", f"[{phone}] ⚠️ SpamBot检测: {spam_detail} 限制至: {restricted_until or '未知'}")
+                else:
+                    acc['status'] = '正常'
+                    self.log("多账号管理", f"[{phone}] ✅ 检测通过 | Spam: {spam_detail}")
+                
                 self.update_status_filter_options()
+                await client.disconnect()
 
             except UserDeactivatedError:
                 acc['status'] = '销号'
