@@ -947,7 +947,7 @@ class TelegramFullGUI:
             return
 
         self.log("多账号管理", f"开始深度检测 {len(filtered_accounts)} 个账号（当前筛选结果）...")
-        self.log("多账号管理", "检测项目: 登录状态 | SpamBot官方限制检测")
+        self.log("多账号管理", "检测项目: 登录状态 | SpamBot官方限制检测 (多语言支持)")
 
         def do_deep_check():
             for idx, acc in enumerate(filtered_accounts, 1):
@@ -966,7 +966,7 @@ class TelegramFullGUI:
         
         检测流程：
         第1层：登录状态检测 (get_me)
-        第2层：SpamBot官方限制检测 (/start)
+        第2层：SpamBot官方限制检测 (/start) - 支持多语言
         
         业务能力检测由实际任务执行时实时更新状态
         """
@@ -1050,7 +1050,7 @@ class TelegramFullGUI:
                     days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
                     self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
 
-                # ==================== 第2层：SpamBot检测 ====================
+                # ==================== 第2层：SpamBot检测 (多语言支持) ====================
                 spam_status = "UNKNOWN"
                 spam_detail = ""
                 restricted_until = None
@@ -1060,12 +1060,12 @@ class TelegramFullGUI:
                     if spambot:
                         # 发送 /start 命令
                         await client.send_message(spambot, '/start')
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(2.5)
 
                         # 获取最近的回复消息
                         history = await client(GetHistoryRequest(
                             peer=spambot,
-                            limit=3,
+                            limit=5,
                             offset_date=None,
                             offset_id=0,
                             max_id=0,
@@ -1080,34 +1080,146 @@ class TelegramFullGUI:
                                     continue
                                 if msg.message:
                                     msg_text = msg.message
-                                    # 检测是否有限制信息
-                                    if 'limited until' in msg_text.lower():
+                                    msg_lower = msg_text.lower()
+                                    
+                                    # ========== 检测限制关键词 (多语言) ==========
+                                    
+                                    # 英文限制关键词
+                                    english_restricted = [
+                                        'limited until',
+                                        'restricted',
+                                        'temporarily limited',
+                                        'your account is limited',
+                                        'spam'
+                                    ]
+                                    
+                                    # 印尼语限制关键词
+                                    indonesian_restricted = [
+                                        'dibatasi',
+                                        'terbatas',
+                                        'akun anda telah dibatasi',
+                                        'telah dibatasi',
+                                        'anda tidak akan dapat mengirim',
+                                        'tidak dapat mengirim pesan'
+                                    ]
+                                    
+                                    # 中文限制关键词
+                                    chinese_restricted = [
+                                        '限制',
+                                        '受限',
+                                        '被限制',
+                                        '账号被限制'
+                                    ]
+                                    
+                                    # 俄语限制关键词
+                                    russian_restricted = [
+                                        'ограничен',
+                                        'заблокирован',
+                                        'ограничения'
+                                    ]
+                                    
+                                    # 所有限制关键词
+                                    all_restricted = (english_restricted + indonesian_restricted + 
+                                                      chinese_restricted + russian_restricted)
+                                    
+                                    # 检查是否包含限制关键词
+                                    is_restricted = False
+                                    for keyword in all_restricted:
+                                        if keyword in msg_lower:
+                                            is_restricted = True
+                                            break
+                                    
+                                    if is_restricted:
                                         spam_status = "RESTRICTED"
                                         spam_detail = "账号被Spam限制"
-                                        # 解析限制日期
+                                        
+                                        # 解析限制日期 (多种日期格式)
+                                        # 格式1: "limited until 2026-08-20"
                                         date_match = re.search(r'limited until (\d{4}-\d{2}-\d{2})', msg_text, re.IGNORECASE)
                                         if date_match:
                                             restricted_until = date_match.group(1)
+                                        else:
+                                            # 格式2: "until 20/08/2026"
+                                            date_match = re.search(r'until (\d{2}/\d{2}/\d{4})', msg_text, re.IGNORECASE)
+                                            if date_match:
+                                                try:
+                                                    d = datetime.strptime(date_match.group(1), '%d/%m/%Y')
+                                                    restricted_until = d.strftime('%Y-%m-%d')
+                                                except:
+                                                    pass
+                                            else:
+                                                # 格式3: "until 20-08-2026"
+                                                date_match = re.search(r'until (\d{2}-\d{2}-\d{4})', msg_text, re.IGNORECASE)
+                                                if date_match:
+                                                    try:
+                                                        d = datetime.strptime(date_match.group(1), '%d-%m-%Y')
+                                                        restricted_until = d.strftime('%Y-%m-%d')
+                                                    except:
+                                                        pass
                                         break
-                                    elif 'good news' in msg_text.lower() and 'no limits' in msg_text.lower():
+                                    
+                                    # ========== 检测正常状态 (多语言) ==========
+                                    
+                                    # 英文正常关键词
+                                    english_normal = [
+                                        'good news',
+                                        'no limits',
+                                        'no restrictions',
+                                        'account is in good standing'
+                                    ]
+                                    
+                                    # 印尼语正常关键词
+                                    indonesian_normal = [
+                                        'tidak ada batasan',
+                                        'baik-baik saja',
+                                        'tidak dibatasi'
+                                    ]
+                                    
+                                    # 中文正常关键词
+                                    chinese_normal = [
+                                        '无限制',
+                                        '正常',
+                                        '没有被限制'
+                                    ]
+                                    
+                                    all_normal = english_normal + indonesian_normal + chinese_normal
+                                    
+                                    is_normal = False
+                                    for keyword in all_normal:
+                                        if keyword in msg_lower:
+                                            is_normal = True
+                                            break
+                                    
+                                    if is_normal:
                                         spam_status = "NORMAL"
                                         spam_detail = "账号无Spam限制"
                                         break
-                                    elif 'suspicious' in msg_text.lower():
-                                        spam_status = "RESTRICTED"
-                                        spam_detail = "账号可疑，需要验证"
-                                        break
+
+                    # 如果状态仍然是 UNKNOWN，尝试更全面的检测
+                    if spam_status == "UNKNOWN" and history and history.messages:
+                        for msg in history.messages:
+                            if msg.out:
+                                continue
+                            if msg.message:
+                                msg_lower = msg.message.lower()
+                                # 如果消息包含 "tidak dapat mengirim" (不能发送) 等明确限制词
+                                if any(kw in msg_lower for kw in ['tidak dapat mengirim', 'tidak akan dapat mengirim']):
+                                    spam_status = "RESTRICTED"
+                                    spam_detail = "账号被限制发送消息"
+                                    break
 
                 except Exception as e:
                     spam_detail = f"SpamBot检测失败: {str(e)[:30]}"
 
                 # ==================== 综合判定 ====================
-                # 优先级：封禁/销号 > Spam限制 > 正常
                 if acc.get('status') in ['销号', '封禁']:
-                    pass  # 状态已设置
+                    pass
                 elif spam_status == "RESTRICTED":
                     acc['status'] = 'Spam限制'
-                    self.log("多账号管理", f"[{phone}] ⚠️ SpamBot检测: {spam_detail} 限制至: {restricted_until or '未知'}")
+                    if restricted_until:
+                        self.log("多账号管理", f"[{phone}] ⚠️ SpamBot检测: {spam_detail} 限制至: {restricted_until}")
+                    else:
+                        self.log("多账号管理", f"[{phone}] ⚠️ SpamBot检测: {spam_detail}")
                 else:
                     acc['status'] = '正常'
                     self.log("多账号管理", f"[{phone}] ✅ 检测通过 | Spam: {spam_detail}")
