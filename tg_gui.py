@@ -228,7 +228,7 @@ class TelegramFullGUI:
         for acc in self.accounts:
             status = acc.get('status', '待检测')
             statuses.add(status)
-        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"]
+        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制", "Spam限制(已到期)"]
         for s in all_statuses:
             statuses.add(s)
         self.account_list_status_filter['values'] = list(statuses)
@@ -270,30 +270,30 @@ class TelegramFullGUI:
         error_lower = error_msg.lower()
 
         if isinstance(e, UserDeactivatedError) or "deactivated" in error_lower:
-            return "销号", f"[{phone}] ❌ 账号已注销(销号)"
+            return "销号", f"[{phone}] 销号"
         if isinstance(e, PhoneNumberBannedError) or "banned" in error_lower:
-            return "封禁", f"[{phone}] ❌ 账号已被封禁"
+            return "封禁", f"[{phone}] 封禁"
         if isinstance(e, SessionPasswordNeededError) or "password" in error_lower:
-            return "需要2FA重新登录", f"[{phone}] ⚠️ 需要2FA密码重新登录"
+            return "需要2FA重新登录", f"[{phone}] 需要2FA重新登录"
         if isinstance(e, SessionRevokedError) or "session_revoked" in error_lower:
-            return "被踢下线", f"[{phone}] 🔴 账号在其他设备登录，被踢下线"
+            return "被踢下线", f"[{phone}] 被踢下线"
         if isinstance(e, AuthKeyUnregisteredError) or "auth_key_unregistered" in error_lower:
-            return "session已过期", f"[{phone}] 🟡 session已过期，请重新登录"
+            return "session已过期", f"[{phone}] session已过期"
         if "password_hash_invalid" in error_lower:
-            return "2FA已修改", f"[{phone}] 🟠 2FA密码已被修改，需要重新登录"
+            return "2FA已修改", f"[{phone}] 2FA已修改"
         if "frozen" in error_lower:
-            return "账号冻结", f"[{phone}] 🔵 账号被冻结，需要激活"
+            return "账号冻结", f"[{phone}] 账号冻结"
         if "phone_number_unregistered" in error_lower or "unregistered" in error_lower:
-            return "未注册", f"[{phone}] ❌ 手机号未注册"
+            return "未注册", f"[{phone}] 未注册"
         if "phone_number_invalid" in error_lower:
-            return "手机号无效", f"[{phone}] ❌ 手机号无效"
+            return "手机号无效", f"[{phone}] 手机号无效"
         if "api_id" in error_lower or "api_hash" in error_lower:
-            return "API错误", f"[{phone}] ⚠️ API ID或API Hash无效"
+            return "API错误", f"[{phone}] API错误"
         if "timeout" in error_lower or "timed out" in error_lower:
-            return "未授权(超时)", f"[{phone}] ⚠️ 连接超时"
+            return "未授权(超时)", f"[{phone}] 未授权(超时)"
         if "connection" in error_lower or "network" in error_lower:
-            return "未授权", f"[{phone}] ⚠️ 网络连接失败: {error_msg[:50]}"
-        return "未授权", f"[{phone}] ⚠️ {operation}异常: {error_msg[:80]}"
+            return "未授权", f"[{phone}] 未授权"
+        return "未授权", f"[{phone}] 未授权"
 
     def show_card_login(self):
         login_window = tk.Toplevel(self.root)
@@ -532,7 +532,7 @@ class TelegramFullGUI:
 
         ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
         status_var = tk.StringVar(value=status_filter_default)
-        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"], width=15)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制", "Spam限制(已到期)"], width=15)
         status_combo.pack(side="left", padx=5)
 
         select_all_var = tk.BooleanVar(value=False)
@@ -603,7 +603,7 @@ class TelegramFullGUI:
                 elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"]:
                     tree.tag_configure('unauth', background='#fff3e0')
                     tree.item(phone, tags=('unauth',))
-                elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制"]:
+                elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "Spam永久限制", "Spam限制", "Spam限制(已到期)"]:
                     tree.tag_configure('limited', background='#fff9c4')
                     tree.item(phone, tags=('limited',))
 
@@ -837,7 +837,7 @@ class TelegramFullGUI:
                     me = await client.get_me()
                     if getattr(me, 'deleted', False):
                         acc['status'] = '销号'
-                        self.log("多账号管理", f"[{phone}] ❌ 账号已注销(销号)")
+                        self.log("多账号管理", f"[{phone}] 销号")
                         await client.disconnect()
                         self.update_status_filter_options()
                         return False
@@ -847,7 +847,7 @@ class TelegramFullGUI:
                     if hasattr(me, 'date'):
                         acc['register_time'] = me.date.strftime("%Y-%m-%d")
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] ✅ 登录成功 | 昵称: {nickname} | 代理: {proxy_str if proxy_str else '无'}")
+                    self.log("多账号管理", f"[{phone}] 登录成功 | 昵称: {nickname}")
                     await client.disconnect()
                     self.update_status_filter_options()
                     return True
@@ -857,22 +857,22 @@ class TelegramFullGUI:
                         me = await client.get_me()
                         if getattr(me, 'deleted', False):
                             acc['status'] = '销号'
-                            self.log("多账号管理", f"[{phone}] ❌ 账号已注销(销号)")
+                            self.log("多账号管理", f"[{phone}] 销号")
                         else:
                             acc['status'] = '未授权'
-                            self.log("多账号管理", f"[{phone}] ⚠️ session未授权(登录态失效)")
+                            self.log("多账号管理", f"[{phone}] 未授权")
                     except asyncio.TimeoutError:
                         acc['status'] = '未授权(超时)'
-                        self.log("多账号管理", f"[{phone}] ⚠️ 连接超时")
+                        self.log("多账号管理", f"[{phone}] 未授权(超时)")
                     except SessionPasswordNeededError:
                         acc['status'] = '需要2FA重新登录'
-                        self.log("多账号管理", f"[{phone}] ⚠️ 需要2FA密码重新登录")
+                        self.log("多账号管理", f"[{phone}] 需要2FA重新登录")
                     except UserDeactivatedError:
                         acc['status'] = '销号'
-                        self.log("多账号管理", f"[{phone}] ❌ 账号已注销")
+                        self.log("多账号管理", f"[{phone}] 销号")
                     except PhoneNumberBannedError:
                         acc['status'] = '封禁'
-                        self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
+                        self.log("多账号管理", f"[{phone}] 封禁")
                     except Exception as e:
                         status, log_msg = self.parse_unauthorized_error(phone, e, "登录")
                         acc['status'] = status
@@ -882,14 +882,14 @@ class TelegramFullGUI:
 
             except FloodWaitError as e:
                 acc['status'] = f'登录限制({e.seconds}秒)'
-                self.log("多账号管理", f"[{phone}] ⚠️ 登录过于频繁，等待{e.seconds}秒")
+                self.log("多账号管理", f"[{phone}] 登录过于频繁，等待{e.seconds}秒")
                 self.update_status_filter_options()
                 return False
             except Exception as e:
                 error_msg = str(e)
                 error_lower = error_msg.lower()
                 if "database" in error_lower:
-                    self.log("多账号管理", f"[{phone}] ⚠️ session文件格式问题，尝试重新加载...")
+                    self.log("多账号管理", f"[{phone}] session文件格式问题，尝试重新加载...")
                     try:
                         if session_path and os.path.exists(session_path):
                             with open(session_path, 'r', encoding='utf-8') as f:
@@ -903,23 +903,23 @@ class TelegramFullGUI:
                                     me = await client.get_me()
                                     acc['status'] = '正常'
                                     acc['nickname'] = me.first_name or phone
-                                    self.log("多账号管理", f"[{phone}] ✅ 重新加载成功 | 昵称: {me.first_name}")
+                                    self.log("多账号管理", f"[{phone}] 重新加载成功 | 昵称: {me.first_name}")
                                     await client.disconnect()
                                     self.update_status_filter_options()
                                     return True
                     except:
                         pass
                     acc['status'] = 'session格式错误'
-                    self.log("多账号管理", f"[{phone}] ❌ session文件格式错误")
+                    self.log("多账号管理", f"[{phone}] session格式错误")
                 elif "deactivated" in error_lower:
                     acc['status'] = '销号'
-                    self.log("多账号管理", f"[{phone}] ❌ 账号已注销")
+                    self.log("多账号管理", f"[{phone}] 销号")
                 elif "banned" in error_lower:
                     acc['status'] = '封禁'
-                    self.log("多账号管理", f"[{phone}] ❌ 账号已被封禁")
+                    self.log("多账号管理", f"[{phone}] 封禁")
                 else:
                     acc['status'] = '登录失败'
-                    self.log("多账号管理", f"[{phone}] ❌ 登录失败: {error_msg[:80]}")
+                    self.log("多账号管理", f"[{phone}] 登录失败: {error_msg[:80]}")
                 self.update_status_filter_options()
                 return False
             finally:
@@ -947,7 +947,6 @@ class TelegramFullGUI:
             return
 
         self.log("多账号管理", f"开始深度检测 {len(filtered_accounts)} 个账号（当前筛选结果）...")
-        self.log("多账号管理", "检测项目: 登录状态 | SpamBot官方限制检测 (多语言支持)")
 
         def do_deep_check():
             for idx, acc in enumerate(filtered_accounts, 1):
@@ -966,7 +965,7 @@ class TelegramFullGUI:
         
         检测流程：
         第1层：登录状态检测 (get_me)
-        第2层：SpamBot官方限制检测 (/start) - 支持多语言
+        第2层：SpamBot官方限制检测 (/start) - 支持多语言，区分永久/临时限制
         
         业务能力检测由实际任务执行时实时更新状态
         """
@@ -1009,22 +1008,22 @@ class TelegramFullGUI:
                         me = await client.get_me()
                         if getattr(me, 'deleted', False):
                             acc['status'] = '销号'
-                            self.log("多账号管理", f"[{phone}] 检测结果: 销号(账号已注销)")
+                            self.log("多账号管理", f"[{phone}] 销号")
                         else:
                             acc['status'] = '未授权'
-                            self.log("多账号管理", f"[{phone}] 检测结果: 未授权(登录态失效)")
+                            self.log("多账号管理", f"[{phone}] 未授权")
                     except asyncio.TimeoutError:
                         acc['status'] = '未授权(超时)'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 未授权(连接超时)")
+                        self.log("多账号管理", f"[{phone}] 未授权(超时)")
                     except SessionPasswordNeededError:
                         acc['status'] = '需要2FA重新登录'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA重新登录")
+                        self.log("多账号管理", f"[{phone}] 需要2FA重新登录")
                     except UserDeactivatedError:
                         acc['status'] = '销号'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+                        self.log("多账号管理", f"[{phone}] 销号")
                     except PhoneNumberBannedError:
                         acc['status'] = '封禁'
-                        self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                        self.log("多账号管理", f"[{phone}] 封禁")
                     except Exception as e:
                         status, log_msg = self.parse_unauthorized_error(phone, e, "深度检测")
                         acc['status'] = status
@@ -1036,7 +1035,7 @@ class TelegramFullGUI:
                 me = await client.get_me()
                 if getattr(me, 'deleted', False):
                     acc['status'] = '销号'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 销号(账号已注销)")
+                    self.log("多账号管理", f"[{phone}] 销号")
                     await client.disconnect()
                     self.update_status_filter_options()
                     return
@@ -1048,21 +1047,19 @@ class TelegramFullGUI:
                     reg_time = me.date.strftime("%Y-%m-%d")
                     acc['register_time'] = reg_time
                     days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
-                    self.log("多账号管理", f"[{phone}] 注册时间: {reg_time} (已注册{days_old}天)")
+                    self.log("多账号管理", f"[{phone}] 注册: {reg_time} ({days_old}天)")
 
-                # ==================== 第2层：SpamBot检测 (多语言支持) ====================
+                # ==================== 第2层：SpamBot检测 (多语言支持 + 永久/临时区分) ====================
                 spam_status = "UNKNOWN"
-                spam_detail = ""
                 restricted_until = None
+                is_permanent = False
 
                 try:
                     spambot = await client.get_entity('@SpamBot')
                     if spambot:
-                        # 发送 /start 命令
                         await client.send_message(spambot, '/start')
                         await asyncio.sleep(2.5)
 
-                        # 获取最近的回复消息
                         history = await client(GetHistoryRequest(
                             peer=spambot,
                             limit=5,
@@ -1083,46 +1080,21 @@ class TelegramFullGUI:
                                     msg_lower = msg_text.lower()
                                     
                                     # ========== 检测限制关键词 (多语言) ==========
-                                    
-                                    # 英文限制关键词
                                     english_restricted = [
-                                        'limited until',
-                                        'restricted',
-                                        'temporarily limited',
-                                        'your account is limited',
-                                        'spam'
+                                        'limited until', 'restricted', 'temporarily limited',
+                                        'your account is limited', 'spam'
                                     ]
-                                    
-                                    # 印尼语限制关键词
                                     indonesian_restricted = [
-                                        'dibatasi',
-                                        'terbatas',
-                                        'akun anda telah dibatasi',
-                                        'telah dibatasi',
-                                        'anda tidak akan dapat mengirim',
+                                        'dibatasi', 'terbatas', 'akun anda telah dibatasi',
+                                        'telah dibatasi', 'anda tidak akan dapat mengirim',
                                         'tidak dapat mengirim pesan'
                                     ]
+                                    chinese_restricted = ['限制', '受限', '被限制', '账号被限制']
+                                    russian_restricted = ['ограничен', 'заблокирован', 'ограничения']
                                     
-                                    # 中文限制关键词
-                                    chinese_restricted = [
-                                        '限制',
-                                        '受限',
-                                        '被限制',
-                                        '账号被限制'
-                                    ]
-                                    
-                                    # 俄语限制关键词
-                                    russian_restricted = [
-                                        'ограничен',
-                                        'заблокирован',
-                                        'ограничения'
-                                    ]
-                                    
-                                    # 所有限制关键词
                                     all_restricted = (english_restricted + indonesian_restricted + 
                                                       chinese_restricted + russian_restricted)
                                     
-                                    # 检查是否包含限制关键词
                                     is_restricted = False
                                     for keyword in all_restricted:
                                         if keyword in msg_lower:
@@ -1131,15 +1103,20 @@ class TelegramFullGUI:
                                     
                                     if is_restricted:
                                         spam_status = "RESTRICTED"
-                                        spam_detail = "账号被Spam限制"
                                         
-                                        # 解析限制日期 (多种日期格式)
-                                        # 格式1: "limited until 2026-08-20"
+                                        # ========== 判断是否永久限制 ==========
+                                        permanent_keywords = [
+                                            'permanently', 'permanent', 'selamanya',
+                                            'permanen', '永久', '永远', 'навсегда'
+                                        ]
+                                        for kw in permanent_keywords:
+                                            if kw in msg_lower:
+                                                is_permanent = True
+                                                break
+                                        
+                                        # 解析限制日期
                                         date_match = re.search(r'limited until (\d{4}-\d{2}-\d{2})', msg_text, re.IGNORECASE)
-                                        if date_match:
-                                            restricted_until = date_match.group(1)
-                                        else:
-                                            # 格式2: "until 20/08/2026"
+                                        if not date_match:
                                             date_match = re.search(r'until (\d{2}/\d{2}/\d{4})', msg_text, re.IGNORECASE)
                                             if date_match:
                                                 try:
@@ -1147,41 +1124,43 @@ class TelegramFullGUI:
                                                     restricted_until = d.strftime('%Y-%m-%d')
                                                 except:
                                                     pass
-                                            else:
-                                                # 格式3: "until 20-08-2026"
-                                                date_match = re.search(r'until (\d{2}-\d{2}-\d{4})', msg_text, re.IGNORECASE)
-                                                if date_match:
-                                                    try:
-                                                        d = datetime.strptime(date_match.group(1), '%d-%m-%Y')
-                                                        restricted_until = d.strftime('%Y-%m-%d')
-                                                    except:
-                                                        pass
+                                        else:
+                                            restricted_until = date_match.group(1)
+                                        
+                                        if not date_match and not restricted_until:
+                                            date_match = re.search(r'until (\d{2}-\d{2}-\d{4})', msg_text, re.IGNORECASE)
+                                            if date_match:
+                                                try:
+                                                    d = datetime.strptime(date_match.group(1), '%d-%m-%Y')
+                                                    restricted_until = d.strftime('%Y-%m-%d')
+                                                except:
+                                                    pass
+                                        
+                                        if not date_match and not restricted_until:
+                                            date_match = re.search(r'until (\d{1,2})\s+(\w+)\s+(\d{4})', msg_text, re.IGNORECASE)
+                                            if date_match:
+                                                try:
+                                                    month_map = {
+                                                        'january': 1, 'february': 2, 'march': 3, 'april': 4,
+                                                        'may': 5, 'june': 6, 'july': 7, 'august': 8,
+                                                        'september': 9, 'october': 10, 'november': 11, 'december': 12,
+                                                        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+                                                        'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                                                        'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                                                    }
+                                                    day = int(date_match.group(1))
+                                                    month = month_map.get(date_match.group(2).lower(), 1)
+                                                    year = int(date_match.group(3))
+                                                    d = datetime(year, month, day)
+                                                    restricted_until = d.strftime('%Y-%m-%d')
+                                                except:
+                                                    pass
                                         break
                                     
-                                    # ========== 检测正常状态 (多语言) ==========
-                                    
-                                    # 英文正常关键词
-                                    english_normal = [
-                                        'good news',
-                                        'no limits',
-                                        'no restrictions',
-                                        'account is in good standing'
-                                    ]
-                                    
-                                    # 印尼语正常关键词
-                                    indonesian_normal = [
-                                        'tidak ada batasan',
-                                        'baik-baik saja',
-                                        'tidak dibatasi'
-                                    ]
-                                    
-                                    # 中文正常关键词
-                                    chinese_normal = [
-                                        '无限制',
-                                        '正常',
-                                        '没有被限制'
-                                    ]
-                                    
+                                    # ========== 检测正常状态 ==========
+                                    english_normal = ['good news', 'no limits', 'no restrictions', 'account is in good standing']
+                                    indonesian_normal = ['tidak ada batasan', 'baik-baik saja', 'tidak dibatasi']
+                                    chinese_normal = ['无限制', '正常', '没有被限制']
                                     all_normal = english_normal + indonesian_normal + chinese_normal
                                     
                                     is_normal = False
@@ -1192,73 +1171,88 @@ class TelegramFullGUI:
                                     
                                     if is_normal:
                                         spam_status = "NORMAL"
-                                        spam_detail = "账号无Spam限制"
                                         break
 
-                    # 如果状态仍然是 UNKNOWN，尝试更全面的检测
                     if spam_status == "UNKNOWN" and history and history.messages:
                         for msg in history.messages:
                             if msg.out:
                                 continue
                             if msg.message:
                                 msg_lower = msg.message.lower()
-                                # 如果消息包含 "tidak dapat mengirim" (不能发送) 等明确限制词
                                 if any(kw in msg_lower for kw in ['tidak dapat mengirim', 'tidak akan dapat mengirim']):
                                     spam_status = "RESTRICTED"
-                                    spam_detail = "账号被限制发送消息"
                                     break
 
                 except Exception as e:
-                    spam_detail = f"SpamBot检测失败: {str(e)[:30]}"
+                    pass
 
                 # ==================== 综合判定 ====================
                 if acc.get('status') in ['销号', '封禁']:
                     pass
                 elif spam_status == "RESTRICTED":
-                    acc['status'] = 'Spam限制'
-                    if restricted_until:
-                        self.log("多账号管理", f"[{phone}] ⚠️ SpamBot检测: {spam_detail} 限制至: {restricted_until}")
+                    if is_permanent:
+                        acc['status'] = 'Spam永久限制'
+                        self.log("多账号管理", f"[{phone}] Spam永久限制")
+                    elif restricted_until:
+                        try:
+                            days_left = (datetime.strptime(restricted_until, '%Y-%m-%d') - datetime.now()).days
+                            if days_left < 0:
+                                acc['status'] = 'Spam限制(已到期)'
+                                self.log("多账号管理", f"[{phone}] Spam限制(已到期)")
+                            else:
+                                acc['status'] = 'Spam限制'
+                                self.log("多账号管理", f"[{phone}] Spam限制至 {restricted_until} (剩余{days_left}天)")
+                        except:
+                            acc['status'] = 'Spam限制'
+                            self.log("多账号管理", f"[{phone}] Spam限制至 {restricted_until}")
                     else:
-                        self.log("多账号管理", f"[{phone}] ⚠️ SpamBot检测: {spam_detail}")
+                        acc['status'] = 'Spam限制'
+                        self.log("多账号管理", f"[{phone}] Spam限制")
+                    
+                    # 保存限制详情到账号信息中
+                    if 'spam_info' not in acc:
+                        acc['spam_info'] = {}
+                    acc['spam_info']['restricted_until'] = restricted_until
+                    acc['spam_info']['is_permanent'] = is_permanent
                 else:
                     acc['status'] = '正常'
-                    self.log("多账号管理", f"[{phone}] ✅ 检测通过 | Spam: {spam_detail}")
+                    self.log("多账号管理", f"[{phone}] 正常")
                 
                 self.update_status_filter_options()
                 await client.disconnect()
 
             except UserDeactivatedError:
                 acc['status'] = '销号'
-                self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+                self.log("多账号管理", f"[{phone}] 销号")
                 self.update_status_filter_options()
             except PhoneNumberBannedError:
                 acc['status'] = '封禁'
-                self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                self.log("多账号管理", f"[{phone}] 封禁")
                 self.update_status_filter_options()
             except SessionPasswordNeededError:
                 acc['status'] = '需要2FA'
-                self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA")
+                self.log("多账号管理", f"[{phone}] 需要2FA")
                 self.update_status_filter_options()
             except Exception as e:
                 error_msg = str(e).lower()
                 if "database" in error_msg:
                     acc['status'] = 'session格式错误'
-                    self.log("多账号管理", f"[{phone}] 检测结果: session文件格式错误")
+                    self.log("多账号管理", f"[{phone}] session格式错误")
                 elif "deactivated" in error_msg:
                     acc['status'] = '销号'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 销号")
+                    self.log("多账号管理", f"[{phone}] 销号")
                 elif "banned" in error_msg:
                     acc['status'] = '封禁'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 封禁")
+                    self.log("多账号管理", f"[{phone}] 封禁")
                 elif "password" in error_msg:
                     acc['status'] = '需要2FA'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 需要2FA")
+                    self.log("多账号管理", f"[{phone}] 需要2FA")
                 elif "flood" in error_msg or "too many" in error_msg:
                     acc['status'] = '频率限制'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 频率限制")
+                    self.log("多账号管理", f"[{phone}] 频率限制")
                 else:
                     acc['status'] = '检测失败'
-                    self.log("多账号管理", f"[{phone}] 检测结果: 检测失败 - {str(e)[:50]}")
+                    self.log("多账号管理", f"[{phone}] 检测失败: {str(e)[:50]}")
                 self.update_status_filter_options()
             finally:
                 if client:
@@ -4156,126 +4150,126 @@ class TelegramFullGUI:
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
             self.update_account_status_by_phone(phone, '用户无效')
-            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户不存在(用户名无效)"
+            return False, f"[{phone[-6:]}] 用户不存在 | {clean_username[:15]}"
         except ValueError as e:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户不存在或ID无效"
+            return False, f"[{phone[-6:]}] 用户不存在 | {clean_username[:15]}"
         except Exception as e:
             error_msg = str(e).lower()
             if "invalid" in error_msg:
                 self.total_fail += 1
                 self.total_processed += 1
                 self.processed_usernames.add(clean_username)
-                return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户不存在"
+                return False, f"[{phone[-6:]}] 用户不存在 | {clean_username[:15]}"
             raise e
 
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 账号已注销"
+            return False, f"[{phone[-6:]}] 用户已注销 | {clean_username[:15]}"
 
         if hasattr(user_entity, 'bot') and user_entity.bot:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 机器人账号"
+            return False, f"[{phone[-6:]}] 机器人 | {clean_username[:15]}"
 
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             self.total_success += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return True, f"[{phone[-6:]}] ✅成功 | {clean_username[:15]}"
+            return True, f"[{phone[-6:]}] 成功 | {clean_username[:15]}"
 
         except UserPrivacyRestrictedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ❌用户隐私 | {clean_username[:15]} | 用户设置了隐私保护(无法被邀请)"
+            return False, f"[{phone[-6:]}] 用户隐私 | {clean_username[:15]}"
         except UserNotMutualContactError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
             self.update_account_status_by_phone(phone, '双向限制')
-            return False, f"[{phone[-6:]}] ❌用户隐私 | {clean_username[:15]} | 非双向联系人(需要对方先加你)"
+            return False, f"[{phone[-6:]}] 双向限制 | {clean_username[:15]}"
         except UserAlreadyParticipantError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ⚠️跳过 | {clean_username[:15]} | 用户已在群中"
+            return False, f"[{phone[-6:]}] 已在群中 | {clean_username[:15]}"
         except UserKickedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ❌用户限制 | {clean_username[:15]} | 用户曾被踢出该群"
+            return False, f"[{phone[-6:]}] 曾被踢出 | {clean_username[:15]}"
         except UserBannedInChannelError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ❌用户隐私 | {clean_username[:15]} | 用户拒绝被邀请(隐私设置/屏蔽群组)"
+            return False, f"[{phone[-6:]}] 用户拒绝 | {clean_username[:15]}"
         except UserChannelsTooMuchError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ❌用户限制 | {clean_username[:15]} | 用户加入的群组已达上限"
+            return False, f"[{phone[-6:]}] 群组已满 | {clean_username[:15]}"
         except FloodWaitError as e:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
             self.update_account_status_by_phone(phone, '频率限制')
-            return False, f"[{phone[-6:]}] ⚠️账号限制 | {clean_username[:15]} | 账号操作频繁(需等待{e.seconds}秒)"
+            return False, f"[{phone[-6:]}] 频率限制 | {clean_username[:15]}"
         except PeerFloodError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
             self.update_account_status_by_phone(phone, '风控限制')
-            return False, f"[{phone[-6:]}] ⚠️账号风控 | {clean_username[:15]} | 账号被TG风控限制(建议更换代理/休息)"
+            return False, f"[{phone[-6:]}] 风控限制 | {clean_username[:15]}"
         except ChatAdminRequiredError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ⚠️群组限制 | {clean_username[:15]} | 账号在群组无管理员权限"
+            return False, f"[{phone[-6:]}] 权限不足 | {clean_username[:15]}"
         except ChatWriteForbiddenError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
             self.update_account_status_by_phone(phone, '发言限制')
-            return False, f"[{phone[-6:]}] ⚠️账号限制 | {clean_username[:15]} | 账号被群组禁言"
+            return False, f"[{phone[-6:]}] 发言限制 | {clean_username[:15]}"
         except PhoneNumberBannedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
             self.update_account_status_by_phone(phone, '封禁')
-            return False, f"[{phone[-6:]}] ⚠️账号封禁 | {clean_username[:15]} | 账号已被TG封禁"
+            return False, f"[{phone[-6:]}] 封禁 | {clean_username[:15]}"
         except UserDeactivatedError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
             self.update_account_status_by_phone(phone, '销号')
-            return False, f"[{phone[-6:]}] ❌用户问题 | {clean_username[:15]} | 用户账号已注销"
+            return False, f"[{phone[-6:]}] 用户已注销 | {clean_username[:15]}"
         except InviteHashExpiredError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 邀请链接已过期"
+            return False, f"[{phone[-6:]}] 链接过期 | {clean_username[:15]}"
         except InviteHashInvalidError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 邀请链接无效"
+            return False, f"[{phone[-6:]}] 链接无效 | {clean_username[:15]}"
         except ChannelInvalidError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 群组/频道无效或不存在"
+            return False, f"[{phone[-6:]}] 群组无效 | {clean_username[:15]}"
         except ChannelPrivateError:
             self.total_fail += 1
             self.total_processed += 1
             self.processed_usernames.add(clean_username)
-            return False, f"[{phone[-6:]}] ⚠️群组问题 | {clean_username[:15]} | 群组为私有(无法加入)"
+            return False, f"[{phone[-6:]}] 私有群组 | {clean_username[:15]}"
         except Exception as e:
             error_msg = str(e).lower()
             self.total_fail += 1
@@ -4284,18 +4278,18 @@ class TelegramFullGUI:
 
             if "banned" in error_msg:
                 self.update_account_status_by_phone(phone, '封禁')
-                return False, f"[{phone[-6:]}] ⚠️账号封禁 | {clean_username[:15]} | 账号被封禁"
+                return False, f"[{phone[-6:]}] 封禁 | {clean_username[:15]}"
             elif "flood" in error_msg:
                 self.update_account_status_by_phone(phone, '频率限制')
-                return False, f"[{phone[-6:]}] ⚠️账号限制 | {clean_username[:15]} | 账号操作频繁"
+                return False, f"[{phone[-6:]}] 频率限制 | {clean_username[:15]}"
             elif "timeout" in error_msg or "timed out" in error_msg:
-                return False, f"[{phone[-6:]}] ⚠️网络问题 | {clean_username[:15]} | 连接超时(检查代理/网络)"
+                return False, f"[{phone[-6:]}] 超时 | {clean_username[:15]}"
             elif "proxy" in error_msg:
-                return False, f"[{phone[-6:]}] ⚠️网络问题 | {clean_username[:15]} | 代理连接失败"
+                return False, f"[{phone[-6:]}] 代理错误 | {clean_username[:15]}"
             elif "connection" in error_msg:
-                return False, f"[{phone[-6:]}] ⚠️网络问题 | {clean_username[:15]} | 网络连接异常"
+                return False, f"[{phone[-6:]}] 连接错误 | {clean_username[:15]}"
             else:
-                return False, f"[{phone[-6:]}] ❓未知错误 | {clean_username[:15]} | {error_msg[:30]}"
+                return False, f"[{phone[-6:]}] 未知错误 | {clean_username[:15]} | {error_msg[:30]}"
 
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
         from telethon.tl.functions.channels import JoinChannelRequest
@@ -4358,7 +4352,7 @@ class TelegramFullGUI:
                             self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {error_msg[:50]}")
                             if "You tried to use a method that" in error_msg or "USER_DEACTIVATED" in error_msg or "deactivated" in error_msg.lower():
                                 self.update_account_status_by_phone(phone, '销号')
-                                self.log("批量拉人", f"[{phone[-6:]}] ⚠️账号已注销(销号)")
+                                self.log("批量拉人", f"[{phone[-6:]}] 销号")
                             elif "banned" in error_msg.lower() or "restricted" in error_msg.lower():
                                 self.update_account_status_by_phone(phone, '限制加群')
                             continue
@@ -4428,12 +4422,11 @@ class TelegramFullGUI:
                         self.remove_user_from_file(username)
                     else:
                         account_level_errors = [
-                            "账号封禁", "账号风控", "账号限制", 
-                            "频率限制", "销号", "账号已注销",
-                            "发言限制", "限制加群"
+                            "封禁", "风控", "频率限制", "销号",
+                            "发言限制", "限制加群", "双向限制"
                         ]
                         if any(err in log_msg for err in account_level_errors):
-                            self.log("批量拉人", f"[{phone[-6:]}] ⚠️ 账号异常，跳过该账号")
+                            self.log("批量拉人", f"[{phone[-6:]}] 账号异常，跳过")
                             return
                         else:
                             self.remove_user_from_file(username)
@@ -4981,7 +4974,7 @@ class TelegramFullGUI:
                     if result:
                         account_sent_count[phone] = account_sent_count.get(phone, 0) + 1
                         send_stats['success'] += 1
-                        self.private_log_insert(f"  [{phone}] ✅ 成功 | {current_user}")
+                        self.private_log_insert(f"  [{phone}] 成功 | {current_user}")
                         
                         if user_list and user_list[0] == current_user:
                             user_list.pop(0)
@@ -4992,7 +4985,7 @@ class TelegramFullGUI:
                         if error_type in account_level_errors:
                             eliminated_accounts.add(phone)
                             total_eliminated += 1
-                            self.private_log_insert(f"  [{phone}] ❌ 淘汰({error_type})")
+                            self.private_log_insert(f"  [{phone}] 淘汰({error_type})")
                             status_map = {
                                 "封禁": "封禁", "销号": "销号", "风控限制": "风控限制",
                                 "频率限制": "频率限制", "未授权": "未授权", "发言限制": "发言限制",
@@ -5003,7 +4996,7 @@ class TelegramFullGUI:
                             if error_type in status_map:
                                 self.update_account_status_by_phone(phone, status_map[error_type])
                         else:
-                            self.private_log_insert(f"  [{phone}] ⚠️ 用户问题({error_type}) | {current_user}")
+                            self.private_log_insert(f"  [{phone}] 用户问题({error_type}) | {current_user}")
                             if user_list and user_list[0] == current_user:
                                 user_list.pop(0)
                                 if self.private_user_file_path and os.path.exists(self.private_user_file_path):
@@ -5011,7 +5004,6 @@ class TelegramFullGUI:
 
                     await asyncio.sleep(1)
 
-                # 每批结束后等待间隔
                 if batch_idx < total_batches - 1 and not self.private_stop_flag:
                     if user_list and available_accounts:
                         self.private_log_insert(f"等待 {interval} 秒...")
@@ -5036,10 +5028,10 @@ class TelegramFullGUI:
 
         self.private_log_insert(f"")
         self.private_log_insert(f"========== 全部发送完成 ==========")
-        self.private_log_insert(f"✅ 成功发送: {send_stats['success']} 条")
-        self.private_log_insert(f"❌ 账号淘汰: {total_eliminated} 个")
-        self.private_log_insert(f"📊 剩余账号: {len([acc for acc in active_accounts if acc.get('phone') not in eliminated_accounts])} 个")
-        self.private_log_insert(f"📊 剩余用户: {len(user_list)} 个")
+        self.private_log_insert(f"成功发送: {send_stats['success']} 条")
+        self.private_log_insert(f"账号淘汰: {total_eliminated} 个")
+        self.private_log_insert(f"剩余账号: {len([acc for acc in active_accounts if acc.get('phone') not in eliminated_accounts])} 个")
+        self.private_log_insert(f"剩余用户: {len(user_list)} 个")
         
         self.private_users = user_list
         self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
@@ -5080,51 +5072,50 @@ class TelegramFullGUI:
             clean_username = username.lstrip('@')
             self.private_log_insert(f"[{phone}] 发送给: {clean_username}")
 
-            # ========== 修复：增强用户获取逻辑 ==========
             user_entity = None
             try:
                 user_entity = await client.get_entity(clean_username)
             except FloodWaitError as e:
-                self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
                 self.update_account_status_by_phone(phone, '频率限制')
                 send_stats['fail'] += 1
                 await asyncio.sleep(min(e.seconds, 60))
                 return False, "频率限制"
             except UserDeactivatedError:
-                self.private_log_insert(f"[{phone}] ❌ 账号已注销 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 销号 | {clean_username}")
                 self.update_account_status_by_phone(phone, '销号')
                 send_stats['fail'] += 1
                 return False, "销号"
             except PhoneNumberBannedError:
-                self.private_log_insert(f"[{phone}] ❌ 账号被封禁 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 封禁 | {clean_username}")
                 self.update_account_status_by_phone(phone, '封禁')
                 send_stats['fail'] += 1
                 return False, "封禁"
             except ValueError:
                 pass
             except TimeoutError:
-                self.private_log_insert(f"[{phone}] ⚠️ 连接超时 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 超时 | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "网络超时"
             except RPCError as e:
                 error_msg = str(e).lower()
                 if "flood" in error_msg or "429" in error_msg:
-                    self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
                     self.update_account_status_by_phone(phone, '频率限制')
                     send_stats['fail'] += 1
                     return False, "频率限制"
                 elif "banned" in error_msg:
-                    self.private_log_insert(f"[{phone}] ❌ 账号被封禁 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 封禁 | {clean_username}")
                     self.update_account_status_by_phone(phone, '封禁')
                     send_stats['fail'] += 1
                     return False, "封禁"
                 elif "deactivated" in error_msg:
-                    self.private_log_insert(f"[{phone}] ❌ 账号已注销 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 销号 | {clean_username}")
                     self.update_account_status_by_phone(phone, '销号')
                     send_stats['fail'] += 1
                     return False, "销号"
                 elif "403" in error_msg:
-                    self.private_log_insert(f"[{phone}] ⚠️ 权限不足 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 权限不足 | {clean_username}")
                     send_stats['fail'] += 1
                     return False, "权限不足"
                 else:
@@ -5132,22 +5123,21 @@ class TelegramFullGUI:
             except Exception as e:
                 error_msg = str(e).lower()
                 if "timeout" in error_msg:
-                    self.private_log_insert(f"[{phone}] ⚠️ 连接超时 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 超时 | {clean_username}")
                     send_stats['fail'] += 1
                     return False, "网络超时"
                 elif "proxy" in error_msg or "connection" in error_msg:
-                    self.private_log_insert(f"[{phone}] ⚠️ 代理连接失败 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 代理错误 | {clean_username}")
                     send_stats['fail'] += 1
                     return False, "代理错误"
                 else:
                     pass
 
-            # 如果第一次获取失败，尝试带@
             if user_entity is None:
                 try:
                     user_entity = await client.get_entity(f"@{clean_username}")
                 except FloodWaitError as e:
-                    self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
                     self.update_account_status_by_phone(phone, '频率限制')
                     send_stats['fail'] += 1
                     await asyncio.sleep(min(e.seconds, 60))
@@ -5155,7 +5145,6 @@ class TelegramFullGUI:
                 except Exception:
                     pass
 
-            # 如果还是失败，尝试 ResolveUsername
             if user_entity is None:
                 try:
                     from telethon.tl.functions.contacts import ResolveUsernameRequest
@@ -5163,7 +5152,7 @@ class TelegramFullGUI:
                     if result.users:
                         user_entity = result.users[0]
                 except FloodWaitError as e:
-                    self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+                    self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
                     self.update_account_status_by_phone(phone, '频率限制')
                     send_stats['fail'] += 1
                     await asyncio.sleep(min(e.seconds, 60))
@@ -5171,21 +5160,18 @@ class TelegramFullGUI:
                 except Exception:
                     pass
 
-            # 最终判断
             if user_entity is None:
-                self.private_log_insert(f"[{phone}] ❌ 用户不存在: {clean_username}")
+                self.private_log_insert(f"[{phone}] 用户不存在 | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "用户无效"
 
-            # 确保 user_entity 有 id
             try:
                 user_id = user_entity.id
             except AttributeError:
-                self.private_log_insert(f"[{phone}] ❌ 无法获取用户ID: {clean_username}")
+                self.private_log_insert(f"[{phone}] 用户无效 | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "用户无效"
 
-            # ========== 发送消息 ==========
             if ad_text.strip().startswith('@PostBot'):
                 parts = ad_text.strip().split(' ')
                 if len(parts) >= 2:
@@ -5204,16 +5190,16 @@ class TelegramFullGUI:
                                 query_id=result.query_id,
                                 id=result.results[0].id
                             ))
-                            self.private_log_insert(f"[{phone}] ✅ PostBot成功 | {clean_username}")
+                            self.private_log_insert(f"[{phone}] PostBot成功 | {clean_username}")
                             if self.private_user_file_path and os.path.exists(self.private_user_file_path):
                                 self.remove_user_from_file(username, self.private_user_file_path)
                             return True, None
                         else:
-                            self.private_log_insert(f"[{phone}] ❌ PostBot无结果 | {clean_username}")
+                            self.private_log_insert(f"[{phone}] PostBot失败 | {clean_username}")
                             send_stats['fail'] += 1
-                            return False, "PostBot无结果"
+                            return False, "PostBot失败"
                     except FloodWaitError as e:
-                        self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+                        self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
                         self.update_account_status_by_phone(phone, '频率限制')
                         send_stats['fail'] += 1
                         await asyncio.sleep(min(e.seconds, 300))
@@ -5221,11 +5207,11 @@ class TelegramFullGUI:
                     except Exception as e:
                         error_msg = str(e)
                         if "PAYMENT_REQUIRED" in error_msg or "PREMIUM" in error_msg:
-                            self.private_log_insert(f"[{phone}] ⚠️ 需要Premium | {clean_username}")
+                            self.private_log_insert(f"[{phone}] 需要Premium | {clean_username}")
                             send_stats['fail'] += 1
                             return False, "需要Premium"
                         elif "FLOOD" in error_msg or "Too many requests" in error_msg:
-                            self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+                            self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
                             self.update_account_status_by_phone(phone, '频率限制')
                             send_stats['fail'] += 1
                             return False, "频率限制"
@@ -5238,11 +5224,11 @@ class TelegramFullGUI:
                             send_stats['fail'] += 1
                             return False, "销号"
                         else:
-                            self.private_log_insert(f"[{phone}] ❌ PostBot失败: {error_msg[:50]} | {clean_username}")
+                            self.private_log_insert(f"[{phone}] PostBot失败 | {clean_username}")
                             send_stats['fail'] += 1
                             return False, "PostBot失败"
                 else:
-                    self.private_log_insert(f"[{phone}] ❌ PostBot命令格式错误")
+                    self.private_log_insert(f"[{phone}] PostBot命令错误")
                     send_stats['fail'] += 1
                     return False, "命令错误"
             elif image_path and os.path.exists(image_path):
@@ -5251,54 +5237,54 @@ class TelegramFullGUI:
                     await client.send_file(user_entity.id, file, caption=ad_text)
                 else:
                     await client.send_file(user_entity.id, file)
-                self.private_log_insert(f"[{phone}] ✅ 图片发送成功 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 图片发送成功 | {clean_username}")
                 if self.private_user_file_path and os.path.exists(self.private_user_file_path):
                     self.remove_user_from_file(username, self.private_user_file_path)
                 return True, None
             else:
                 await client.send_message(user_entity.id, ad_text)
-                self.private_log_insert(f"[{phone}] ✅ 文本发送成功 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 文本发送成功 | {clean_username}")
                 if self.private_user_file_path and os.path.exists(self.private_user_file_path):
                     self.remove_user_from_file(username, self.private_user_file_path)
                 return True, None
 
         except FloodWaitError as e:
-            self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+            self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
             self.update_account_status_by_phone(phone, '频率限制')
             send_stats['fail'] += 1
             await asyncio.sleep(min(e.seconds, 300))
             return False, "频率限制"
 
         except UserNotMutualContactError:
-            self.private_log_insert(f"[{phone}] ❌ 双向限制 | {clean_username}")
+            self.private_log_insert(f"[{phone}] 双向限制 | {clean_username}")
             self.update_account_status_by_phone(phone, '双向限制')
             send_stats['fail'] += 1
             return False, "双向限制"
 
         except PeerFloodError:
-            self.private_log_insert(f"[{phone}] ⚠️ 风控限制 | {clean_username}")
+            self.private_log_insert(f"[{phone}] 风控限制 | {clean_username}")
             self.update_account_status_by_phone(phone, '风控限制')
             send_stats['fail'] += 1
             return False, "风控限制"
 
         except UserPrivacyRestrictedError:
-            self.private_log_insert(f"[{phone}] ❌ 隐私保护 | {clean_username}")
+            self.private_log_insert(f"[{phone}] 用户隐私 | {clean_username}")
             send_stats['fail'] += 1
             return False, "用户隐私"
 
         except UserDeactivatedError:
-            self.private_log_insert(f"[{phone}] ❌ 对方已注销 | {clean_username}")
+            self.private_log_insert(f"[{phone}] 用户已注销 | {clean_username}")
             send_stats['fail'] += 1
             return False, "用户已注销"
 
         except ChatWriteForbiddenError:
-            self.private_log_insert(f"[{phone}] ⚠️ 被禁言 | {clean_username}")
+            self.private_log_insert(f"[{phone}] 发言限制 | {clean_username}")
             self.update_account_status_by_phone(phone, '发言限制')
             send_stats['fail'] += 1
             return False, "发言限制"
 
         except PhoneNumberBannedError:
-            self.private_log_insert(f"[{phone}] ❌ 被封禁 | {clean_username}")
+            self.private_log_insert(f"[{phone}] 封禁 | {clean_username}")
             self.update_account_status_by_phone(phone, '封禁')
             send_stats['fail'] += 1
             return False, "封禁"
@@ -5306,44 +5292,44 @@ class TelegramFullGUI:
         except Exception as e:
             error_msg = str(e).lower()
             if "banned" in error_msg:
-                self.private_log_insert(f"[{phone}] ⚠️ 账号被封禁 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 封禁 | {clean_username}")
                 self.update_account_status_by_phone(phone, '封禁')
                 send_stats['fail'] += 1
                 return False, "封禁"
             elif "deactivated" in error_msg:
-                self.private_log_insert(f"[{phone}] ⚠️ 账号已注销 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 销号 | {clean_username}")
                 self.update_account_status_by_phone(phone, '销号')
                 send_stats['fail'] += 1
                 return False, "销号"
             elif "too many requests" in error_msg or "flood" in error_msg:
-                self.private_log_insert(f"[{phone}] ⚠️ 频率限制 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 频率限制 | {clean_username}")
                 self.update_account_status_by_phone(phone, '频率限制')
                 send_stats['fail'] += 1
                 return False, "频率限制"
             elif "password" in error_msg:
-                self.private_log_insert(f"[{phone}] ⚠️ 需要重新登录 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 需要重新登录 | {clean_username}")
                 self.update_account_status_by_phone(phone, '需要2FA重新登录')
                 send_stats['fail'] += 1
                 return False, "需要2FA重新登录"
             elif "unauthorized" in error_msg or "auth" in error_msg:
-                self.private_log_insert(f"[{phone}] ⚠️ 授权失败 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 未授权 | {clean_username}")
                 self.update_account_status_by_phone(phone, '未授权')
                 send_stats['fail'] += 1
                 return False, "未授权"
             elif "payment_required" in error_msg or "premium" in error_msg:
-                self.private_log_insert(f"[{phone}] ⚠️ 需要Premium | {clean_username}")
+                self.private_log_insert(f"[{phone}] 需要Premium | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "需要Premium"
             elif "invalid" in error_msg:
-                self.private_log_insert(f"[{phone}] ❌ 用户名无效 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 用户无效 | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "用户无效"
             elif "timeout" in error_msg:
-                self.private_log_insert(f"[{phone}] ⚠️ 连接超时 | {clean_username}")
+                self.private_log_insert(f"[{phone}] 超时 | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "网络超时"
             else:
-                self.private_log_insert(f"[{phone}] ❌ 发送失败: {str(e)[:50]} | {clean_username}")
+                self.private_log_insert(f"[{phone}] 发送失败 | {clean_username}")
                 send_stats['fail'] += 1
                 return False, "未知错误"
 
@@ -5632,7 +5618,7 @@ class TelegramFullGUI:
                             self.update_account_status_by_phone(phone, '频率限制')
                             await asyncio.sleep(e.seconds)
                         except ChatWriteForbiddenError:
-                            self.group_log_insert(f"[{phone[-6:]}] 群发失败: 账号被群组禁言")
+                            self.group_log_insert(f"[{phone[-6:]}] 发言限制")
                             self.update_account_status_by_phone(phone, '发言限制')
                             if auto_skip:
                                 continue
@@ -5640,7 +5626,7 @@ class TelegramFullGUI:
                         except Exception as e:
                             error_msg = str(e).lower()
                             if "banned" in error_msg:
-                                self.group_log_insert(f"[{phone[-6:]}] 群发失败: 账号被禁言")
+                                self.group_log_insert(f"[{phone[-6:]}] 发言限制")
                                 self.update_account_status_by_phone(phone, '发言限制')
                             else:
                                 self.group_log_insert(f"[{phone[-6:]}] 群发失败: {str(e)[:50]}")
@@ -6314,7 +6300,7 @@ class TelegramFullGUI:
                     self.update_account_status_by_phone(phone, '频率限制')
                     await asyncio.sleep(e.seconds)
                 except ChatWriteForbiddenError:
-                    self.log("自动群聊", f"[{phone[-6:]}] 发言失败: 账号被群组禁言")
+                    self.log("自动群聊", f"[{phone[-6:]}] 发言限制")
                     self.update_account_status_by_phone(phone, '发言限制')
                 except Exception as e:
                     self.log("自动群聊", f"[{phone[-6:]}] 发送失败: {str(e)[:50]}")
