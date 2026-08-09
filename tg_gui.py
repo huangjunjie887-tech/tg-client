@@ -228,12 +228,33 @@ class TelegramFullGUI:
         for acc in self.accounts:
             status = acc.get('status', '待检测')
             statuses.add(status)
-        all_statuses = ["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制", "Spam限制(已到期)"]
-        for s in all_statuses:
-            statuses.add(s)
-        self.account_list_status_filter['values'] = list(statuses)
+        
+        # 定义固定顺序：全部 > 正常 > 其他状态
+        priority_statuses = ["全部", "正常"]
+        
+        # 其他状态按优先级排序
+        other_statuses = ["未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制"]
+        
+        # 构建最终列表
+        final_list = []
+        for s in priority_statuses:
+            if s in statuses:
+                final_list.append(s)
+                statuses.remove(s)
+        
+        # 添加其他存在的状态
+        for s in other_statuses:
+            if s in statuses:
+                final_list.append(s)
+                statuses.remove(s)
+        
+        # 添加剩余的未知状态
+        for s in sorted(statuses):
+            final_list.append(s)
+        
+        self.account_list_status_filter['values'] = final_list
         current = self.account_list_status_filter.get()
-        if current not in statuses and current != "全部":
+        if current not in final_list and current != "全部":
             self.account_list_status_filter.set("全部")
 
     def remove_user_from_file(self, username, file_path=None):
@@ -385,6 +406,9 @@ class TelegramFullGUI:
 
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
+        
+        # 初始化状态筛选为固定顺序
+        self.update_status_filter_options()
 
     def refresh_invite_group_filter(self):
         if hasattr(self, 'invite_group_filter'):
@@ -532,7 +556,7 @@ class TelegramFullGUI:
 
         ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
         status_var = tk.StringVar(value=status_filter_default)
-        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制", "Spam限制(已到期)"], width=15)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制"], width=15)
         status_combo.pack(side="left", padx=5)
 
         select_all_var = tk.BooleanVar(value=False)
@@ -603,7 +627,7 @@ class TelegramFullGUI:
                 elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"]:
                     tree.tag_configure('unauth', background='#fff3e0')
                     tree.item(phone, tags=('unauth',))
-                elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "Spam永久限制", "Spam限制", "Spam限制(已到期)"]:
+                elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "Spam永久限制", "Spam限制"]:
                     tree.tag_configure('limited', background='#fff9c4')
                     tree.item(phone, tags=('limited',))
 
@@ -1197,8 +1221,9 @@ class TelegramFullGUI:
                         try:
                             days_left = (datetime.strptime(restricted_until, '%Y-%m-%d') - datetime.now()).days
                             if days_left < 0:
-                                acc['status'] = 'Spam限制(已到期)'
-                                self.log("多账号管理", f"[{phone}] Spam限制(已到期)")
+                                # 已到期 → 设为正常
+                                acc['status'] = '正常'
+                                self.log("多账号管理", f"[{phone}] 正常")
                             else:
                                 acc['status'] = 'Spam限制'
                                 self.log("多账号管理", f"[{phone}] Spam限制至 {restricted_until} (剩余{days_left}天)")
@@ -1206,8 +1231,9 @@ class TelegramFullGUI:
                             acc['status'] = 'Spam限制'
                             self.log("多账号管理", f"[{phone}] Spam限制至 {restricted_until}")
                     else:
-                        acc['status'] = 'Spam限制'
-                        self.log("多账号管理", f"[{phone}] Spam限制")
+                        # 无解封日期 → 永久限制
+                        acc['status'] = 'Spam永久限制'
+                        self.log("多账号管理", f"[{phone}] Spam永久限制")
                     
                     # 保存限制详情到账号信息中
                     if 'spam_info' not in acc:
@@ -2070,7 +2096,7 @@ class TelegramFullGUI:
         self.proxy_list_group_filter.bind("<<ComboboxSelected>>", self.refresh_proxy_list)
 
         ttk.Label(filter_bar, text="状态筛选:").pack(side="left", padx=20)
-        self.proxy_list_status_filter = ttk.Combobox(filter_bar, values=["全部", "未检测", "可用", "不可用", "检测失败", "代理连接失败", "连接被拒绝", "连接超时", "不可用(代理错误)", "不可用(超时)", "不可用(连接错误)"], width=15)
+        self.proxy_list_status_filter = ttk.Combobox(filter_bar, values=["全部", "可用", "未检测", "不可用", "检测失败", "代理连接失败", "连接被拒绝", "连接超时", "不可用(代理错误)", "不可用(超时)", "不可用(连接错误)"], width=15)
         self.proxy_list_status_filter.set("全部")
         self.proxy_list_status_filter.pack(side="left", padx=5)
         self.proxy_list_status_filter.bind("<<ComboboxSelected>>", self.refresh_proxy_list)
