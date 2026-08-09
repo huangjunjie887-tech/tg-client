@@ -512,7 +512,7 @@ class TelegramFullGUI:
         account_info = acc.get('account_info', {})
         return account_info.get('twoFA', '')
 
-        def refresh_scrape_accounts(self):
+    def refresh_scrape_accounts(self):
         if hasattr(self, 'scrape_account'):
             # 保存当前选中的账号
             current_selection = self.scrape_account.get()
