@@ -512,12 +512,20 @@ class TelegramFullGUI:
         account_info = acc.get('account_info', {})
         return account_info.get('twoFA', '')
 
-    def refresh_scrape_accounts(self):
+        def refresh_scrape_accounts(self):
         if hasattr(self, 'scrape_account'):
-            # 显示所有账号，不限制状态
+            # 保存当前选中的账号
+            current_selection = self.scrape_account.get()
+            
+            # 更新下拉框列表 - 显示所有账号
             account_list = [a.get('phone', '') for a in self.accounts]
             self.scrape_account['values'] = account_list
-            if account_list:
+            
+            # 如果之前选中的账号还在列表中，保持选中
+            if current_selection in account_list:
+                self.scrape_account.set(current_selection)
+            elif account_list:
+                # 否则选中第一个
                 self.scrape_account.set(account_list[0])
             else:
                 self.scrape_account.set('')
