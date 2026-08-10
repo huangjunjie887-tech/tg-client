@@ -5115,8 +5115,9 @@ class TelegramFullGUI:
         self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
         self.refresh_account_list_filter()
 
+    # ==================== 🔧 修复后的 send_single_message_v2_with_type - 精确区分账号/用户问题 ====================
     async def send_single_message_v2_with_type(self, acc, username, ad_text, image_path, send_stats, auto_skip):
-        """单个账号发送单条消息，返回 (是否成功, 错误类型) - 精简日志版"""
+        """单个账号发送单条消息，返回 (是否成功, 错误类型) - 精确区分账号/用户问题"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -5139,54 +5140,184 @@ class TelegramFullGUI:
             else:
                 session = MemorySession()
 
-            client = TelegramClient(session, api_id, api_hash, proxy=proxy)
+            client = TelegramClient(session, api_id, api_hash, proxy=proxy, connection_retries=2, retry_delay=1, timeout=15)
             await client.connect()
 
             if not await client.is_user_authorized():
                 self.update_account_status_by_phone(phone, '未授权')
+                send_stats['fail'] += 1
                 return False, "未授权"
 
             clean_username = username.lstrip('@')
 
+            # ========== 获取用户实体 - 精确区分账号问题和用户问题 ==========
             user_entity = None
+            
             try:
                 user_entity = await client.get_entity(clean_username)
             except FloodWaitError as e:
+                # 频率限制 → 账号问题 ❌
                 self.update_account_status_by_phone(phone, '频率限制')
                 send_stats['fail'] += 1
-                await asyncio.sleep(min(e.seconds, 60))
+                wait_time = min(e.seconds, 120)
+                await asyncio.sleep(wait_time)
                 return False, "频率限制"
+                
             except UserDeactivatedError:
-                self.update_account_status_by_phone(phone, '销号')
+                # 用户已注销 → 用户问题 ✅
                 send_stats['fail'] += 1
-                return False, "销号"
+                return False, "用户已注销"
+                
             except PhoneNumberBannedError:
+                # 账号被封禁 → 账号问题 ❌
                 self.update_account_status_by_phone(phone, '封禁')
                 send_stats['fail'] += 1
                 return False, "封禁"
-            except ValueError:
-                pass
+                
+            except ValueError as e:
+                error_msg = str(e).lower()
+                # ValueError: 用户不存在或格式错误 → 用户问题 ✅
+                if "not found" in error_msg or "invalid" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "用户不存在"
+                else:
+                    send_stats['fail'] += 1
+                    return False, "用户无效"
+                    
             except TimeoutError:
+                # 超时 → 网络问题 ❌
                 send_stats['fail'] += 1
                 return False, "网络超时"
+                
+            except RPCError as e:
+                error_msg = str(e).lower()
+                error_code = str(e)
+                
+                # ========== 关键修复：根据HTTP状态码精确分类 ==========
+                
+                # 403 Forbidden → 账号被风控，无法获取用户 ❌
+                if "403" in error_code or "forbidden" in error_msg:
+                    self.update_account_status_by_phone(phone, '风控限制')
+                    send_stats['fail'] += 1
+                    return False, "风控限制"
+                
+                # 429 Too Many Requests → 频率限制 ❌
+                elif "429" in error_code or "flood" in error_msg or "too many" in error_msg:
+                    self.update_account_status_by_phone(phone, '频率限制')
+                    send_stats['fail'] += 1
+                    return False, "频率限制"
+                
+                # 400 Bad Request → 用户不存在或格式错误 ✅
+                elif "400" in error_code or "invalid" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "用户无效"
+                
+                # 用户不存在
+                elif "username_not_occupied" in error_msg or "not found" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "用户不存在"
+                
+                # 用户隐私设置
+                elif "privacy" in error_msg or "user_privacy" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "用户隐私"
+                
+                # 账号被封禁
+                elif "banned" in error_msg or "blocked" in error_msg:
+                    self.update_account_status_by_phone(phone, '封禁')
+                    send_stats['fail'] += 1
+                    return False, "封禁"
+                
+                # 账号已注销/删除
+                elif "deactivated" in error_msg or "deleted" in error_msg:
+                    self.update_account_status_by_phone(phone, '销号')
+                    send_stats['fail'] += 1
+                    return False, "销号"
+                
+                # 权限不足
+                elif "permission" in error_msg or "access" in error_msg:
+                    self.update_account_status_by_phone(phone, '风控限制')
+                    send_stats['fail'] += 1
+                    return False, "风控限制"
+                
+                # 其他RPC错误，保守处理为账号问题 ❌
+                else:
+                    self.update_account_status_by_phone(phone, '风控限制')
+                    send_stats['fail'] += 1
+                    return False, "风控限制"
+                    
+            except UserPrivacyRestrictedError:
+                # 用户隐私设置 → 用户问题 ✅
+                send_stats['fail'] += 1
+                return False, "用户隐私"
+                
             except Exception as e:
-                pass
+                error_msg = str(e).lower()
+                error_code = str(e)
+                
+                # ========== 检查通用异常中的账号问题 ==========
+                if "403" in error_code or "forbidden" in error_msg:
+                    self.update_account_status_by_phone(phone, '风控限制')
+                    send_stats['fail'] += 1
+                    return False, "风控限制"
+                    
+                elif "429" in error_code or "flood" in error_msg or "too many" in error_msg:
+                    self.update_account_status_by_phone(phone, '频率限制')
+                    send_stats['fail'] += 1
+                    return False, "频率限制"
+                    
+                elif "banned" in error_msg or "blocked" in error_msg:
+                    self.update_account_status_by_phone(phone, '封禁')
+                    send_stats['fail'] += 1
+                    return False, "封禁"
+                    
+                elif "deactivated" in error_msg or "deleted" in error_msg:
+                    self.update_account_status_by_phone(phone, '销号')
+                    send_stats['fail'] += 1
+                    return False, "销号"
+                    
+                elif "timeout" in error_msg or "timed out" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "网络超时"
+                    
+                elif "connection" in error_msg or "proxy" in error_msg or "connect" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "代理错误"
+                    
+                elif "privacy" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "用户隐私"
+                    
+                elif "not found" in error_msg:
+                    send_stats['fail'] += 1
+                    return False, "用户不存在"
+                    
+                else:
+                    # 无法确定的问题，保守处理
+                    send_stats['fail'] += 1
+                    return False, "用户无效"
 
-            if user_entity is None:
-                try:
-                    user_entity = await client.get_entity(f"@{clean_username}")
-                except:
-                    pass
-
+            # ========== 备用方法：尝试通过 ResolveUsernameRequest 获取 ==========
             if user_entity is None:
                 try:
                     from telethon.tl.functions.contacts import ResolveUsernameRequest
                     result = await client(ResolveUsernameRequest(clean_username))
                     if result.users:
                         user_entity = result.users[0]
-                except:
+                except RPCError as e:
+                    error_code = str(e)
+                    if "403" in error_code or "forbidden" in str(e).lower():
+                        self.update_account_status_by_phone(phone, '风控限制')
+                        send_stats['fail'] += 1
+                        return False, "风控限制"
+                    elif "429" in error_code or "flood" in str(e).lower():
+                        self.update_account_status_by_phone(phone, '频率限制')
+                        send_stats['fail'] += 1
+                        return False, "频率限制"
+                except Exception:
                     pass
 
+            # 最终判断
             if user_entity is None:
                 send_stats['fail'] += 1
                 return False, "用户无效"
@@ -5197,6 +5328,7 @@ class TelegramFullGUI:
                 send_stats['fail'] += 1
                 return False, "用户无效"
 
+            # ========== PostBot发送逻辑 ==========
             if ad_text.strip().startswith('@PostBot'):
                 parts = ad_text.strip().split(' ')
                 if len(parts) >= 2:
@@ -5243,26 +5375,108 @@ class TelegramFullGUI:
                             self.update_account_status_by_phone(phone, '销号')
                             send_stats['fail'] += 1
                             return False, "销号"
+                        elif "403" in error_msg:
+                            self.update_account_status_by_phone(phone, '风控限制')
+                            send_stats['fail'] += 1
+                            return False, "风控限制"
                         else:
                             send_stats['fail'] += 1
                             return False, "PostBot失败"
                 else:
                     send_stats['fail'] += 1
                     return False, "命令错误"
+                    
+            # ========== 图片发送 ==========
             elif image_path and os.path.exists(image_path):
-                file = await client.upload_file(image_path)
-                if ad_text:
-                    await client.send_file(user_entity.id, file, caption=ad_text)
-                else:
-                    await client.send_file(user_entity.id, file)
-                if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-                    self.remove_user_from_file(username, self.private_user_file_path)
-                return True, None
+                try:
+                    file = await client.upload_file(image_path)
+                    if ad_text:
+                        await client.send_file(user_entity.id, file, caption=ad_text)
+                    else:
+                        await client.send_file(user_entity.id, file)
+                    if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                        self.remove_user_from_file(username, self.private_user_file_path)
+                    return True, None
+                except FloodWaitError as e:
+                    self.update_account_status_by_phone(phone, '频率限制')
+                    send_stats['fail'] += 1
+                    await asyncio.sleep(min(e.seconds, 300))
+                    return False, "频率限制"
+                except Exception as e:
+                    error_msg = str(e)
+                    if "403" in error_msg or "forbidden" in error_msg.lower():
+                        self.update_account_status_by_phone(phone, '风控限制')
+                        send_stats['fail'] += 1
+                        return False, "风控限制"
+                    else:
+                        send_stats['fail'] += 1
+                        return False, "发送失败"
+                        
+            # ========== 文本发送 ==========
             else:
-                await client.send_message(user_entity.id, ad_text)
-                if self.private_user_file_path and os.path.exists(self.private_user_file_path):
-                    self.remove_user_from_file(username, self.private_user_file_path)
-                return True, None
+                try:
+                    await client.send_message(user_entity.id, ad_text)
+                    if self.private_user_file_path and os.path.exists(self.private_user_file_path):
+                        self.remove_user_from_file(username, self.private_user_file_path)
+                    return True, None
+                except FloodWaitError as e:
+                    self.update_account_status_by_phone(phone, '频率限制')
+                    send_stats['fail'] += 1
+                    await asyncio.sleep(min(e.seconds, 300))
+                    return False, "频率限制"
+                except UserNotMutualContactError:
+                    self.update_account_status_by_phone(phone, '双向限制')
+                    send_stats['fail'] += 1
+                    return False, "双向限制"
+                except PeerFloodError:
+                    self.update_account_status_by_phone(phone, '风控限制')
+                    send_stats['fail'] += 1
+                    return False, "风控限制"
+                except UserPrivacyRestrictedError:
+                    send_stats['fail'] += 1
+                    return False, "用户隐私"
+                except ChatWriteForbiddenError:
+                    self.update_account_status_by_phone(phone, '发言限制')
+                    send_stats['fail'] += 1
+                    return False, "发言限制"
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "banned" in error_msg:
+                        self.update_account_status_by_phone(phone, '封禁')
+                        send_stats['fail'] += 1
+                        return False, "封禁"
+                    elif "deactivated" in error_msg:
+                        self.update_account_status_by_phone(phone, '销号')
+                        send_stats['fail'] += 1
+                        return False, "销号"
+                    elif "too many requests" in error_msg or "flood" in error_msg:
+                        self.update_account_status_by_phone(phone, '频率限制')
+                        send_stats['fail'] += 1
+                        return False, "频率限制"
+                    elif "password" in error_msg:
+                        self.update_account_status_by_phone(phone, '需要2FA重新登录')
+                        send_stats['fail'] += 1
+                        return False, "需要2FA重新登录"
+                    elif "unauthorized" in error_msg or "auth" in error_msg:
+                        self.update_account_status_by_phone(phone, '未授权')
+                        send_stats['fail'] += 1
+                        return False, "未授权"
+                    elif "payment_required" in error_msg or "premium" in error_msg:
+                        send_stats['fail'] += 1
+                        return False, "需要Premium"
+                    elif "invalid" in error_msg:
+                        send_stats['fail'] += 1
+                        return False, "用户无效"
+                    elif "timeout" in error_msg:
+                        send_stats['fail'] += 1
+                        return False, "网络超时"
+                    elif "403" in str(e):
+                        self.update_account_status_by_phone(phone, '风控限制')
+                        send_stats['fail'] += 1
+                        return False, "风控限制"
+                    else:
+                        send_stats['fail'] += 1
+                        return False, "未知错误"
 
         except FloodWaitError as e:
             self.update_account_status_by_phone(phone, '频率限制')
@@ -5270,37 +5484,16 @@ class TelegramFullGUI:
             await asyncio.sleep(min(e.seconds, 300))
             return False, "频率限制"
 
-        except UserNotMutualContactError:
-            self.update_account_status_by_phone(phone, '双向限制')
-            send_stats['fail'] += 1
-            return False, "双向限制"
-
-        except PeerFloodError:
-            self.update_account_status_by_phone(phone, '风控限制')
-            send_stats['fail'] += 1
-            return False, "风控限制"
-
-        except UserPrivacyRestrictedError:
-            send_stats['fail'] += 1
-            return False, "用户隐私"
-
-        except UserDeactivatedError:
-            send_stats['fail'] += 1
-            return False, "用户已注销"
-
-        except ChatWriteForbiddenError:
-            self.update_account_status_by_phone(phone, '发言限制')
-            send_stats['fail'] += 1
-            return False, "发言限制"
-
-        except PhoneNumberBannedError:
-            self.update_account_status_by_phone(phone, '封禁')
-            send_stats['fail'] += 1
-            return False, "封禁"
-
         except Exception as e:
             error_msg = str(e).lower()
-            if "banned" in error_msg:
+            if "unauthorized" in error_msg or "auth" in error_msg:
+                self.update_account_status_by_phone(phone, '未授权')
+                send_stats['fail'] += 1
+                return False, "未授权"
+            elif "timeout" in error_msg:
+                send_stats['fail'] += 1
+                return False, "网络超时"
+            elif "banned" in error_msg:
                 self.update_account_status_by_phone(phone, '封禁')
                 send_stats['fail'] += 1
                 return False, "封禁"
@@ -5308,30 +5501,9 @@ class TelegramFullGUI:
                 self.update_account_status_by_phone(phone, '销号')
                 send_stats['fail'] += 1
                 return False, "销号"
-            elif "too many requests" in error_msg or "flood" in error_msg:
-                self.update_account_status_by_phone(phone, '频率限制')
-                send_stats['fail'] += 1
-                return False, "频率限制"
-            elif "password" in error_msg:
-                self.update_account_status_by_phone(phone, '需要2FA重新登录')
-                send_stats['fail'] += 1
-                return False, "需要2FA重新登录"
-            elif "unauthorized" in error_msg or "auth" in error_msg:
-                self.update_account_status_by_phone(phone, '未授权')
-                send_stats['fail'] += 1
-                return False, "未授权"
-            elif "payment_required" in error_msg or "premium" in error_msg:
-                send_stats['fail'] += 1
-                return False, "需要Premium"
-            elif "invalid" in error_msg:
-                send_stats['fail'] += 1
-                return False, "用户无效"
-            elif "timeout" in error_msg:
-                send_stats['fail'] += 1
-                return False, "网络超时"
             else:
                 send_stats['fail'] += 1
-                return False, "未知错误"
+                return False, "发送失败"
 
         finally:
             if client:
@@ -6689,9 +6861,6 @@ class TelegramFullGUI:
                 pass
 
         threading.Thread(target=do_send_code, daemon=True).start()
-
-    def parse_proxy_string(self, proxy_str):
-        return None
 
     def start_code_timer(self):
         self.direct_code_countdown = 60
