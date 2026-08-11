@@ -1,3 +1,31 @@
+# ==================== 自动检查并安装依赖 ====================
+import subprocess
+import sys
+import os
+
+def ensure_pysocks():
+    """确保 PySocks 已安装，如果没有则自动安装"""
+    try:
+        import socks
+        return True
+    except ImportError:
+        print("正在自动安装 PySocks 依赖...")
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "pysocks", "-q"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print("✅ PySocks 安装成功！")
+            return True
+        except Exception as e:
+            print(f"❌ PySocks 自动安装失败: {e}")
+            print("提示: 请手动运行 pip install pysocks")
+            return False
+
+ensure_pysocks()
+# ====================================================
+
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox, simpledialog
 import requests
@@ -893,7 +921,15 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
+                # 创建客户端，自动处理代理依赖
+                try:
+                    if proxy:
+                        import socks
+                        client = TelegramClient(session, api_id, api_hash, proxy=proxy)
+                    else:
+                        client = TelegramClient(session, api_id, api_hash)
+                except ImportError:
+                    client = TelegramClient(session, api_id, api_hash)
                 await client.connect()
 
                 if await client.is_user_authorized():
