@@ -1041,7 +1041,7 @@ class TelegramFullGUI:
         检测流程：
         第1层：登录状态检测 (get_me)
         第2层：SpamBot官方限制检测 (/start) - 支持多语言，区分永久/临时限制
-        第3层：账号活跃状态检测 (GetPasswordRequest) - 只读检测，识别Frozen Account
+        第3层：能力探测 (UpdateProfileRequest同名修改) - 通过权限校验准确检测冻结
         """
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
@@ -1260,11 +1260,22 @@ class TelegramFullGUI:
                 except Exception as e:
                     pass
 
-                # ==================== 第3层：账号活跃状态检测（只读） ====================
+                # ==================== 第3层：能力探测（权限校验） ====================
+                # 使用 UpdateProfileRequest 同名修改来检测账号是否被冻结
+                # 原理：Telegram API 会校验权限，但不会实际修改资料（因为名字相同）
+                # 如果账号被冻结，会返回 "frozen" 错误
                 try:
-                    # 使用 GetPasswordRequest 检测账号是否被冻结
-                    # 这是只读操作，不会修改任何数据，不会留下操作痕迹
-                    await client(GetPasswordRequest())
+                    me = await client.get_me()
+                    current_name = me.first_name or ""
+                    
+                    # 关键：用相同的名字调用 UpdateProfileRequest
+                    # Telegram 会校验权限，但不会实际修改资料
+                    await client(UpdateProfileRequest(
+                        first_name=current_name
+                    ))
+                    # 能通过 → 账号正常，有修改权限
+                    self.log("多账号管理", f"[{phone}] 权限校验通过")
+                    
                 except Exception as e:
                     error_msg = str(e).lower()
                     if "frozen" in error_msg:
@@ -1273,7 +1284,15 @@ class TelegramFullGUI:
                         self.update_status_filter_options()
                         await client.disconnect()
                         return
-                    # 其他错误忽略，继续检测
+                    elif "flood" in error_msg:
+                        acc['status'] = '频率限制'
+                        self.log("多账号管理", f"[{phone}] 频率限制")
+                        self.update_status_filter_options()
+                        await client.disconnect()
+                        return
+                    elif "banned" in error_msg or "restricted" in error_msg:
+                        # 其他限制，继续检测
+                        pass
 
                 # ==================== 综合判定 ====================
                 if acc.get('status') in ['销号', '封禁']:
