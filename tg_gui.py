@@ -815,12 +815,11 @@ class TelegramFullGUI:
         threading.Thread(target=do_login, daemon=True).start()
 
     def parse_proxy_string(self, proxy_str):
-        """解析代理字符串，支持多种格式"""
+        """解析代理字符串，支持多种格式，HTTP代理转换为SOCKS5以兼容Telethon"""
         if not proxy_str:
             return None
         try:
             proxy_type = 'socks5'
-            original = proxy_str
             
             if proxy_str.startswith('http://'):
                 proxy_type = 'http'
@@ -842,6 +841,11 @@ class TelegramFullGUI:
                 password = match.group(2)
                 host = match.group(3)
                 port = int(match.group(4))
+                
+                # 修复：HTTP/HTTPS代理转换为SOCKS5，因为Telethon不支持HTTP代理
+                if proxy_type in ['http', 'https']:
+                    self.log("代理IP", f"HTTP代理已转换为SOCKS5: {host}:{port}")
+                    return ('socks5', host, port, username, password)
                 return (proxy_type, host, port, username, password)
 
             pattern2 = r'^([^:]+):(\d+)##([^#]+)##([^#]+)$'
@@ -851,6 +855,9 @@ class TelegramFullGUI:
                 port = int(match.group(2))
                 username = match.group(4)
                 password = match.group(3)
+                
+                if proxy_type in ['http', 'https']:
+                    return ('socks5', host, port, username, password)
                 return (proxy_type, host, port, username, password)
 
             pattern3 = r'^([^:]+):(\d+)$'
@@ -858,6 +865,9 @@ class TelegramFullGUI:
             if match:
                 host = match.group(1)
                 port = int(match.group(2))
+                
+                if proxy_type in ['http', 'https']:
+                    return ('socks5', host, port)
                 return (proxy_type, host, port)
 
             return None
@@ -2587,8 +2597,14 @@ class TelegramFullGUI:
                 password = match.group(2)
                 host = match.group(3)
                 port = match.group(4)
+                # 修复：如果是HTTP/HTTPS代理，保存为socks5类型以兼容Telethon
+                if original_type in ['http', 'https']:
+                    self.log("代理IP", f"HTTP代理将作为SOCKS5导入: {host}:{port}")
+                    actual_type = 'socks5'
+                else:
+                    actual_type = original_type
                 self.proxies.append({
-                    "type": original_type,
+                    "type": actual_type,
                     "host": host,
                     "port": port,
                     "user": user,
@@ -2598,7 +2614,7 @@ class TelegramFullGUI:
                     "group": target_group
                 })
                 added_count += 1
-                self.log("代理IP", f"导入代理: {original_type}://{host}:{port} (认证用户: {user}) 到分组「{target_group}」")
+                self.log("代理IP", f"导入代理: {actual_type}://{host}:{port} (认证用户: {user}) 到分组「{target_group}」")
                 continue
 
             parts = line.split(':')
@@ -2606,8 +2622,12 @@ class TelegramFullGUI:
                 host = parts[0]
                 port = parts[1]
                 if port.isdigit():
+                    if original_type in ['http', 'https']:
+                        actual_type = 'socks5'
+                    else:
+                        actual_type = original_type
                     self.proxies.append({
-                        "type": original_type,
+                        "type": actual_type,
                         "host": host,
                         "port": port,
                         "user": "",
@@ -2617,7 +2637,7 @@ class TelegramFullGUI:
                         "group": target_group
                     })
                     added_count += 1
-                    self.log("代理IP", f"导入代理: {original_type}://{host}:{port} (无认证) 到分组「{target_group}」")
+                    self.log("代理IP", f"导入代理: {actual_type}://{host}:{port} (无认证) 到分组「{target_group}」")
 
         self.refresh_proxy_list()
         self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
@@ -2641,7 +2661,6 @@ class TelegramFullGUI:
             self.log("代理IP", f"删除 {len(selected)} 个代理")
 
     def _check_single_proxy(self, p):
-        """检测单个代理是否可用 - 支持HTTP/HTTPS/SOCKS4/SOCKS5"""
         proxy_str = f"{p.get('host')}:{p.get('port')}"
         proxy_type = p.get('type', 'http')
         
