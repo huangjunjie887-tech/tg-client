@@ -1,31 +1,3 @@
-# ==================== 自动检查并安装依赖 ====================
-import subprocess
-import sys
-import os
-
-def ensure_pysocks():
-    """确保 PySocks 已安装，如果没有则自动安装"""
-    try:
-        import socks
-        return True
-    except ImportError:
-        print("正在自动安装 PySocks 依赖...")
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "pysocks", "-q"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            print("✅ PySocks 安装成功！")
-            return True
-        except Exception as e:
-            print(f"❌ PySocks 自动安装失败: {e}")
-            print("提示: 请手动运行 pip install pysocks")
-            return False
-
-ensure_pysocks()
-# ====================================================
-
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox, simpledialog
 import requests
@@ -921,15 +893,7 @@ class TelegramFullGUI:
                 else:
                     session = MemorySession()
 
-                # 创建客户端，自动处理代理依赖
-                try:
-                    if proxy:
-                        import socks
-                        client = TelegramClient(session, api_id, api_hash, proxy=proxy)
-                    else:
-                        client = TelegramClient(session, api_id, api_hash)
-                except ImportError:
-                    client = TelegramClient(session, api_id, api_hash)
+                client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
 
                 if await client.is_user_authorized():
@@ -2676,6 +2640,82 @@ class TelegramFullGUI:
             self.save_config()
             self.log("代理IP", f"删除 {len(selected)} 个代理")
 
+    def _check_single_proxy(self, p):
+        """检测单个代理是否可用 - 支持HTTP/HTTPS/SOCKS4/SOCKS5"""
+        proxy_str = f"{p.get('host')}:{p.get('port')}"
+        proxy_type = p.get('type', 'http')
+        
+        try:
+            if proxy_type in ['http', 'https']:
+                # HTTP/HTTPS代理检测
+                proxy_url = f"{proxy_type}://"
+                if p.get('user') and p.get('password'):
+                    proxy_url += f"{p.get('user')}:{p.get('password')}@"
+                proxy_url += f"{p.get('host')}:{p.get('port')}"
+                
+                proxies = {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
+                
+                start_time = time.time()
+                resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
+                elapsed = time.time() - start_time
+                if resp.status_code == 200:
+                    p['status'] = "可用"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用 ({elapsed:.2f}s)")
+                else:
+                    p['status'] = "不可用"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 (状态码: {resp.status_code})")
+            
+            elif proxy_type in ['socks5', 'socks4']:
+                # SOCKS代理检测
+                try:
+                    import socks
+                    import socket
+                    
+                    sock = socks.socksocket()
+                    sock.set_proxy(
+                        socks.SOCKS5 if proxy_type == 'socks5' else socks.SOCKS4,
+                        p.get('host'),
+                        int(p.get('port')),
+                        username=p.get('user'),
+                        password=p.get('password')
+                    )
+                    sock.settimeout(10)
+                    sock.connect(('api.ipify.org', 80))
+                    sock.send(b'GET / HTTP/1.1\r\nHost: api.ipify.org\r\n\r\n')
+                    data = sock.recv(1024)
+                    sock.close()
+                    if data:
+                        p['status'] = "可用"
+                        self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用")
+                    else:
+                        p['status'] = "不可用"
+                        self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用")
+                except ImportError:
+                    p['status'] = "不可用"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 需要安装socks库 (pip install PySocks)")
+                except Exception as e:
+                    p['status'] = "不可用"
+                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 - {str(e)[:30]}")
+            else:
+                p['status'] = "不可用"
+                self.log("代理IP", f"{proxy_type}://{proxy_str}: 未知代理类型")
+                
+        except requests.exceptions.ProxyError as e:
+            p['status'] = "不可用"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 代理连接失败")
+        except requests.exceptions.ConnectTimeout:
+            p['status'] = "不可用"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接超时")
+        except requests.exceptions.ConnectionError:
+            p['status'] = "不可用"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接被拒绝")
+        except Exception as e:
+            p['status'] = "不可用"
+            self.log("代理IP", f"{proxy_type}://{proxy_str}: 检测失败 - {str(e)[:30]}")
+
     def check_selected_proxies(self):
         selected = self.proxy_tree.selection()
         if not selected:
@@ -2736,71 +2776,6 @@ class TelegramFullGUI:
             self.log("代理IP", "代理检测完成")
 
         threading.Thread(target=do_check, daemon=True).start()
-
-    def _check_single_proxy(self, p):
-        proxy_str = f"{p.get('host')}:{p.get('port')}"
-        proxy_type = p.get('type', 'http')
-        
-        try:
-            if proxy_type in ['http', 'https']:
-                proxy_url = f"{proxy_type}://"
-                if p.get('user') and p.get('password'):
-                    proxy_url += f"{p.get('user')}:{p.get('password')}@"
-                proxy_url += f"{p.get('host')}:{p.get('port')}"
-                
-                proxies = {
-                    'http': proxy_url,
-                    'https': proxy_url
-                }
-                
-                start_time = time.time()
-                resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
-                elapsed = time.time() - start_time
-                if resp.status_code == 200:
-                    p['status'] = "可用"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用")
-                else:
-                    p['status'] = "不可用"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 (状态码: {resp.status_code})")
-            else:
-                try:
-                    import socks
-                    import socket
-                    
-                    sock = socks.socksocket()
-                    sock.set_proxy(socks.SOCKS5 if proxy_type == 'socks5' else socks.SOCKS4, 
-                                  p.get('host'), int(p.get('port')), 
-                                  username=p.get('user'), password=p.get('password'))
-                    sock.settimeout(10)
-                    sock.connect(('api.ipify.org', 80))
-                    sock.send(b'GET / HTTP/1.1\r\nHost: api.ipify.org\r\n\r\n')
-                    data = sock.recv(1024)
-                    sock.close()
-                    if data:
-                        p['status'] = "可用"
-                        self.log("代理IP", f"{proxy_type}://{proxy_str}: 可用")
-                    else:
-                        p['status'] = "不可用"
-                        self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用")
-                except ImportError:
-                    p['status'] = "不可用"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 需要安装socks库 (pip install PySocks)")
-                except Exception as e:
-                    p['status'] = "不可用"
-                    self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 - {str(e)[:30]}")
-                
-        except requests.exceptions.ProxyError as e:
-            p['status'] = "不可用"
-            self.log("代理IP", f"{proxy_type}://{proxy_str}: 代理连接失败")
-        except requests.exceptions.ConnectTimeout:
-            p['status'] = "不可用"
-            self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接超时")
-        except requests.exceptions.ConnectionError:
-            p['status'] = "不可用"
-            self.log("代理IP", f"{proxy_type}://{proxy_str}: 连接被拒绝")
-        except Exception as e:
-            p['status'] = "不可用"
-            self.log("代理IP", f"{proxy_type}://{proxy_str}: 检测失败 - {str(e)[:30]}")
 
     def refresh_proxy_list(self, event=None):
         for item in self.proxy_tree.get_children():
