@@ -251,6 +251,10 @@ class TelegramFullGUI:
                     acc['status'] = '双向限制'
                 elif error_type == '账号冻结':
                     acc['status'] = '账号冻结'
+                elif error_type == '临时限制':
+                    acc['status'] = '临时限制'
+                elif error_type == '永久限制':
+                    acc['status'] = '永久限制'
                 break
         self.refresh_account_list_filter()
         self.update_status_filter_options()
@@ -265,7 +269,7 @@ class TelegramFullGUI:
         priority_statuses = ["全部", "正常"]
         
         # 其他状态按优先级排序
-        other_statuses = ["未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制"]
+        other_statuses = ["未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "临时限制", "永久限制"]
         
         # 构建最终列表
         final_list = []
@@ -597,7 +601,7 @@ class TelegramFullGUI:
 
         ttk.Label(filter_frame, text="状态筛选:").pack(side="left", padx=20)
         status_var = tk.StringVar(value=status_filter_default)
-        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "Spam永久限制", "Spam限制"], width=15)
+        status_combo = ttk.Combobox(filter_frame, textvariable=status_var, values=["全部", "正常", "未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "临时限制", "永久限制"], width=15)
         status_combo.pack(side="left", padx=5)
 
         select_all_var = tk.BooleanVar(value=False)
@@ -665,10 +669,10 @@ class TelegramFullGUI:
                 elif status in ["销号", "封禁"]:
                     tree.tag_configure('dead', background='#ffebee')
                     tree.item(phone, tags=('dead',))
-                elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium"]:
+                elif status in ["未授权", "需要2FA", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "临时限制", "永久限制"]:
                     tree.tag_configure('unauth', background='#fff3e0')
                     tree.item(phone, tags=('unauth',))
-                elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "Spam永久限制", "Spam限制"]:
+                elif status in ["限制加群", "发言限制", "频率限制", "风控限制", "双向限制"]:
                     tree.tag_configure('limited', background='#fff9c4')
                     tree.item(phone, tags=('limited',))
 
@@ -846,7 +850,6 @@ class TelegramFullGUI:
                 
                 # 修复：HTTP/HTTPS代理转换为SOCKS5，因为Telethon不支持HTTP代理
                 if proxy_type in ['http', 'https']:
-                    self.log("代理IP", f"HTTP代理已转换为SOCKS5: {host}:{port}")
                     return ('socks5', host, port, username, password)
                 return (proxy_type, host, port, username, password)
 
@@ -938,7 +941,7 @@ class TelegramFullGUI:
                             self.log("多账号管理", f"[{phone}] 未授权")
                     except asyncio.TimeoutError:
                         acc['status'] = '未授权(超时)'
-                        self.log("多账号管理", f"[{phone}] 未授权(超时)")
+                        self.log("多账号管理", f"[{phone}] 未授权")
                     except SessionPasswordNeededError:
                         acc['status'] = '需要2FA重新登录'
                         self.log("多账号管理", f"[{phone}] 需要2FA重新登录")
@@ -1088,7 +1091,7 @@ class TelegramFullGUI:
                             self.log("多账号管理", f"[{phone}] 未授权")
                     except asyncio.TimeoutError:
                         acc['status'] = '未授权(超时)'
-                        self.log("多账号管理", f"[{phone}] 未授权(超时)")
+                        self.log("多账号管理", f"[{phone}] 未授权")
                     except SessionPasswordNeededError:
                         acc['status'] = '需要2FA重新登录'
                         self.log("多账号管理", f"[{phone}] 需要2FA重新登录")
@@ -1099,10 +1102,8 @@ class TelegramFullGUI:
                         acc['status'] = '封禁'
                         self.log("多账号管理", f"[{phone}] 封禁")
                     except Exception as e:
-                        status, log_msg = self.parse_unauthorized_error(phone, e, "深度检测")
-                        acc['status'] = status
-                        log_msg = log_msg.replace("异常", "结果")
-                        self.log("多账号管理", log_msg)
+                        acc['status'] = '未授权'
+                        self.log("多账号管理", f"[{phone}] 未授权")
                     self.update_status_filter_options()
                     return
 
@@ -1120,10 +1121,8 @@ class TelegramFullGUI:
                 if hasattr(me, 'date'):
                     reg_time = me.date.strftime("%Y-%m-%d")
                     acc['register_time'] = reg_time
-                    days_old = (datetime.now() - me.date.replace(tzinfo=None)).days
-                    self.log("多账号管理", f"[{phone}] 注册: {reg_time} ({days_old}天)")
 
-                # ==================== 第2层：SpamBot检测 (多语言支持 + 永久/临时区分) ====================
+                # ==================== 第2层：SpamBot检测 ====================
                 spam_status = "UNKNOWN"
                 restricted_until = None
                 is_permanent = False
@@ -1153,7 +1152,6 @@ class TelegramFullGUI:
                                     msg_text = msg.message
                                     msg_lower = msg_text.lower()
                                     
-                                    # ========== 检测限制关键词 (多语言) ==========
                                     english_restricted = [
                                         'limited until', 'restricted', 'temporarily limited',
                                         'your account is limited', 'spam'
@@ -1178,7 +1176,6 @@ class TelegramFullGUI:
                                     if is_restricted:
                                         spam_status = "RESTRICTED"
                                         
-                                        # ========== 判断是否永久限制 ==========
                                         permanent_keywords = [
                                             'permanently', 'permanent', 'selamanya',
                                             'permanen', '永久', '永远', 'навсегда'
@@ -1188,7 +1185,6 @@ class TelegramFullGUI:
                                                 is_permanent = True
                                                 break
                                         
-                                        # 解析限制日期
                                         date_match = re.search(r'limited until (\d{4}-\d{2}-\d{2})', msg_text, re.IGNORECASE)
                                         if not date_match:
                                             date_match = re.search(r'until (\d{2}/\d{2}/\d{4})', msg_text, re.IGNORECASE)
@@ -1231,7 +1227,6 @@ class TelegramFullGUI:
                                                     pass
                                         break
                                     
-                                    # ========== 检测正常状态 ==========
                                     english_normal = ['good news', 'no limits', 'no restrictions', 'account is in good standing']
                                     indonesian_normal = ['tidak ada batasan', 'baik-baik saja', 'tidak dibatasi']
                                     chinese_normal = ['无限制', '正常', '没有被限制']
@@ -1260,27 +1255,16 @@ class TelegramFullGUI:
                 except Exception as e:
                     pass
 
-                # ==================== 第3层：能力探测（权限校验） ====================
-                # 使用 UpdateProfileRequest 同名修改来检测账号是否被冻结
-                # 原理：Telegram API 会校验权限，但不会实际修改资料（因为名字相同）
-                # 如果账号被冻结，会返回 "frozen" 错误
+                # ==================== 第3层：能力探测 ====================
                 try:
                     me = await client.get_me()
                     current_name = me.first_name or ""
-                    
-                    # 关键：用相同的名字调用 UpdateProfileRequest
-                    # Telegram 会校验权限，但不会实际修改资料
-                    await client(UpdateProfileRequest(
-                        first_name=current_name
-                    ))
-                    # 能通过 → 账号正常，有修改权限
-                    self.log("多账号管理", f"[{phone}] 权限校验通过")
-                    
+                    await client(UpdateProfileRequest(first_name=current_name))
                 except Exception as e:
                     error_msg = str(e).lower()
                     if "frozen" in error_msg:
                         acc['status'] = '账号冻结'
-                        self.log("多账号管理", f"[{phone}] 检测到账号冻结（无法修改资料）")
+                        self.log("多账号管理", f"[{phone}] 账号冻结")
                         self.update_status_filter_options()
                         await client.disconnect()
                         return
@@ -1290,36 +1274,30 @@ class TelegramFullGUI:
                         self.update_status_filter_options()
                         await client.disconnect()
                         return
-                    elif "banned" in error_msg or "restricted" in error_msg:
-                        # 其他限制，继续检测
-                        pass
 
                 # ==================== 综合判定 ====================
                 if acc.get('status') in ['销号', '封禁']:
                     pass
                 elif spam_status == "RESTRICTED":
                     if is_permanent:
-                        acc['status'] = 'Spam永久限制'
-                        self.log("多账号管理", f"[{phone}] Spam永久限制")
+                        acc['status'] = '永久限制'
+                        self.log("多账号管理", f"[{phone}] 永久限制")
                     elif restricted_until:
                         try:
                             days_left = (datetime.strptime(restricted_until, '%Y-%m-%d') - datetime.now()).days
                             if days_left < 0:
-                                # 已到期 → 设为正常
                                 acc['status'] = '正常'
                                 self.log("多账号管理", f"[{phone}] 正常")
                             else:
-                                acc['status'] = 'Spam限制'
-                                self.log("多账号管理", f"[{phone}] Spam限制至 {restricted_until} (剩余{days_left}天)")
+                                acc['status'] = '临时限制'
+                                self.log("多账号管理", f"[{phone}] 临时限制至 {restricted_until} (剩余{days_left}天)")
                         except:
-                            acc['status'] = 'Spam限制'
-                            self.log("多账号管理", f"[{phone}] Spam限制至 {restricted_until}")
+                            acc['status'] = '临时限制'
+                            self.log("多账号管理", f"[{phone}] 临时限制至 {restricted_until}")
                     else:
-                        # 无解封日期 → 永久限制
-                        acc['status'] = 'Spam永久限制'
-                        self.log("多账号管理", f"[{phone}] Spam永久限制")
+                        acc['status'] = '永久限制'
+                        self.log("多账号管理", f"[{phone}] 永久限制")
                     
-                    # 保存限制详情到账号信息中
                     if 'spam_info' not in acc:
                         acc['spam_info'] = {}
                     acc['spam_info']['restricted_until'] = restricted_until
@@ -1340,8 +1318,8 @@ class TelegramFullGUI:
                 self.log("多账号管理", f"[{phone}] 封禁")
                 self.update_status_filter_options()
             except SessionPasswordNeededError:
-                acc['status'] = '需要2FA'
-                self.log("多账号管理", f"[{phone}] 需要2FA")
+                acc['status'] = '需要2FA重新登录'
+                self.log("多账号管理", f"[{phone}] 需要2FA重新登录")
                 self.update_status_filter_options()
             except Exception as e:
                 error_msg = str(e).lower()
@@ -1355,8 +1333,8 @@ class TelegramFullGUI:
                     acc['status'] = '封禁'
                     self.log("多账号管理", f"[{phone}] 封禁")
                 elif "password" in error_msg:
-                    acc['status'] = '需要2FA'
-                    self.log("多账号管理", f"[{phone}] 需要2FA")
+                    acc['status'] = '需要2FA重新登录'
+                    self.log("多账号管理", f"[{phone}] 需要2FA重新登录")
                 elif "flood" in error_msg or "too many" in error_msg:
                     acc['status'] = '频率限制'
                     self.log("多账号管理", f"[{phone}] 频率限制")
@@ -1364,8 +1342,8 @@ class TelegramFullGUI:
                     acc['status'] = '账号冻结'
                     self.log("多账号管理", f"[{phone}] 账号冻结")
                 else:
-                    acc['status'] = '检测失败'
-                    self.log("多账号管理", f"[{phone}] 检测失败: {str(e)[:50]}")
+                    acc['status'] = '未授权'
+                    self.log("多账号管理", f"[{phone}] 未授权")
                 self.update_status_filter_options()
             finally:
                 if client:
