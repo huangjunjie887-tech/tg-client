@@ -1105,6 +1105,7 @@ class TelegramFullGUI:
                         acc['status'] = '未授权'
                         self.log("多账号管理", f"[{phone}] 未授权")
                     self.update_status_filter_options()
+                    self.save_config()
                     return
 
                 me = await client.get_me()
@@ -1113,6 +1114,7 @@ class TelegramFullGUI:
                     self.log("多账号管理", f"[{phone}] 销号")
                     await client.disconnect()
                     self.update_status_filter_options()
+                    self.save_config()
                     return
 
                 nickname = me.first_name or me.username or phone
@@ -1266,12 +1268,14 @@ class TelegramFullGUI:
                         acc['status'] = '账号冻结'
                         self.log("多账号管理", f"[{phone}] 账号冻结")
                         self.update_status_filter_options()
+                        self.save_config()
                         await client.disconnect()
                         return
                     elif "flood" in error_msg:
                         acc['status'] = '频率限制'
                         self.log("多账号管理", f"[{phone}] 频率限制")
                         self.update_status_filter_options()
+                        self.save_config()
                         await client.disconnect()
                         return
 
@@ -1307,20 +1311,24 @@ class TelegramFullGUI:
                     self.log("多账号管理", f"[{phone}] 正常")
                 
                 self.update_status_filter_options()
+                self.save_config()
                 await client.disconnect()
 
             except UserDeactivatedError:
                 acc['status'] = '销号'
                 self.log("多账号管理", f"[{phone}] 销号")
                 self.update_status_filter_options()
+                self.save_config()
             except PhoneNumberBannedError:
                 acc['status'] = '封禁'
                 self.log("多账号管理", f"[{phone}] 封禁")
                 self.update_status_filter_options()
+                self.save_config()
             except SessionPasswordNeededError:
                 acc['status'] = '需要2FA重新登录'
                 self.log("多账号管理", f"[{phone}] 需要2FA重新登录")
                 self.update_status_filter_options()
+                self.save_config()
             except Exception as e:
                 error_msg = str(e).lower()
                 if "database" in error_msg:
@@ -1345,6 +1353,7 @@ class TelegramFullGUI:
                     acc['status'] = '未授权'
                     self.log("多账号管理", f"[{phone}] 未授权")
                 self.update_status_filter_options()
+                self.save_config()
             finally:
                 if client:
                     try:
@@ -1360,6 +1369,7 @@ class TelegramFullGUI:
         self.root.after(0, self.refresh_account_list_filter)
         self.root.after(0, self.refresh_scrape_accounts)
         self.update_status_filter_options()
+        self.save_config()
 
     def kick_devices_filtered(self):
         filtered_accounts = self.get_filtered_accounts()
@@ -2750,6 +2760,9 @@ class TelegramFullGUI:
         except Exception as e:
             p['status'] = "不可用"
             self.log("代理IP", f"{proxy_type}://{proxy_str}: 检测失败 - {str(e)[:30]}")
+        
+        # 检测完成后自动保存配置
+        self.save_config()
 
     def check_selected_proxies(self):
         selected = self.proxy_tree.selection()
@@ -2781,6 +2794,7 @@ class TelegramFullGUI:
                 self._check_single_proxy(p)
                 self.root.after(0, self.refresh_proxy_list)
             self.log("代理IP", "选中代理检测完成")
+            self.save_config()
 
         threading.Thread(target=do_check_selected, daemon=True).start()
 
@@ -2809,6 +2823,7 @@ class TelegramFullGUI:
                 self._check_single_proxy(p)
                 self.root.after(0, self.refresh_proxy_list)
             self.log("代理IP", "代理检测完成")
+            self.save_config()
 
         threading.Thread(target=do_check, daemon=True).start()
 
