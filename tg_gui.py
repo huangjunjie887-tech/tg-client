@@ -5127,7 +5127,21 @@ class TelegramFullGUI:
                                            and account_sent_count.get(acc.get('phone'), 0) < per_account_limit]
                         if remaining_check:
                             self.private_log_insert(f"等待 {interval} 秒...")
-                            await asyncio.sleep(interval)
+                            # 分段等待，每1秒检查一次停止/暂停状态
+                            for _ in range(interval):
+                                if self.private_stop_flag:
+                                    self.private_log_insert("等待期间收到停止信号")
+                                    break
+                                while self.private_send_paused:
+                                    await asyncio.sleep(0.5)
+                                    if self.private_stop_flag:
+                                        break
+                                if self.private_stop_flag:
+                                    break
+                                await asyncio.sleep(1)
+
+            if self.private_stop_flag:
+                break
 
             # 本轮结束后检查是否所有账号都已达到上限
             all_done = True
@@ -5560,17 +5574,22 @@ class TelegramFullGUI:
 
     def stop_private_send(self):
         self.private_stop_flag = True
+        self.private_send_paused = False  # 暂停状态也要清除
         self.private_log_insert("停止私发")
 
     def pause_private_send(self):
         if self.private_send_running and not self.private_send_paused:
             self.private_send_paused = True
             self.private_log_insert("暂停私发")
+        else:
+            self.private_log_insert("没有正在运行的任务")
 
     def resume_private_send(self):
         if self.private_send_running and self.private_send_paused:
             self.private_send_paused = False
             self.private_log_insert("继续私发")
+        else:
+            self.private_log_insert("没有暂停的任务")
 
     def start_group_send(self):
         if self.group_send_running:
@@ -5870,17 +5889,22 @@ class TelegramFullGUI:
 
     def stop_group_send(self):
         self.group_stop_flag = True
+        self.group_send_paused = False
         self.group_log_insert("停止群发")
 
     def pause_group_send(self):
         if self.group_send_running and not self.group_send_paused:
             self.group_send_paused = True
             self.group_log_insert("暂停群发")
+        else:
+            self.group_log_insert("没有正在运行的任务")
 
     def resume_group_send(self):
         if self.group_send_running and self.group_send_paused:
             self.group_send_paused = False
             self.group_log_insert("继续群发")
+        else:
+            self.group_log_insert("没有暂停的任务")
 
     def create_group_chat_page(self):
         page = ttk.Frame(self.notebook)
