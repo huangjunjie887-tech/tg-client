@@ -5205,7 +5205,8 @@ class TelegramFullGUI:
 
         self.private_send_running = True
         self.private_send_paused = False
-        self.private_stop_flag = False        self.private_user_file_path = self.private_user_list_file.get()
+        self.private_stop_flag = False
+        self.private_user_file_path = self.private_user_list_file.get()
 
         self.private_log_insert(f"========== 开始私发 ==========")
         self.private_log_insert(f"目标用户: {len(self.private_users)} | 账号: {len(selected_accounts)} | 每号限: {per_account_limit}人 | 线程数: {thread_cnt} | 间隔: {interval}秒")
