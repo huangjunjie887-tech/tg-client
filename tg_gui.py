@@ -4463,16 +4463,27 @@ class TelegramFullGUI:
                         else:
                             invite_hash = target.split('/joinchat/')[-1].split('?')[0]
                         try:
-                            result = await client(ImportChatInviteRequest(invite_hash))
-                            if result.chats:
-                                entity = result.chats[0]
-                                self.log("批量拉人", f"[{phone[-6:]}] 加入群组成功")
+                            # 修复：ImportChatInviteRequest 返回 ChatInviteJoinResultOk，没有 chats 属性
+                            # 直接执行加入操作，然后通过 get_entity 获取群组实体
+                            await client(ImportChatInviteRequest(invite_hash))
+                            # 加入成功后，通过 get_entity 获取群组实体
+                            try:
+                                entity = await client.get_entity(target)
+                            except:
+                                try:
+                                    entity = await client.get_entity(invite_hash)
+                                except:
+                                    pass
+                            self.log("批量拉人", f"[{phone[-6:]}] 加入群组成功")
                         except UserAlreadyParticipantError:
                             self.log("批量拉人", f"[{phone[-6:]}] 已是群成员")
                             try:
                                 entity = await client.get_entity(target)
                             except:
-                                pass
+                                try:
+                                    entity = await client.get_entity(invite_hash)
+                                except:
+                                    pass
                         except Exception as e:
                             error_msg = str(e)
                             self.log("批量拉人", f"[{phone[-6:]}] 加入失败: {error_msg[:50]}")
@@ -4486,7 +4497,10 @@ class TelegramFullGUI:
                             try:
                                 entity = await client.get_entity(target)
                             except:
-                                pass
+                                try:
+                                    entity = await client.get_entity(invite_hash)
+                                except:
+                                    pass
                     else:
                         if 't.me/' in target:
                             username = target.split('t.me/')[-1]
@@ -5761,16 +5775,25 @@ class TelegramFullGUI:
                             else:
                                 invite_hash = target.split('/joinchat/')[-1].split('?')[0]
                             try:
-                                result = await client(ImportChatInviteRequest(invite_hash))
-                                if result.chats:
-                                    entity = result.chats[0]
-                                    self.group_log_insert(f"[{phone[-6:]}] 加入群组成功")
+                                # 修复：ImportChatInviteRequest 返回 ChatInviteJoinResultOk，没有 chats 属性
+                                await client(ImportChatInviteRequest(invite_hash))
+                                try:
+                                    entity = await client.get_entity(target)
+                                except:
+                                    try:
+                                        entity = await client.get_entity(invite_hash)
+                                    except:
+                                        pass
+                                self.group_log_insert(f"[{phone[-6:]}] 加入群组成功")
                             except UserAlreadyParticipantError:
                                 self.group_log_insert(f"[{phone[-6:]}] 已是群成员")
                                 try:
                                     entity = await client.get_entity(target)
                                 except:
-                                    pass
+                                    try:
+                                        entity = await client.get_entity(invite_hash)
+                                    except:
+                                        pass
                             except Exception as e:
                                 error_msg = str(e)
                                 self.group_log_insert(f"[{phone[-6:]}] 加入失败: {error_msg[:50]}")
@@ -5779,7 +5802,10 @@ class TelegramFullGUI:
                                 try:
                                     entity = await client.get_entity(target)
                                 except:
-                                    pass
+                                    try:
+                                        entity = await client.get_entity(invite_hash)
+                                    except:
+                                        pass
                         else:
                             if 't.me/' in target:
                                 username = target.split('t.me/')[-1]
@@ -6329,9 +6355,19 @@ class TelegramFullGUI:
                             else:
                                 invite_hash = group_link.split('/joinchat/')[-1].split('?')[0]
                             try:
-                                result = await client(ImportChatInviteRequest(invite_hash))
-                                if result.chats:
-                                    entity = result.chats[0]
+                                # 修复：ImportChatInviteRequest 返回 ChatInviteJoinResultOk，没有 chats 属性
+                                await client(ImportChatInviteRequest(invite_hash))
+                                try:
+                                    if 't.me/' in group_link:
+                                        username = group_link.split('t.me/')[-1].split('?')[0]
+                                        entity = await client.get_entity(username)
+                                    else:
+                                        entity = await client.get_entity(group_link)
+                                except:
+                                    try:
+                                        entity = await client.get_entity(invite_hash)
+                                    except:
+                                        pass
                             except UserAlreadyParticipantError:
                                 try:
                                     if 't.me/' in group_link:
@@ -6340,7 +6376,10 @@ class TelegramFullGUI:
                                     else:
                                         entity = await client.get_entity(group_link)
                                 except:
-                                    pass
+                                    try:
+                                        entity = await client.get_entity(invite_hash)
+                                    except:
+                                        pass
                             except Exception as e:
                                 error_msg = str(e)
                                 if "You tried to use a method that" in error_msg:
