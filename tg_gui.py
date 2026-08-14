@@ -4228,7 +4228,8 @@ class TelegramFullGUI:
         target_display = targets[0].split('t.me/')[-1] if 't.me/' in targets[0] else targets[0][:20]
         self.log("批量拉人", f"🚀 开始拉人  目标:{target_display}  用户:{len(users)}  账号:{len(valid_accounts)}  每号限:{per_account_max}  线程:{thread_cnt}")
 
-        # 加入群组
+        user_file_path = self.user_list_file.get().strip()
+
         from telethon.tl.functions.channels import JoinChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import UserAlreadyParticipantError
@@ -4334,26 +4335,19 @@ class TelegramFullGUI:
         join_tasks = [join_group_single(acc) for acc in valid_accounts]
         join_results = await asyncio.gather(*join_tasks)
 
-        success_phones = []
-        fail_phones = []
+        # ✅ 加群结果逐行显示完整账号
+        self.log("批量拉人", "📋 加群结果:")
+
         for result in join_results:
             if result:
                 account_clients[result['phone']] = result
                 join_success_accounts.append(result)
-                success_phones.append(result['phone'][-6:])
+                self.log("批量拉人", f"  ✅ {result['phone']} 加入成功")
 
         for acc in valid_accounts:
             phone = acc.get('phone', '')
             if phone not in account_clients:
-                fail_phones.append(phone[-6:])
-
-        if success_phones or fail_phones:
-            log_msg = "📋 加群: "
-            for p in success_phones:
-                log_msg += f"✅{p} "
-            for p in fail_phones:
-                log_msg += f"❌{p} "
-            self.log("批量拉人", log_msg.strip())
+                self.log("批量拉人", f"  ❌ {phone} 限制加群")
 
         self.log("批量拉人", f"📊 加群: {len(join_success_accounts)}/{len(valid_accounts)}")
 
@@ -4361,7 +4355,6 @@ class TelegramFullGUI:
             self.log("批量拉人", "❌ 无账号加入群组")
             return
 
-        # 轮询拉人
         self.log("批量拉人", f"📋 拉人 ({per_account_max}轮)")
 
         from asyncio import Queue
@@ -4414,8 +4407,9 @@ class TelegramFullGUI:
                     except asyncio.TimeoutError:
                         break
 
-                    # ✅ 无论成功失败，只要从队列取出用户就删除
-                    self.remove_user_from_file(username)
+                    # ✅ 传入正确的文件路径
+                    if user_file_path and os.path.exists(user_file_path):
+                        self.remove_user_from_file(username, user_file_path)
 
                     success, log_msg = await self.invite_user_with_verify(
                         client, phone, entity, username
@@ -4425,7 +4419,7 @@ class TelegramFullGUI:
                         acc['invited_count'] = acc.get('invited_count', 0) + 1
                         self.total_success += 1
                         self.total_processed += 1
-                        self.log("批量拉人", f"  [{phone[-6:]}] ✅ {username} ({acc['invited_count']}/{per_account_max})")
+                        self.log("批量拉人", f"  [{phone}] ✅ {username} ({acc['invited_count']}/{per_account_max})")
                     else:
                         self.total_fail += 1
                         self.total_processed += 1
@@ -4445,11 +4439,11 @@ class TelegramFullGUI:
                             elif "销号" in log_msg:
                                 self.update_account_status_by_phone(phone, '销号')
 
-                        self.log("批量拉人", f"  [{phone[-6:]}] ❌ {log_msg} | {username}")
+                        self.log("批量拉人", f"  [{phone}] ❌ {log_msg} | {username}")
 
                     if not self.invite_stop_flag and not user_queue.empty():
                         if acc.get('invited_count', 0) < per_account_max:
-                            self.log("批量拉人", f"  [{phone[-6:]}] ⏳ {invite_wait}s")
+                            self.log("批量拉人", f"  [{phone}] ⏳ {invite_wait}s")
                             for wait_second in range(int(invite_wait)):
                                 if self.invite_stop_flag:
                                     break
@@ -4492,16 +4486,55 @@ class TelegramFullGUI:
         self.log("批量拉人", f"✅ 完成  成功:{self.total_success}  失败:{self.total_fail}")
 
     async def invite_user_with_verify(self, client, phone, entity, username):
-        """强拉用户进群并验证是否真正加入"""
+        """强拉用户进群并验证是否真正加入 - 精确区分用户不存在和网络错误"""
         clean_username = username.lstrip('@')
 
         if clean_username in self.processed_usernames:
             return False, "已处理"
 
+        # ✅ 获取用户实体 - 精确区分"用户不存在"和"网络错误"
         try:
             user_entity = await client.get_entity(clean_username)
-        except Exception:
+        except FloodWaitError as e:
+            self.update_account_status_by_phone(phone, '频率限制')
+            return False, "频率限制"
+        except UserDeactivatedError:
+            return False, "用户已注销"
+        except PhoneNumberBannedError:
+            self.update_account_status_by_phone(phone, '封禁')
+            return False, "封禁"
+        except (ValueError, UsernameInvalidError) as e:
+            # ✅ 只有 ValueError 和 UsernameInvalidError 才是真正的"用户不存在"
             return False, "用户不存在"
+        except TimeoutError:
+            return False, "网络超时"
+        except ConnectionError:
+            return False, "连接错误"
+        except RPCError as e:
+            error_code = str(e)
+            if "400" in error_code or "USERNAME_NOT_OCCUPIED" in str(e) or "not found" in str(e).lower():
+                return False, "用户不存在"
+            elif "403" in error_code or "forbidden" in str(e).lower():
+                self.update_account_status_by_phone(phone, '风控限制')
+                return False, "风控限制"
+            elif "429" in error_code or "flood" in str(e).lower():
+                self.update_account_status_by_phone(phone, '频率限制')
+                return False, "频率限制"
+            elif "banned" in str(e).lower():
+                self.update_account_status_by_phone(phone, '封禁')
+                return False, "封禁"
+            else:
+                return False, f"RPC错误"
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "not found" in error_msg or "username" in error_msg:
+                return False, "用户不存在"
+            elif "timeout" in error_msg:
+                return False, "网络超时"
+            elif "connection" in error_msg:
+                return False, "连接错误"
+            else:
+                return False, f"获取用户失败"
 
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             return False, "用户已注销"
@@ -4509,6 +4542,7 @@ class TelegramFullGUI:
         if hasattr(user_entity, 'bot') and user_entity.bot:
             return False, "机器人"
 
+        # ✅ 尝试拉人
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             await asyncio.sleep(2)
@@ -4567,7 +4601,7 @@ class TelegramFullGUI:
                 self.update_account_status_by_phone(phone, '销号')
                 return False, "销号"
             else:
-                return False, "失败"
+                return False, f"拉人失败"
 
     def stop_invite(self):
         if self.is_inviting:
