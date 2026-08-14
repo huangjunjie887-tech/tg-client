@@ -264,30 +264,25 @@ class TelegramFullGUI:
         for acc in self.accounts:
             status = acc.get('status', '待检测')
             statuses.add(status)
-        
-        # 定义固定顺序：全部 > 正常 > 其他状态
+
         priority_statuses = ["全部", "正常"]
-        
-        # 其他状态按优先级排序
+
         other_statuses = ["未授权", "待检测", "销号", "封禁", "限制加群", "发言限制", "频率限制", "风控限制", "双向限制", "需要2FA重新登录", "被踢下线", "session已过期", "2FA已修改", "账号冻结", "登录限制", "未授权(超时)", "未注册", "手机号无效", "需要Premium", "临时限制", "永久限制"]
-        
-        # 构建最终列表
+
         final_list = []
         for s in priority_statuses:
             if s in statuses:
                 final_list.append(s)
                 statuses.remove(s)
-        
-        # 添加其他存在的状态
+
         for s in other_statuses:
             if s in statuses:
                 final_list.append(s)
                 statuses.remove(s)
-        
-        # 添加剩余的未知状态
+
         for s in sorted(statuses):
             final_list.append(s)
-        
+
         self.account_list_status_filter['values'] = final_list
         current = self.account_list_status_filter.get()
         if current not in final_list and current != "全部":
@@ -442,8 +437,7 @@ class TelegramFullGUI:
 
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
-        
-        # 初始化状态筛选为固定顺序
+
         self.update_status_filter_options()
 
     def refresh_invite_group_filter(self):
@@ -820,7 +814,7 @@ class TelegramFullGUI:
             return None
         try:
             proxy_type = 'socks5'
-            
+
             if proxy_str.startswith('http://'):
                 proxy_type = 'http'
                 proxy_str = proxy_str[7:]
@@ -841,8 +835,7 @@ class TelegramFullGUI:
                 password = match.group(2)
                 host = match.group(3)
                 port = int(match.group(4))
-                
-                # 修复：HTTP/HTTPS代理转换为SOCKS5，因为Telethon不支持HTTP代理
+
                 if proxy_type in ['http', 'https']:
                     return ('socks5', host, port, username, password)
                 return (proxy_type, host, port, username, password)
@@ -854,7 +847,7 @@ class TelegramFullGUI:
                 port = int(match.group(2))
                 username = match.group(4)
                 password = match.group(3)
-                
+
                 if proxy_type in ['http', 'https']:
                     return ('socks5', host, port, username, password)
                 return (proxy_type, host, port, username, password)
@@ -864,7 +857,7 @@ class TelegramFullGUI:
             if match:
                 host = match.group(1)
                 port = int(match.group(2))
-                
+
                 if proxy_type in ['http', 'https']:
                     return ('socks5', host, port)
                 return (proxy_type, host, port)
@@ -1032,14 +1025,6 @@ class TelegramFullGUI:
         threading.Thread(target=do_deep_check, daemon=True).start()
 
     def deep_check_single_account(self, acc):
-        """
-        深度检测单个账号 - 多维度综合检测
-        
-        检测流程：
-        第1层：登录状态检测 (get_me)
-        第2层：SpamBot官方限制检测 (/start) - 支持多语言，区分永久/临时限制
-        第3层：能力探测 (UpdateProfileRequest同名修改) - 通过权限校验准确检测冻结
-        """
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -1072,7 +1057,6 @@ class TelegramFullGUI:
                 client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
 
-                # ==================== 第1层：登录检测 ====================
                 if not await client.is_user_authorized():
                     try:
                         await asyncio.wait_for(client.get_me(), timeout=5)
@@ -1118,7 +1102,6 @@ class TelegramFullGUI:
                     reg_time = me.date.strftime("%Y-%m-%d")
                     acc['register_time'] = reg_time
 
-                # ==================== 第2层：SpamBot检测 ====================
                 spam_status = "UNKNOWN"
                 restricted_until = None
                 is_permanent = False
@@ -1147,7 +1130,7 @@ class TelegramFullGUI:
                                 if msg.message:
                                     msg_text = msg.message
                                     msg_lower = msg_text.lower()
-                                    
+
                                     english_restricted = [
                                         'limited until', 'restricted', 'temporarily limited',
                                         'your account is limited', 'spam'
@@ -1159,19 +1142,19 @@ class TelegramFullGUI:
                                     ]
                                     chinese_restricted = ['限制', '受限', '被限制', '账号被限制']
                                     russian_restricted = ['ограничен', 'заблокирован', 'ограничения']
-                                    
-                                    all_restricted = (english_restricted + indonesian_restricted + 
+
+                                    all_restricted = (english_restricted + indonesian_restricted +
                                                       chinese_restricted + russian_restricted)
-                                    
+
                                     is_restricted = False
                                     for keyword in all_restricted:
                                         if keyword in msg_lower:
                                             is_restricted = True
                                             break
-                                    
+
                                     if is_restricted:
                                         spam_status = "RESTRICTED"
-                                        
+
                                         permanent_keywords = [
                                             'permanently', 'permanent', 'selamanya',
                                             'permanen', '永久', '永远', 'навсегда'
@@ -1180,7 +1163,7 @@ class TelegramFullGUI:
                                             if kw in msg_lower:
                                                 is_permanent = True
                                                 break
-                                        
+
                                         date_match = re.search(r'limited until (\d{4}-\d{2}-\d{2})', msg_text, re.IGNORECASE)
                                         if not date_match:
                                             date_match = re.search(r'until (\d{2}/\d{2}/\d{4})', msg_text, re.IGNORECASE)
@@ -1192,7 +1175,7 @@ class TelegramFullGUI:
                                                     pass
                                         else:
                                             restricted_until = date_match.group(1)
-                                        
+
                                         if not date_match and not restricted_until:
                                             date_match = re.search(r'until (\d{2}-\d{2}-\d{4})', msg_text, re.IGNORECASE)
                                             if date_match:
@@ -1201,7 +1184,7 @@ class TelegramFullGUI:
                                                     restricted_until = d.strftime('%Y-%m-%d')
                                                 except:
                                                     pass
-                                        
+
                                         if not date_match and not restricted_until:
                                             date_match = re.search(r'until (\d{1,2})\s+(\w+)\s+(\d{4})', msg_text, re.IGNORECASE)
                                             if date_match:
@@ -1222,18 +1205,18 @@ class TelegramFullGUI:
                                                 except:
                                                     pass
                                         break
-                                    
+
                                     english_normal = ['good news', 'no limits', 'no restrictions', 'account is in good standing']
                                     indonesian_normal = ['tidak ada batasan', 'baik-baik saja', 'tidak dibatasi']
                                     chinese_normal = ['无限制', '正常', '没有被限制']
                                     all_normal = english_normal + indonesian_normal + chinese_normal
-                                    
+
                                     is_normal = False
                                     for keyword in all_normal:
                                         if keyword in msg_lower:
                                             is_normal = True
                                             break
-                                    
+
                                     if is_normal:
                                         spam_status = "NORMAL"
                                         break
@@ -1251,7 +1234,6 @@ class TelegramFullGUI:
                 except Exception as e:
                     pass
 
-                # ==================== 第3层：能力探测 ====================
                 try:
                     me = await client.get_me()
                     current_name = me.first_name or ""
@@ -1273,7 +1255,6 @@ class TelegramFullGUI:
                         await client.disconnect()
                         return
 
-                # ==================== 综合判定 ====================
                 if acc.get('status') in ['销号', '封禁']:
                     pass
                 elif spam_status == "RESTRICTED":
@@ -1295,7 +1276,7 @@ class TelegramFullGUI:
                     else:
                         acc['status'] = '永久限制'
                         self.log("多账号管理", f"[{phone}] 永久限制")
-                    
+
                     if 'spam_info' not in acc:
                         acc['spam_info'] = {}
                     acc['spam_info']['restricted_until'] = restricted_until
@@ -1303,7 +1284,7 @@ class TelegramFullGUI:
                 else:
                     acc['status'] = '正常'
                     self.log("多账号管理", f"[{phone}] 正常")
-                
+
                 self.update_status_filter_options()
                 self.save_config()
                 await client.disconnect()
@@ -2589,7 +2570,7 @@ class TelegramFullGUI:
 
         lines = content.strip().split('\n')
         added_count = 0
-        
+
         for line in lines:
             line = line.strip()
             if not line:
@@ -2597,7 +2578,7 @@ class TelegramFullGUI:
 
             proxy_line = line
             original_type = p_type
-            
+
             if proxy_line.startswith('http://'):
                 original_type = 'http'
                 proxy_line = proxy_line[7:]
@@ -2682,19 +2663,19 @@ class TelegramFullGUI:
     def _check_single_proxy(self, p):
         proxy_str = f"{p.get('host')}:{p.get('port')}"
         proxy_type = p.get('type', 'http')
-        
+
         try:
             if proxy_type in ['http', 'https']:
                 proxy_url = f"{proxy_type}://"
                 if p.get('user') and p.get('password'):
                     proxy_url += f"{p.get('user')}:{p.get('password')}@"
                 proxy_url += f"{p.get('host')}:{p.get('port')}"
-                
+
                 proxies = {
                     'http': proxy_url,
                     'https': proxy_url
                 }
-                
+
                 start_time = time.time()
                 resp = requests.get("https://api.ipify.org", proxies=proxies, timeout=10)
                 elapsed = time.time() - start_time
@@ -2704,12 +2685,12 @@ class TelegramFullGUI:
                 else:
                     p['status'] = "不可用"
                     self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 (状态码: {resp.status_code})")
-            
+
             elif proxy_type in ['socks5', 'socks4']:
                 try:
                     import socks
                     import socket
-                    
+
                     sock = socks.socksocket()
                     sock.set_proxy(
                         socks.SOCKS5 if proxy_type == 'socks5' else socks.SOCKS4,
@@ -2738,7 +2719,7 @@ class TelegramFullGUI:
             else:
                 p['status'] = "不可用"
                 self.log("代理IP", f"{proxy_type}://{proxy_str}: 未知代理类型")
-                
+
         except requests.exceptions.ProxyError as e:
             p['status'] = "不可用"
             self.log("代理IP", f"{proxy_type}://{proxy_str}: 代理连接失败")
@@ -2751,7 +2732,7 @@ class TelegramFullGUI:
         except Exception as e:
             p['status'] = "不可用"
             self.log("代理IP", f"{proxy_type}://{proxy_str}: 检测失败 - {str(e)[:30]}")
-        
+
         self.save_config()
 
     def check_selected_proxies(self):
@@ -2769,11 +2750,11 @@ class TelegramFullGUI:
                     indices.append(idx)
             except:
                 pass
-        
+
         if not indices:
             self.log("代理IP", "未找到有效的代理")
             return
-        
+
         self.log("代理IP", f"开始检测选中的 {len(indices)} 个代理...")
 
         def do_check_selected():
@@ -2791,7 +2772,7 @@ class TelegramFullGUI:
     def check_proxies(self):
         filter_group = self.proxy_list_group_filter.get() if hasattr(self, 'proxy_list_group_filter') else "全部"
         filter_status = self.proxy_list_status_filter.get() if hasattr(self, 'proxy_list_status_filter') else "全部"
-        
+
         filtered_proxies = []
         for p in self.proxies:
             p_group = p.get('group', '默认分组')
@@ -2800,12 +2781,12 @@ class TelegramFullGUI:
             if filter_status != "全部" and p.get('status', '未检测') != filter_status:
                 continue
             filtered_proxies.append(p)
-        
+
         if not filtered_proxies:
             self.log("代理IP", "当前筛选条件下没有代理需要检测")
             self.show_centered_warning("提示", "当前筛选条件下没有代理需要检测")
             return
-        
+
         self.log("代理IP", f"开始检测 {len(filtered_proxies)} 个代理（当前筛选结果）...")
 
         def do_check():
@@ -2820,10 +2801,10 @@ class TelegramFullGUI:
     def refresh_proxy_list(self, event=None):
         for item in self.proxy_tree.get_children():
             self.proxy_tree.delete(item)
-        
+
         filter_group = self.proxy_list_group_filter.get() if hasattr(self, 'proxy_list_group_filter') else "全部"
         filter_status = self.proxy_list_status_filter.get() if hasattr(self, 'proxy_list_status_filter') else "全部"
-        
+
         i = 1
         for p in self.proxies:
             p_group = p.get('group', '默认分组')
@@ -2831,11 +2812,11 @@ class TelegramFullGUI:
                 continue
             if filter_status != "全部" and p.get('status', '未检测') != filter_status:
                 continue
-            
+
             display_addr = p.get('address', f"{p.get('host')}:{p.get('port')}")
             self.proxy_tree.insert("", "end", values=(p_group, i, p.get('type', 'socks5'), display_addr, p.get('status', '未检测')))
             i += 1
-        
+
         self.proxy_count_label.config(text=f"代理数量: {len(self.proxies)}")
 
     def clear_all_proxies(self):
@@ -2999,13 +2980,13 @@ class TelegramFullGUI:
         current_date = datetime.now().strftime('%Y%m%d')
         current_time = datetime.now().strftime('%H%M%S')
         action = "stop" if is_stop else "complete"
-        
+
         import re
         clean_group_name = re.sub(r'[<>:"/\\|?*]', '_', group_username)
         clean_group_name = clean_group_name.replace(' ', '_')
         if len(clean_group_name) > 50:
             clean_group_name = clean_group_name[:50]
-        
+
         base_name = f"members_{clean_group_name}_{current_date}_{current_time}_{action}"
 
         usernames = list(set([m.get('username', '') for m in self.scraped_members if m.get('username')]))
@@ -3119,11 +3100,11 @@ class TelegramFullGUI:
         group_username = None
         is_invite_link = False
         invite_hash = None
-        
+
         if 't.me/' in link:
             clean_link = link.replace('https://', '').replace('http://', '')
             path = clean_link.split('t.me/')[-1].strip('/')
-            
+
             if path.startswith('joinchat'):
                 is_invite_link = True
                 parts = path.split('/')
@@ -3159,7 +3140,7 @@ class TelegramFullGUI:
                 is_invite_link = True
                 invite_hash = group_username[1:]
                 group_username = invite_hash
-        
+
         return group_username, topic_id, is_invite_link, invite_hash
 
     def start_scrape(self):
@@ -3271,10 +3252,10 @@ class TelegramFullGUI:
 
                 try:
                     entity = None
-                    
+
                     if is_invite_link and invite_hash:
                         self.log("采集群成员", f"使用邀请链接查找群组，哈希: {invite_hash}")
-                        
+
                         try:
                             result = await client(ImportChatInviteRequest(invite_hash))
                             if result.chats:
@@ -3305,7 +3286,7 @@ class TelegramFullGUI:
                                 return
                             self.log("采集群成员", f"加入群组失败: {error_msg[:50]}")
                             return
-                        
+
                         if not entity:
                             self.log("采集群成员", "❌ 无法获取群组实体")
                             return
@@ -3339,7 +3320,7 @@ class TelegramFullGUI:
                                     self.log("采集群成员", f"✅ 通过用户名获取群组: {group_username}")
                                 except:
                                     pass
-                            
+
                             if not entity and group_username and len(group_username) > 2:
                                 self.log("采集群成员", f"尝试通过群组名称查找: {group_username}")
                                 async for dialog in client.iter_dialogs():
@@ -3348,11 +3329,11 @@ class TelegramFullGUI:
                                             entity = dialog.entity
                                             self.log("采集群成员", f"✅ 通过名称找到群组: {dialog.name} (ID: {dialog.id})")
                                             break
-                            
+
                             if not entity:
                                 self.log("采集群成员", f"❌ 无法获取群组实体")
                                 return
-                                
+
                 except Exception as e:
                     self.log("采集群成员", f"获取群组失败: {str(e)}")
                     return
@@ -4231,18 +4212,9 @@ class TelegramFullGUI:
 
         threading.Thread(target=run_invite_task, daemon=True).start()
 
-    # ==================== 批量拉人核心方法（修复版 - 先加群再轮询拉人） ====================
+    # ==================== 批量拉人核心方法（修复版 - 精简日志 + 自动删除用户） ====================
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
-        """
-        多账号批量拉人 - 修复版
-        
-        执行流程：
-        第1步：所有账号先加入目标群组（显示成功/失败）
-        第2步：加入成功的账号才开始轮询拉人
-        第3步：轮询模式 - 所有账号轮流拉人
-        """
         if not accounts or not users or not targets:
-            self.log("批量拉人", "账号、用户或目标为空")
             return
 
         valid_accounts = [acc for acc in accounts if acc.get('status') == '正常']
@@ -4251,38 +4223,18 @@ class TelegramFullGUI:
             return
 
         if per_account_max <= 0:
-            self.log("批量拉人", "单账号最大拉人数必须大于0")
             return
 
-        # 获取群组名称用于显示
-        target_display = targets[0] if targets else ""
-        if 't.me/' in target_display:
-            group_name = target_display.split('t.me/')[-1]
-        else:
-            group_name = target_display[:30]
+        target_display = targets[0].split('t.me/')[-1] if 't.me/' in targets[0] else targets[0][:20]
+        self.log("批量拉人", f"🚀 开始拉人  目标:{target_display}  用户:{len(users)}  账号:{len(valid_accounts)}  每号限:{per_account_max}  线程:{thread_cnt}")
 
-        self.log("批量拉人", "")
-        self.log("批量拉人", "============================================================")
-        self.log("批量拉人", f"🚀 开始批量拉人")
-        self.log("批量拉人", f"   目标群组: {target_display} 【{group_name}】")
-        self.log("批量拉人", f"   用户总数: {len(users)} 个")
-        self.log("批量拉人", f"   账号总数: {len(valid_accounts)} 个")
-        self.log("批量拉人", f"   每账号限拉: {per_account_max} 人")
-        self.log("批量拉人", f"   线程数: {thread_cnt} (每批{thread_cnt}个账号)")
-        self.log("批量拉人", "============================================================")
-
-        # ==================== 第1步：所有账号加入群组 ====================
-        self.log("批量拉人", "")
-        self.log("批量拉人", "📋 第1步：所有账号加入目标群组")
-
-        # 用于存储每个账号的加群状态和client
-        account_clients = {}
-        join_success_accounts = []
-        join_fail_accounts = []
-
+        # 加入群组
         from telethon.tl.functions.channels import JoinChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import UserAlreadyParticipantError
+
+        account_clients = {}
+        join_success_accounts = []
 
         async def join_group_single(acc):
             phone = acc.get('phone', '')
@@ -4293,8 +4245,6 @@ class TelegramFullGUI:
 
             client = None
             try:
-                from telethon.sessions import StringSession
-
                 session = None
                 if session_path and os.path.exists(session_path):
                     try:
@@ -4310,10 +4260,8 @@ class TelegramFullGUI:
                 client = TelegramClient(session, api_id, api_hash, proxy=proxy)
                 await client.connect()
                 if not await client.is_user_authorized():
-                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 账号未登录")
                     return None
 
-                # 尝试加入群组
                 entity = None
                 for target in targets:
                     try:
@@ -4331,9 +4279,7 @@ class TelegramFullGUI:
                                         entity = await client.get_entity(invite_hash)
                                     except:
                                         pass
-                                self.log("批量拉人", f"  [{phone[-6:]}] ✅ 已成功加入群组")
                             except UserAlreadyParticipantError:
-                                self.log("批量拉人", f"  [{phone[-6:]}] ℹ️ 已是群成员")
                                 try:
                                     entity = await client.get_entity(target)
                                 except:
@@ -4341,19 +4287,8 @@ class TelegramFullGUI:
                                         entity = await client.get_entity(invite_hash)
                                     except:
                                         pass
-                            except Exception as e:
-                                error_msg = str(e)
-                                if "deactivated" in error_msg.lower() or "USER_DEACTIVATED" in error_msg:
-                                    self.update_account_status_by_phone(phone, '销号')
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 账号已注销")
-                                    return None
-                                elif "banned" in error_msg.lower():
-                                    self.update_account_status_by_phone(phone, '限制加群')
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 加入群组失败: 账号被群组封禁")
-                                    return None
-                                else:
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 加入群组失败: {error_msg[:30]}")
-                                    continue
+                            except Exception:
+                                continue
                             if not entity:
                                 try:
                                     entity = await client.get_entity(target)
@@ -4372,160 +4307,93 @@ class TelegramFullGUI:
 
                             try:
                                 entity = await client.get_entity(username_target)
-                            except Exception as e:
-                                error_msg = str(e)
-                                if "deactivated" in error_msg.lower() or "USER_DEACTIVATED" in error_msg:
-                                    self.update_account_status_by_phone(phone, '销号')
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 账号已注销")
-                                    return None
-                                elif "banned" in error_msg.lower():
-                                    self.update_account_status_by_phone(phone, '限制加群')
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 获取群组失败: 账号被限制")
-                                    return None
-                                else:
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 获取群组失败: {error_msg[:30]}")
-                                    continue
+                            except Exception:
+                                continue
 
                             try:
                                 await client(JoinChannelRequest(entity))
-                                self.log("批量拉人", f"  [{phone[-6:]}] ✅ 已成功加入群组")
                             except UserAlreadyParticipantError:
-                                self.log("批量拉人", f"  [{phone[-6:]}] ℹ️ 已是群成员")
-                            except Exception as e:
-                                error_msg = str(e)
-                                if "deactivated" in error_msg.lower() or "USER_DEACTIVATED" in error_msg:
-                                    self.update_account_status_by_phone(phone, '销号')
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 账号已注销")
-                                    return None
-                                elif "banned" in error_msg.lower():
-                                    self.update_account_status_by_phone(phone, '限制加群')
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 加入群组失败: 账号被群组封禁")
-                                    return None
-                                else:
-                                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 加入群组失败: {error_msg[:30]}")
-                                    continue
+                                pass
+                            except Exception:
+                                continue
 
                         if entity:
                             break
-                    except Exception as e:
-                        error_msg = str(e)
-                        if "deactivated" in error_msg.lower() or "USER_DEACTIVATED" in error_msg:
-                            self.update_account_status_by_phone(phone, '销号')
-                            self.log("批量拉人", f"  [{phone[-6:]}] ❌ 账号已注销")
-                            return None
+                    except Exception:
+                        continue
 
                 if not entity:
                     self.update_account_status_by_phone(phone, '限制加群')
-                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 无法加入目标群组，标记为'限制加群'")
                     return None
 
-                # 加群成功
-                return {
-                    'phone': phone,
-                    'client': client,
-                    'entity': entity,
-                    'acc': acc
-                }
+                return {'phone': phone, 'client': client, 'entity': entity, 'acc': acc}
 
-            except Exception as e:
-                error_msg = str(e)
-                if "deactivated" in error_msg.lower() or "USER_DEACTIVATED" in error_msg:
-                    self.update_account_status_by_phone(phone, '销号')
-                    self.log("批量拉人", f"  [{phone[-6:]}] ❌ 账号已注销")
+            except Exception:
                 return None
 
-        # 所有账号加入群组
         join_tasks = [join_group_single(acc) for acc in valid_accounts]
         join_results = await asyncio.gather(*join_tasks)
 
+        success_phones = []
+        fail_phones = []
         for result in join_results:
             if result:
-                phone = result['phone']
-                account_clients[phone] = result
+                account_clients[result['phone']] = result
                 join_success_accounts.append(result)
-            else:
-                # 已在join_group_single中记录失败日志
-                pass
+                success_phones.append(result['phone'][-6:])
 
-        # 统计加群结果
-        success_count = len(join_success_accounts)
-        fail_count = len(valid_accounts) - success_count
+        for acc in valid_accounts:
+            phone = acc.get('phone', '')
+            if phone not in account_clients:
+                fail_phones.append(phone[-6:])
 
-        self.log("批量拉人", "")
-        self.log("批量拉人", f"📊 加群完成: {success_count}/{len(valid_accounts)} 个账号成功加入")
-        if success_count > 0:
-            success_phones = [r['phone'][-6:] for r in join_success_accounts]
-            self.log("批量拉人", f"   ✅ 成功: {len(success_phones)} 个账号")
-        if fail_count > 0:
-            self.log("批量拉人", f"   ❌ 失败: {fail_count} 个账号 (限制加群)")
+        if success_phones or fail_phones:
+            log_msg = "📋 加群: "
+            for p in success_phones:
+                log_msg += f"✅{p} "
+            for p in fail_phones:
+                log_msg += f"❌{p} "
+            self.log("批量拉人", log_msg.strip())
+
+        self.log("批量拉人", f"📊 加群: {len(join_success_accounts)}/{len(valid_accounts)}")
 
         if not join_success_accounts:
-            self.log("批量拉人", "❌ 没有账号成功加入群组，任务终止")
+            self.log("批量拉人", "❌ 无账号加入群组")
             return
 
-        # ==================== 第2步：轮询拉人 ====================
-        self.log("批量拉人", "")
-        self.log("批量拉人", "══════════════════════════════════════════════════════")
-        self.log("批量拉人", f"📋 第2步：开始轮询拉人 (共{per_account_max}轮，每批{thread_cnt}个账号)")
-        self.log("批量拉人", "══════════════════════════════════════════════════════")
+        # 轮询拉人
+        self.log("批量拉人", f"📋 拉人 ({per_account_max}轮)")
 
-        # 共享用户队列
         from asyncio import Queue
         user_queue = Queue()
         for user in users:
             await user_queue.put(user)
 
-        # 初始化已加群账号的拉人计数
         for r in join_success_accounts:
             r['acc']['invited_count'] = 0
 
-        # 将加群成功的账号按线程数分批
-        success_accounts_list = join_success_accounts
         account_batches = []
-        for i in range(0, len(success_accounts_list), thread_cnt):
-            account_batches.append(success_accounts_list[i:i+thread_cnt])
+        for i in range(0, len(join_success_accounts), thread_cnt):
+            account_batches.append(join_success_accounts[i:i+thread_cnt])
 
-        self.log("批量拉人", f"加群成功的账号分 {len(account_batches)} 批，每批最多 {thread_cnt} 个")
-
-        # 轮询模式：逐轮执行
         for round_num in range(1, per_account_max + 1):
             if self.invite_stop_flag:
-                self.log("批量拉人", "收到停止信号，终止拉人")
                 break
 
-            # 检查是否所有账号都已拉满
             all_done = True
-            for r in success_accounts_list:
+            for r in join_success_accounts:
                 if r['acc'].get('invited_count', 0) < per_account_max:
                     all_done = False
                     break
             if all_done:
-                self.log("批量拉人", f"所有账号已拉满 {per_account_max} 人，停止")
                 break
 
-            self.log("批量拉人", "")
-            self.log("批量拉人", f"========== 第 {round_num}/{per_account_max} 轮 ==========")
+            self.log("批量拉人", f"第{round_num}轮")
 
-            # 逐批执行
             for batch_idx, account_batch in enumerate(account_batches, 1):
                 if self.invite_stop_flag:
                     break
 
-                # 检查本批是否所有账号都已拉满
-                batch_all_done = True
-                for r in account_batch:
-                    if r['acc'].get('invited_count', 0) < per_account_max:
-                        batch_all_done = False
-                        break
-                if batch_all_done:
-                    continue
-
-                # 显示本批账号列表
-                batch_phones = [r['phone'][-6:] for r in account_batch]
-                self.log("批量拉人", "")
-                self.log("批量拉人", f"  ----- 第 {batch_idx}/{len(account_batches)} 批 (账号: {', '.join(batch_phones)}) -----")
-
-                # 本批内账号依次拉人
                 for acc_info in account_batch:
                     if self.invite_stop_flag:
                         break
@@ -4535,40 +4403,35 @@ class TelegramFullGUI:
                     client = acc_info['client']
                     entity = acc_info['entity']
 
-                    # 检查该账号是否已拉满
                     if acc.get('invited_count', 0) >= per_account_max:
-                        self.log("批量拉人", f"    [{phone[-6:]}] ✅ 已拉满 {per_account_max} 人，跳过")
                         continue
 
-                    # 检查队列是否为空
                     if user_queue.empty():
-                        self.log("批量拉人", f"用户队列已空，停止拉人")
                         break
 
-                    # 取一个用户
                     try:
                         username = await asyncio.wait_for(user_queue.get(), timeout=1.0)
                     except asyncio.TimeoutError:
                         break
 
-                    self.log("批量拉人", f"    [{phone[-6:]}] 👤 拉取用户: {username} (第{acc.get('invited_count', 0) + 1}/{per_account_max}人)")
+                    # ✅ 无论成功失败，只要从队列取出用户就删除
+                    self.remove_user_from_file(username)
 
-                    # 调用拉人方法（验证是否真正加入）
                     success, log_msg = await self.invite_user_with_verify(
                         client, phone, entity, username
                     )
 
                     if success:
                         acc['invited_count'] = acc.get('invited_count', 0) + 1
-                        self.remove_user_from_file(username)
                         self.total_success += 1
                         self.total_processed += 1
-                        self.log("批量拉人", f"    [{phone[-6:]}] ✅ {username} ({acc['invited_count']}/{per_account_max})")
+                        self.log("批量拉人", f"  [{phone[-6:]}] ✅ {username} ({acc['invited_count']}/{per_account_max})")
                     else:
-                        # 检查是否账号级别错误
+                        self.total_fail += 1
+                        self.total_processed += 1
+
                         account_level_errors = ["封禁", "风控限制", "频率限制", "销号", "发言限制", "限制加群", "双向限制"]
                         if any(err in log_msg for err in account_level_errors):
-                            self.log("批量拉人", f"    [{phone[-6:]}] ❌ {log_msg}")
                             if "封禁" in log_msg:
                                 self.update_account_status_by_phone(phone, '封禁')
                             elif "风控限制" in log_msg:
@@ -4579,35 +4442,19 @@ class TelegramFullGUI:
                                 self.update_account_status_by_phone(phone, '发言限制')
                             elif "限制加群" in log_msg:
                                 self.update_account_status_by_phone(phone, '限制加群')
-                            self.total_fail += 1
-                            self.total_processed += 1
-                            continue
-                        else:
-                            # 用户级别错误
-                            self.total_fail += 1
-                            self.total_processed += 1
-                            if "用户隐私" in log_msg or "用户拒绝" in log_msg:
-                                self.log("批量拉人", f"    [{phone[-6:]}] ❌ 用户隐私")
-                            elif "用户不存在" in log_msg:
-                                self.log("批量拉人", f"    [{phone[-6:]}] ❌ 用户不存在")
-                            elif "已在群中" in log_msg:
-                                self.log("批量拉人", f"    [{phone[-6:]}] ℹ️ 已在群中")
-                            else:
-                                self.log("批量拉人", f"    [{phone[-6:]}] ❌ {log_msg}")
-                            self.remove_user_from_file(username)
-                            continue
+                            elif "销号" in log_msg:
+                                self.update_account_status_by_phone(phone, '销号')
 
-                    # 每个用户拉完后等待 invite_wait 秒
-                    if not self.invite_stop_flag:
+                        self.log("批量拉人", f"  [{phone[-6:]}] ❌ {log_msg} | {username}")
+
+                    if not self.invite_stop_flag and not user_queue.empty():
                         if acc.get('invited_count', 0) < per_account_max:
-                            if not user_queue.empty():
-                                self.log("批量拉人", f"    [{phone[-6:]}] ⏳ 等待 {invite_wait} 秒...")
-                                for wait_second in range(int(invite_wait)):
-                                    if self.invite_stop_flag:
-                                        break
-                                    await asyncio.sleep(1)
+                            self.log("批量拉人", f"  [{phone[-6:]}] ⏳ {invite_wait}s")
+                            for wait_second in range(int(invite_wait)):
+                                if self.invite_stop_flag:
+                                    break
+                                await asyncio.sleep(1)
 
-                # 每批完成后等待 thread_wait 秒（如果有下一批且有用户剩余）
                 if batch_idx < len(account_batches) and not self.invite_stop_flag:
                     next_batch_has_work = False
                     for r in account_batches[batch_idx]:
@@ -4615,53 +4462,37 @@ class TelegramFullGUI:
                             next_batch_has_work = True
                             break
                     if next_batch_has_work and not user_queue.empty():
-                        self.log("批量拉人", f"  ⏳ 等待 {thread_wait} 秒...")
+                        self.log("批量拉人", f"⏳ {thread_wait}s")
                         for wait_second in range(int(thread_wait)):
                             if self.invite_stop_flag:
-                                self.log("批量拉人", "等待期间收到停止信号")
                                 break
                             await asyncio.sleep(1)
 
-            # 所有批次完成本轮后，等待 thread_wait 秒进入下一轮
             if round_num < per_account_max and not self.invite_stop_flag:
                 all_done = True
-                for r in success_accounts_list:
+                for r in join_success_accounts:
                     if r['acc'].get('invited_count', 0) < per_account_max:
                         all_done = False
                         break
                 if all_done:
-                    self.log("批量拉人", f"所有账号已拉满 {per_account_max} 人，结束")
                     break
-
                 if not user_queue.empty():
-                    self.log("批量拉人", "")
-                    self.log("批量拉人", f"⏳ 等待 {thread_wait} 秒...")
+                    self.log("批量拉人", f"⏳ {thread_wait}s")
                     for wait_second in range(int(thread_wait)):
                         if self.invite_stop_flag:
-                            self.log("批量拉人", "等待期间收到停止信号")
                             break
                         await asyncio.sleep(1)
 
-        # 断开所有client
-        for r in success_accounts_list:
+        for r in join_success_accounts:
             try:
                 await r['client'].disconnect()
             except:
                 pass
 
-        # 输出最终统计
-        self.log("批量拉人", "")
-        self.log("批量拉人", "============================================================")
-        self.log("批量拉人", "✅ 所有任务完成！")
-        self.log("批量拉人", "============================================================")
-        self.log("批量拉人", "")
-        self.log("批量拉人", f"📊 成功:{self.total_success}  失败:{self.total_fail}  处理:{self.total_processed}")
-        stats_str = "  ".join([f"{r['phone'][-6:]}:{r['acc'].get('invited_count', 0)}/{per_account_max}" for r in success_accounts_list])
-        self.log("批量拉人", f"📊 {stats_str}")
-        self.log("批量拉人", "============================================================")
+        self.log("批量拉人", f"✅ 完成  成功:{self.total_success}  失败:{self.total_fail}")
 
     async def invite_user_with_verify(self, client, phone, entity, username):
-        """强拉用户进群并验证是否真正加入 - 区分用户隐私和账号限制"""
+        """强拉用户进群并验证是否真正加入"""
         clean_username = username.lstrip('@')
 
         if clean_username in self.processed_usernames:
@@ -4679,11 +4510,9 @@ class TelegramFullGUI:
             return False, "机器人"
 
         try:
-            # 强拉用户进群
             await client(InviteToChannelRequest(entity, [user_entity.id]))
             await asyncio.sleep(2)
-            
-            # ====== 验证：检查用户是否真的在群组中 ======
+
             try:
                 participants = await client(GetParticipantsRequest(
                     channel=entity,
@@ -4692,51 +4521,40 @@ class TelegramFullGUI:
                     limit=10,
                     hash=0
                 ))
-                
+
                 for p in participants.users:
                     if p.id == user_entity.id:
                         return True, "成功"
-                
-                # 用户不在群组中 → 用户设置了隐私（禁止被拉入群组）
+
                 return False, "用户隐私"
-                
+
             except Exception:
-                # 无法验证（群组太大或权限不足），保守处理
                 return True, "成功"
 
         except UserPrivacyRestrictedError:
             return False, "用户隐私"
-            
         except UserAlreadyParticipantError:
             return True, "已在群中"
-            
         except PeerFloodError:
             self.update_account_status_by_phone(phone, '风控限制')
             return False, "风控限制"
-            
         except FloodWaitError as e:
             self.update_account_status_by_phone(phone, '频率限制')
             return False, "频率限制"
-            
         except UserBannedInChannelError:
             self.update_account_status_by_phone(phone, '限制加群')
             return False, "限制加群"
-            
         except UserChannelsTooMuchError:
             return False, "群组已满"
-            
         except ChatWriteForbiddenError:
             self.update_account_status_by_phone(phone, '发言限制')
             return False, "发言限制"
-            
         except UserDeactivatedError:
             self.update_account_status_by_phone(phone, '销号')
             return False, "销号"
-            
         except PhoneNumberBannedError:
             self.update_account_status_by_phone(phone, '封禁')
             return False, "封禁"
-            
         except Exception as e:
             error_msg = str(e).lower()
             if "banned" in error_msg:
@@ -5180,12 +4998,6 @@ class TelegramFullGUI:
         threading.Thread(target=run_private_send, daemon=True).start()
 
     async def do_private_send(self, accounts, users, ad_text, image_path, interval, per_account_limit, thread_cnt, auto_skip):
-        """
-        私发功能 - 每个账号按顺序发送不同的用户
-        账号A发用户1，账号B发用户2，账号C发用户3...
-        发送成功或用户问题 → 删除该用户
-        账号问题 → 淘汰该账号
-        """
         if not accounts or not users:
             self.private_log_insert("账号或用户列表为空")
             return
@@ -5202,11 +5014,11 @@ class TelegramFullGUI:
         user_list = users.copy()
         eliminated_accounts = set()
         account_sent_count = {acc.get('phone'): 0 for acc in active_accounts}
-        
+
         send_stats = {'success': 0, 'fail': 0}
         round_num = 1
         total_eliminated = 0
-        
+
         self.private_log_insert(f"========== 开始私发 ==========")
         self.private_log_insert(f"初始账号: {len(active_accounts)}个, 用户: {len(user_list)}个, 每号限: {per_account_limit}人")
 
@@ -5214,7 +5026,7 @@ class TelegramFullGUI:
             if self.private_stop_flag:
                 self.private_log_insert("收到停止信号，停止发送")
                 break
-                
+
             while self.private_send_paused:
                 await asyncio.sleep(1)
                 if self.private_stop_flag:
@@ -5224,10 +5036,10 @@ class TelegramFullGUI:
                 self.private_log_insert("用户列表已为空，停止发送")
                 break
 
-            available_accounts = [acc for acc in active_accounts 
-                                  if acc.get('phone') not in eliminated_accounts 
+            available_accounts = [acc for acc in active_accounts
+                                  if acc.get('phone') not in eliminated_accounts
                                   and account_sent_count.get(acc.get('phone'), 0) < per_account_limit]
-            
+
             if not available_accounts:
                 if len(eliminated_accounts) == len(active_accounts):
                     self.private_log_insert(f"所有账号已被淘汰，停止发送")
@@ -5241,7 +5053,7 @@ class TelegramFullGUI:
 
             current_batch_accounts = available_accounts.copy()
             total_batches = (len(current_batch_accounts) + thread_cnt - 1) // thread_cnt
-            
+
             for batch_idx in range(total_batches):
                 if self.private_stop_flag:
                     break
@@ -5256,7 +5068,7 @@ class TelegramFullGUI:
                 start = batch_idx * thread_cnt
                 end = min(start + thread_cnt, len(current_batch_accounts))
                 batch_accounts = current_batch_accounts[start:end]
-                
+
                 batch_num = batch_idx + 1
                 self.private_log_insert(f"第 {batch_num}/{total_batches} 批 (账号: {len(batch_accounts)}个)")
 
@@ -5265,25 +5077,25 @@ class TelegramFullGUI:
                         break
                     if not user_list:
                         break
-                        
+
                     phone = acc.get('phone', '')
                     if phone in eliminated_accounts:
                         continue
                     if account_sent_count.get(phone, 0) >= per_account_limit:
                         continue
-                    
+
                     current_user = user_list[0]
-                    
+
                     result, error_type = await self.send_single_message_v2_with_type(
                         acc, current_user, ad_text, image_path,
                         send_stats, auto_skip
                     )
-                    
+
                     if result:
                         account_sent_count[phone] = account_sent_count.get(phone, 0) + 1
                         send_stats['success'] += 1
                         self.private_log_insert(f"  [{phone[-6:]}] 成功 | {current_user}")
-                        
+
                         if user_list and user_list[0] == current_user:
                             user_list.pop(0)
                             if self.private_user_file_path and os.path.exists(self.private_user_file_path):
@@ -5314,8 +5126,8 @@ class TelegramFullGUI:
 
                 if batch_idx < total_batches - 1 and not self.private_stop_flag:
                     if user_list:
-                        remaining_check = [acc for acc in current_batch_accounts 
-                                           if acc.get('phone') not in eliminated_accounts 
+                        remaining_check = [acc for acc in current_batch_accounts
+                                           if acc.get('phone') not in eliminated_accounts
                                            and account_sent_count.get(acc.get('phone'), 0) < per_account_limit]
                         if remaining_check:
                             self.private_log_insert(f"等待 {interval} 秒...")
@@ -5340,7 +5152,7 @@ class TelegramFullGUI:
                 if phone not in eliminated_accounts and account_sent_count.get(phone, 0) < per_account_limit:
                     all_done = False
                     break
-            
+
             if all_done:
                 if len(eliminated_accounts) == len(active_accounts):
                     self.private_log_insert(f"所有账号已被淘汰，停止发送")
@@ -5360,13 +5172,12 @@ class TelegramFullGUI:
         self.private_log_insert(f"账号淘汰: {total_eliminated} 个")
         self.private_log_insert(f"剩余账号: {len([acc for acc in active_accounts if acc.get('phone') not in eliminated_accounts])} 个")
         self.private_log_insert(f"剩余用户: {len(user_list)} 个")
-        
+
         self.private_users = user_list
         self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
         self.refresh_account_list_filter()
 
     async def send_single_message_v2_with_type(self, acc, username, ad_text, image_path, send_stats, auto_skip):
-        """单个账号发送单条消息，返回 (是否成功, 错误类型) - 精确区分账号/用户问题"""
         phone = acc.get('phone', '')
         session_path = acc.get('session_path', '')
         api_id, api_hash = self.get_account_api_credentials(acc)
@@ -5400,7 +5211,7 @@ class TelegramFullGUI:
             clean_username = username.lstrip('@')
 
             user_entity = None
-            
+
             try:
                 user_entity = await client.get_entity(clean_username)
             except FloodWaitError as e:
@@ -5409,16 +5220,16 @@ class TelegramFullGUI:
                 wait_time = min(e.seconds, 120)
                 await asyncio.sleep(wait_time)
                 return False, "频率限制"
-                
+
             except UserDeactivatedError:
                 send_stats['fail'] += 1
                 return False, "用户已注销"
-                
+
             except PhoneNumberBannedError:
                 self.update_account_status_by_phone(phone, '封禁')
                 send_stats['fail'] += 1
                 return False, "封禁"
-                
+
             except ValueError as e:
                 error_msg = str(e).lower()
                 if "not found" in error_msg or "invalid" in error_msg:
@@ -5427,101 +5238,101 @@ class TelegramFullGUI:
                 else:
                     send_stats['fail'] += 1
                     return False, "用户无效"
-                    
+
             except TimeoutError:
                 send_stats['fail'] += 1
                 return False, "网络超时"
-                
+
             except RPCError as e:
                 error_msg = str(e).lower()
                 error_code = str(e)
-                
+
                 if "403" in error_code or "forbidden" in error_msg:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
                     return False, "风控限制"
-                
+
                 elif "429" in error_code or "flood" in error_msg or "too many" in error_msg:
                     self.update_account_status_by_phone(phone, '频率限制')
                     send_stats['fail'] += 1
                     return False, "频率限制"
-                
+
                 elif "400" in error_code or "invalid" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户无效"
-                
+
                 elif "username_not_occupied" in error_msg or "not found" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户不存在"
-                
+
                 elif "privacy" in error_msg or "user_privacy" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户隐私"
-                
+
                 elif "banned" in error_msg or "blocked" in error_msg:
                     self.update_account_status_by_phone(phone, '封禁')
                     send_stats['fail'] += 1
                     return False, "封禁"
-                
+
                 elif "deactivated" in error_msg or "deleted" in error_msg:
                     self.update_account_status_by_phone(phone, '销号')
                     send_stats['fail'] += 1
                     return False, "销号"
-                
+
                 elif "permission" in error_msg or "access" in error_msg:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
                     return False, "风控限制"
-                
+
                 else:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
                     return False, "风控限制"
-                    
+
             except UserPrivacyRestrictedError:
                 send_stats['fail'] += 1
                 return False, "用户隐私"
-                
+
             except Exception as e:
                 error_msg = str(e).lower()
                 error_code = str(e)
-                
+
                 if "403" in error_code or "forbidden" in error_msg:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
                     return False, "风控限制"
-                    
+
                 elif "429" in error_code or "flood" in error_msg or "too many" in error_msg:
                     self.update_account_status_by_phone(phone, '频率限制')
                     send_stats['fail'] += 1
                     return False, "频率限制"
-                    
+
                 elif "banned" in error_msg or "blocked" in error_msg:
                     self.update_account_status_by_phone(phone, '封禁')
                     send_stats['fail'] += 1
                     return False, "封禁"
-                    
+
                 elif "deactivated" in error_msg or "deleted" in error_msg:
                     self.update_account_status_by_phone(phone, '销号')
                     send_stats['fail'] += 1
                     return False, "销号"
-                    
+
                 elif "timeout" in error_msg or "timed out" in error_msg:
                     send_stats['fail'] += 1
                     return False, "网络超时"
-                    
+
                 elif "connection" in error_msg or "proxy" in error_msg or "connect" in error_msg:
                     send_stats['fail'] += 1
                     return False, "代理错误"
-                    
+
                 elif "privacy" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户隐私"
-                    
+
                 elif "not found" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户不存在"
-                    
+
                 else:
                     send_stats['fail'] += 1
                     return False, "用户无效"
@@ -5611,7 +5422,7 @@ class TelegramFullGUI:
                 else:
                     send_stats['fail'] += 1
                     return False, "命令错误"
-                    
+
             elif image_path and os.path.exists(image_path):
                 try:
                     file = await client.upload_file(image_path)
@@ -5636,7 +5447,7 @@ class TelegramFullGUI:
                     else:
                         send_stats['fail'] += 1
                         return False, "发送失败"
-                        
+
             else:
                 try:
                     await client.send_message(user_entity.id, ad_text)
