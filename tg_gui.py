@@ -4486,13 +4486,13 @@ class TelegramFullGUI:
         self.log("批量拉人", f"✅ 完成  成功:{self.total_success}  失败:{self.total_fail}")
 
     async def invite_user_with_verify(self, client, phone, entity, username):
-        """强拉用户进群并验证是否真正加入 - 精确区分用户不存在和网络错误"""
+        """强拉用户进群并验证是否真正加入 - 修复验证逻辑，支持隐私群"""
+        from telethon.tl.functions.channels import GetParticipantRequest
+        from telethon.errors import UsernameInvalidError
+
         clean_username = username.lstrip('@')
 
-        if clean_username in self.processed_usernames:
-            return False, "已处理"
-
-        # ✅ 获取用户实体 - 精确区分"用户不存在"和"网络错误"
+        # 1. 获取用户实体 - 精确区分"用户不存在"和"网络错误"
         try:
             user_entity = await client.get_entity(clean_username)
         except FloodWaitError as e:
@@ -4504,7 +4504,6 @@ class TelegramFullGUI:
             self.update_account_status_by_phone(phone, '封禁')
             return False, "封禁"
         except (ValueError, UsernameInvalidError) as e:
-            # ✅ 只有 ValueError 和 UsernameInvalidError 才是真正的"用户不存在"
             return False, "用户不存在"
         except TimeoutError:
             return False, "网络超时"
@@ -4512,7 +4511,7 @@ class TelegramFullGUI:
             return False, "连接错误"
         except RPCError as e:
             error_code = str(e)
-            if "400" in error_code or "USERNAME_NOT_OCCUPIED" in str(e) or "not found" in str(e).lower():
+            if "400" in error_code or "USERNAME_NOT_OCCUPIED" in str(e):
                 return False, "用户不存在"
             elif "403" in error_code or "forbidden" in str(e).lower():
                 self.update_account_status_by_phone(phone, '风控限制')
@@ -4524,7 +4523,7 @@ class TelegramFullGUI:
                 self.update_account_status_by_phone(phone, '封禁')
                 return False, "封禁"
             else:
-                return False, f"RPC错误"
+                return False, "RPC错误"
         except Exception as e:
             error_msg = str(e).lower()
             if "not found" in error_msg or "username" in error_msg:
@@ -4534,36 +4533,39 @@ class TelegramFullGUI:
             elif "connection" in error_msg:
                 return False, "连接错误"
             else:
-                return False, f"获取用户失败"
+                return False, "获取用户失败"
 
+        # 检查是否为机器人或已注销
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             return False, "用户已注销"
 
         if hasattr(user_entity, 'bot') and user_entity.bot:
             return False, "机器人"
 
-        # ✅ 尝试拉人
+        # 2. 先检查用户是否已在群组中（隐私群也能用GetParticipantRequest）
+        try:
+            await client(GetParticipantRequest(
+                channel=entity,
+                participant=user_entity.id
+            ))
+            return True, "已在群中"
+        except Exception:
+            pass
+
+        # 3. 执行强拉
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
-            await asyncio.sleep(2)
+            await asyncio.sleep(1.5)
 
+            # 4. 验证是否拉入成功（隐私群也能用GetParticipantRequest）
             try:
-                participants = await client(GetParticipantsRequest(
+                await client(GetParticipantRequest(
                     channel=entity,
-                    filter=ChannelParticipantsSearch(clean_username),
-                    offset=0,
-                    limit=10,
-                    hash=0
+                    participant=user_entity.id
                 ))
-
-                for p in participants.users:
-                    if p.id == user_entity.id:
-                        return True, "成功"
-
-                return False, "用户隐私"
-
-            except Exception:
                 return True, "成功"
+            except Exception:
+                return False, "验证失败"
 
         except UserPrivacyRestrictedError:
             return False, "用户隐私"
@@ -4601,7 +4603,7 @@ class TelegramFullGUI:
                 self.update_account_status_by_phone(phone, '销号')
                 return False, "销号"
             else:
-                return False, f"拉人失败"
+                return False, "拉人失败"
 
     def stop_invite(self):
         if self.is_inviting:
