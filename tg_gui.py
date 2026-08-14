@@ -520,18 +520,12 @@ class TelegramFullGUI:
 
     def refresh_scrape_accounts(self):
         if hasattr(self, 'scrape_account'):
-            # 保存当前选中的账号
             current_selection = self.scrape_account.get()
-            
-            # 更新下拉框列表 - 显示所有账号
             account_list = [a.get('phone', '') for a in self.accounts]
             self.scrape_account['values'] = account_list
-            
-            # 如果之前选中的账号还在列表中，保持选中
             if current_selection in account_list:
                 self.scrape_account.set(current_selection)
             elif account_list:
-                # 否则选中第一个
                 self.scrape_account.set(account_list[0])
             else:
                 self.scrape_account.set('')
@@ -2623,7 +2617,6 @@ class TelegramFullGUI:
                 password = match.group(2)
                 host = match.group(3)
                 port = match.group(4)
-                # 修复：如果是HTTP/HTTPS代理，保存为socks5类型以兼容Telethon
                 if original_type in ['http', 'https']:
                     self.log("代理IP", f"HTTP代理将作为SOCKS5导入: {host}:{port}")
                     actual_type = 'socks5'
@@ -2692,7 +2685,6 @@ class TelegramFullGUI:
         
         try:
             if proxy_type in ['http', 'https']:
-                # HTTP/HTTPS代理检测
                 proxy_url = f"{proxy_type}://"
                 if p.get('user') and p.get('password'):
                     proxy_url += f"{p.get('user')}:{p.get('password')}@"
@@ -2714,7 +2706,6 @@ class TelegramFullGUI:
                     self.log("代理IP", f"{proxy_type}://{proxy_str}: 不可用 (状态码: {resp.status_code})")
             
             elif proxy_type in ['socks5', 'socks4']:
-                # SOCKS代理检测
                 try:
                     import socks
                     import socket
@@ -2761,7 +2752,6 @@ class TelegramFullGUI:
             p['status'] = "不可用"
             self.log("代理IP", f"{proxy_type}://{proxy_str}: 检测失败 - {str(e)[:30]}")
         
-        # 检测完成后自动保存配置
         self.save_config()
 
     def check_selected_proxies(self):
@@ -4241,27 +4231,79 @@ class TelegramFullGUI:
 
         threading.Thread(target=run_invite_task, daemon=True).start()
 
+    # ==================== 🔧 修复后的 run_invite_advanced_multi_accounts ====================
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
-        account_users = [[] for _ in range(len(accounts))]
-        user_index = 0
-        while user_index < len(users):
-            for i in range(len(accounts)):
-                if user_index >= len(users):
-                    break
-                account_users[i].append(users[user_index])
-                user_index += 1
+        """
+        多账号批量拉人 - 修复版
+        严格按参数控制：线程数、线程等待间隔、每账号拉人间隔
+        """
+        if not accounts or not users or not targets:
+            self.log("批量拉人", "账号、用户或目标为空")
+            return
 
-        tasks = []
-        for i, acc in enumerate(accounts):
-            user_slice = account_users[i]
-            if user_slice:
-                task = self.run_single_account_invite(
-                    acc, targets, user_slice, per_batch, per_account_max,
-                    per_account_limit, invite_wait
-                )
-                tasks.append(task)
-                await asyncio.sleep(1)
-        await asyncio.gather(*tasks)
+        valid_accounts = [acc for acc in accounts if acc.get('status') == '正常']
+        if not valid_accounts:
+            self.log("批量拉人", "没有可用的正常账号")
+            return
+
+        self.log("批量拉人", f"有效账号: {len(valid_accounts)} 个, 用户: {len(users)} 个")
+
+        # 将用户列表按 per_batch 分组
+        user_batches = []
+        for i in range(0, len(users), per_batch):
+            user_batches.append(users[i:i+per_batch])
+
+        # 将账号分成 N 批，每批 thread_cnt 个
+        account_batches = []
+        for i in range(0, len(valid_accounts), thread_cnt):
+            account_batches.append(valid_accounts[i:i+thread_cnt])
+
+        self.log("批量拉人", f"账号分 {len(account_batches)} 批，每批最多 {thread_cnt} 个")
+        self.log("批量拉人", f"用户分 {len(user_batches)} 批，每批 {per_batch} 个")
+
+        # 逐批执行账号
+        for batch_idx, account_batch in enumerate(account_batches, 1):
+            if self.invite_stop_flag:
+                self.log("批量拉人", "收到停止信号，终止拉人")
+                break
+
+            self.log("批量拉人", f"")
+            self.log("批量拉人", f"========== 第 {batch_idx}/{len(account_batches)} 批账号 ==========")
+            self.log("批量拉人", f"本批账号: {len(account_batch)} 个")
+
+            # 为当前批次的账号分配用户（轮流分配）
+            account_users = [[] for _ in range(len(account_batch))]
+            user_index = 0
+            while user_index < len(users):
+                for i in range(len(account_batch)):
+                    if user_index >= len(users):
+                        break
+                    account_users[i].append(users[user_index])
+                    user_index += 1
+
+            tasks = []
+            for i, acc in enumerate(account_batch):
+                user_slice = account_users[i]
+                if user_slice:
+                    task = self.run_single_account_invite(
+                        acc, targets, user_slice, per_batch, per_account_max,
+                        per_account_limit, invite_wait
+                    )
+                    tasks.append(task)
+
+            if tasks:
+                await asyncio.gather(*tasks)
+
+            # 每批账号结束后等待 thread_wait
+            if batch_idx < len(account_batches) and not self.invite_stop_flag:
+                self.log("批量拉人", f"等待 {thread_wait} 秒后启动下一批账号...")
+                for wait_second in range(int(thread_wait)):
+                    if self.invite_stop_flag:
+                        self.log("批量拉人", "等待期间收到停止信号")
+                        break
+                    await asyncio.sleep(1)
+
+        self.log("批量拉人", "所有账号批次执行完成")
 
     async def invite_user(self, client, phone, entity, username):
         clean_username = username.lstrip('@')
@@ -4417,7 +4459,9 @@ class TelegramFullGUI:
             else:
                 return False, f"[{phone[-6:]}] 未知错误 | {clean_username[:15]} | {error_msg[:30]}"
 
+    # ==================== 🔧 修复后的 run_single_account_invite ====================
     async def run_single_account_invite(self, acc, targets, users, per_batch, per_account_max, per_account_limit, invite_wait):
+        """单个账号拉人 - 修复版，每个用户之间有 invite_wait 间隔"""
         from telethon.tl.functions.channels import JoinChannelRequest
         from telethon.tl.functions.messages import ImportChatInviteRequest
         from telethon.errors import UserAlreadyParticipantError
@@ -4463,10 +4507,7 @@ class TelegramFullGUI:
                         else:
                             invite_hash = target.split('/joinchat/')[-1].split('?')[0]
                         try:
-                            # 修复：ImportChatInviteRequest 返回 ChatInviteJoinResultOk，没有 chats 属性
-                            # 直接执行加入操作，然后通过 get_entity 获取群组实体
                             await client(ImportChatInviteRequest(invite_hash))
-                            # 加入成功后，通过 get_entity 获取群组实体
                             try:
                                 entity = await client.get_entity(target)
                             except:
@@ -4539,14 +4580,19 @@ class TelegramFullGUI:
                 self.log("批量拉人", f"[{phone[-6:]}] 无有效目标")
                 return
 
-            for username in users:
+            # 逐用户处理，每个用户之间有 invite_wait 间隔
+            for idx, username in enumerate(users, 1):
                 if self.invite_stop_flag:
                     break
                 if per_account_max > 0 and account_invited_count >= per_account_max:
                     break
+                if per_account_limit > 0 and account_invited_count >= per_account_limit:
+                    break
 
                 for target, entity in target_entities:
                     if self.invite_stop_flag:
+                        break
+                    if per_account_max > 0 and account_invited_count >= per_account_max:
                         break
                     if per_account_limit > 0 and account_invited_count >= per_account_limit:
                         break
@@ -4560,6 +4606,7 @@ class TelegramFullGUI:
                     if success:
                         account_invited_count += 1
                         self.remove_user_from_file(username)
+                        break
                     else:
                         account_level_errors = [
                             "封禁", "风控", "频率限制", "销号",
@@ -4572,8 +4619,17 @@ class TelegramFullGUI:
                             self.remove_user_from_file(username)
                             continue
 
-                    await asyncio.sleep(invite_wait)
-                    break
+                # 每个用户处理完后等待 invite_wait 秒
+                if idx < len(users) and not self.invite_stop_flag:
+                    if account_invited_count < per_account_max or per_account_max == 0:
+                        if account_invited_count < per_account_limit or per_account_limit == 0:
+                            self.log("批量拉人", f"[{phone[-6:]}] 等待 {invite_wait} 秒后处理下一个用户...")
+                            for wait_second in range(int(invite_wait)):
+                                if self.invite_stop_flag:
+                                    break
+                                await asyncio.sleep(1)
+
+            self.log("批量拉人", f"[{phone[-6:]}] 完成，共拉 {account_invited_count} 人")
 
         except Exception as e:
             error_msg = str(e)
@@ -5057,7 +5113,6 @@ class TelegramFullGUI:
                 self.private_log_insert("用户列表已为空，停止发送")
                 break
 
-            # 每轮重新计算可用账号
             available_accounts = [acc for acc in active_accounts 
                                   if acc.get('phone') not in eliminated_accounts 
                                   and account_sent_count.get(acc.get('phone'), 0) < per_account_limit]
@@ -5073,7 +5128,6 @@ class TelegramFullGUI:
             self.private_log_insert(f"========== 第 {round_num} 轮 ==========")
             self.private_log_insert(f"参与账号: {len(available_accounts)}个, 剩余用户: {len(user_list)}个")
 
-            # 使用当前轮次的可用账号
             current_batch_accounts = available_accounts.copy()
             total_batches = (len(current_batch_accounts) + thread_cnt - 1) // thread_cnt
             
@@ -5102,7 +5156,6 @@ class TelegramFullGUI:
                         break
                         
                     phone = acc.get('phone', '')
-                    # 发送前再次检查账号是否已满或已被淘汰
                     if phone in eliminated_accounts:
                         continue
                     if account_sent_count.get(phone, 0) >= per_account_limit:
@@ -5148,7 +5201,6 @@ class TelegramFullGUI:
 
                     await asyncio.sleep(1)
 
-                # 检查是否还有可用账号可以继续，有则等待间隔
                 if batch_idx < total_batches - 1 and not self.private_stop_flag:
                     if user_list:
                         remaining_check = [acc for acc in current_batch_accounts 
@@ -5156,7 +5208,6 @@ class TelegramFullGUI:
                                            and account_sent_count.get(acc.get('phone'), 0) < per_account_limit]
                         if remaining_check:
                             self.private_log_insert(f"等待 {interval} 秒...")
-                            # 分段等待，每1秒检查一次停止/暂停状态
                             for _ in range(interval):
                                 if self.private_stop_flag:
                                     self.private_log_insert("等待期间收到停止信号")
@@ -5172,7 +5223,6 @@ class TelegramFullGUI:
             if self.private_stop_flag:
                 break
 
-            # 本轮结束后检查是否所有账号都已达到上限
             all_done = True
             for acc in active_accounts:
                 phone = acc.get('phone')
@@ -5204,7 +5254,6 @@ class TelegramFullGUI:
         self.private_user_count_label.config(text=f"已加载: {len(self.private_users)} 个用户")
         self.refresh_account_list_filter()
 
-    # ==================== 🔧 修复后的 send_single_message_v2_with_type - 精确区分账号/用户问题 ====================
     async def send_single_message_v2_with_type(self, acc, username, ad_text, image_path, send_stats, auto_skip):
         """单个账号发送单条消息，返回 (是否成功, 错误类型) - 精确区分账号/用户问题"""
         phone = acc.get('phone', '')
@@ -5239,13 +5288,11 @@ class TelegramFullGUI:
 
             clean_username = username.lstrip('@')
 
-            # ========== 获取用户实体 - 精确区分账号问题和用户问题 ==========
             user_entity = None
             
             try:
                 user_entity = await client.get_entity(clean_username)
             except FloodWaitError as e:
-                # 频率限制 → 账号问题 ❌
                 self.update_account_status_by_phone(phone, '频率限制')
                 send_stats['fail'] += 1
                 wait_time = min(e.seconds, 120)
@@ -5253,19 +5300,16 @@ class TelegramFullGUI:
                 return False, "频率限制"
                 
             except UserDeactivatedError:
-                # 用户已注销 → 用户问题 ✅
                 send_stats['fail'] += 1
                 return False, "用户已注销"
                 
             except PhoneNumberBannedError:
-                # 账号被封禁 → 账号问题 ❌
                 self.update_account_status_by_phone(phone, '封禁')
                 send_stats['fail'] += 1
                 return False, "封禁"
                 
             except ValueError as e:
                 error_msg = str(e).lower()
-                # ValueError: 用户不存在或格式错误 → 用户问题 ✅
                 if "not found" in error_msg or "invalid" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户不存在"
@@ -5274,7 +5318,6 @@ class TelegramFullGUI:
                     return False, "用户无效"
                     
             except TimeoutError:
-                # 超时 → 网络问题 ❌
                 send_stats['fail'] += 1
                 return False, "网络超时"
                 
@@ -5282,61 +5325,49 @@ class TelegramFullGUI:
                 error_msg = str(e).lower()
                 error_code = str(e)
                 
-                # ========== 关键修复：根据HTTP状态码精确分类 ==========
-                
-                # 403 Forbidden → 账号被风控，无法获取用户 ❌
                 if "403" in error_code or "forbidden" in error_msg:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
                     return False, "风控限制"
                 
-                # 429 Too Many Requests → 频率限制 ❌
                 elif "429" in error_code or "flood" in error_msg or "too many" in error_msg:
                     self.update_account_status_by_phone(phone, '频率限制')
                     send_stats['fail'] += 1
                     return False, "频率限制"
                 
-                # 400 Bad Request → 用户不存在或格式错误 ✅
                 elif "400" in error_code or "invalid" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户无效"
                 
-                # 用户不存在
                 elif "username_not_occupied" in error_msg or "not found" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户不存在"
                 
-                # 用户隐私设置
                 elif "privacy" in error_msg or "user_privacy" in error_msg:
                     send_stats['fail'] += 1
                     return False, "用户隐私"
                 
-                # 账号被封禁
                 elif "banned" in error_msg or "blocked" in error_msg:
                     self.update_account_status_by_phone(phone, '封禁')
                     send_stats['fail'] += 1
                     return False, "封禁"
                 
-                # 账号已注销/删除
                 elif "deactivated" in error_msg or "deleted" in error_msg:
                     self.update_account_status_by_phone(phone, '销号')
                     send_stats['fail'] += 1
                     return False, "销号"
                 
-                # 权限不足
                 elif "permission" in error_msg or "access" in error_msg:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
                     return False, "风控限制"
                 
-                # 其他RPC错误，保守处理为账号问题 ❌
                 else:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
                     return False, "风控限制"
                     
             except UserPrivacyRestrictedError:
-                # 用户隐私设置 → 用户问题 ✅
                 send_stats['fail'] += 1
                 return False, "用户隐私"
                 
@@ -5344,7 +5375,6 @@ class TelegramFullGUI:
                 error_msg = str(e).lower()
                 error_code = str(e)
                 
-                # ========== 检查通用异常中的账号问题 ==========
                 if "403" in error_code or "forbidden" in error_msg:
                     self.update_account_status_by_phone(phone, '风控限制')
                     send_stats['fail'] += 1
@@ -5382,11 +5412,9 @@ class TelegramFullGUI:
                     return False, "用户不存在"
                     
                 else:
-                    # 无法确定的问题，保守处理
                     send_stats['fail'] += 1
                     return False, "用户无效"
 
-            # ========== 备用方法：尝试通过 ResolveUsernameRequest 获取 ==========
             if user_entity is None:
                 try:
                     from telethon.tl.functions.contacts import ResolveUsernameRequest
@@ -5406,7 +5434,6 @@ class TelegramFullGUI:
                 except Exception:
                     pass
 
-            # 最终判断
             if user_entity is None:
                 send_stats['fail'] += 1
                 return False, "用户无效"
@@ -5417,7 +5444,6 @@ class TelegramFullGUI:
                 send_stats['fail'] += 1
                 return False, "用户无效"
 
-            # ========== PostBot发送逻辑 ==========
             if ad_text.strip().startswith('@PostBot'):
                 parts = ad_text.strip().split(' ')
                 if len(parts) >= 2:
@@ -5475,7 +5501,6 @@ class TelegramFullGUI:
                     send_stats['fail'] += 1
                     return False, "命令错误"
                     
-            # ========== 图片发送 ==========
             elif image_path and os.path.exists(image_path):
                 try:
                     file = await client.upload_file(image_path)
@@ -5501,7 +5526,6 @@ class TelegramFullGUI:
                         send_stats['fail'] += 1
                         return False, "发送失败"
                         
-            # ========== 文本发送 ==========
             else:
                 try:
                     await client.send_message(user_entity.id, ad_text)
@@ -5603,7 +5627,7 @@ class TelegramFullGUI:
 
     def stop_private_send(self):
         self.private_stop_flag = True
-        self.private_send_paused = False  # 暂停状态也要清除
+        self.private_send_paused = False
         self.private_log_insert("停止私发")
 
     def pause_private_send(self):
@@ -5775,7 +5799,6 @@ class TelegramFullGUI:
                             else:
                                 invite_hash = target.split('/joinchat/')[-1].split('?')[0]
                             try:
-                                # 修复：ImportChatInviteRequest 返回 ChatInviteJoinResultOk，没有 chats 属性
                                 await client(ImportChatInviteRequest(invite_hash))
                                 try:
                                     entity = await client.get_entity(target)
@@ -6355,7 +6378,6 @@ class TelegramFullGUI:
                             else:
                                 invite_hash = group_link.split('/joinchat/')[-1].split('?')[0]
                             try:
-                                # 修复：ImportChatInviteRequest 返回 ChatInviteJoinResultOk，没有 chats 属性
                                 await client(ImportChatInviteRequest(invite_hash))
                                 try:
                                     if 't.me/' in group_link:
