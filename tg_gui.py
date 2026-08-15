@@ -2951,7 +2951,8 @@ class TelegramFullGUI:
 
         self.is_scraping = False
         self.scraped_members = []
-        self.scrape_task = None        self.scrape_loop = None
+        self.scrape_task = None
+        self.scrape_loop = None
         self.refresh_scrape_accounts()
 
     def select_save_path(self):
