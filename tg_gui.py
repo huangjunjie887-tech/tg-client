@@ -4214,6 +4214,9 @@ class TelegramFullGUI:
 
     # ==================== 批量拉人核心方法（修复版 - 精简日志 + 自动删除用户） ====================
     async def run_invite_advanced_multi_accounts(self, accounts, users, targets, per_batch, per_account_max, per_account_limit, thread_cnt, thread_wait, invite_wait, auto_switch):
+        # ✅ 强制重置停止标志（防止上次任务残留）
+        self.invite_stop_flag = False
+
         if not accounts or not users or not targets:
             return
 
@@ -4370,7 +4373,9 @@ class TelegramFullGUI:
             account_batches.append(join_success_accounts[i:i+thread_cnt])
 
         for round_num in range(1, per_account_max + 1):
+            # ✅ 每轮开始前检查停止标志
             if self.invite_stop_flag:
+                self.log("批量拉人", f"⚠️ 第{round_num}轮检测到停止信号")
                 break
 
             all_done = True
@@ -4583,16 +4588,16 @@ class TelegramFullGUI:
             else:
                 return False, "拉人失败"
 
-def stop_invite(self):
-    if self.is_inviting:
-        # ✅ 添加确认对话框，防止误触
-        if messagebox.askyesno("确认停止", "确定要停止拉人吗？"):
-            self.invite_stop_flag = True
-            self.log("批量拉人", "停止拉人")
+    def stop_invite(self):
+        if self.is_inviting:
+            # ✅ 添加确认对话框，防止误触
+            if messagebox.askyesno("确认停止", "确定要停止拉人吗？"):
+                self.invite_stop_flag = True
+                self.log("批量拉人", "停止拉人")
+            else:
+                self.log("批量拉人", "取消停止")
         else:
-            self.log("批量拉人", "取消停止")
-    else:
-        self.log("批量拉人", "无进行中的任务")
+            self.log("批量拉人", "无进行中的任务")
 
     # ==================== 以下为原始代码（未修改） ====================
     def create_send_page(self):
