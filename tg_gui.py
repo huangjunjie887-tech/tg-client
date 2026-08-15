@@ -2951,8 +2951,7 @@ class TelegramFullGUI:
 
         self.is_scraping = False
         self.scraped_members = []
-        self.scrape_task = None
-        self.scrape_loop = None
+        self.scrape_task = None        self.scrape_loop = None
         self.refresh_scrape_accounts()
 
     def select_save_path(self):
@@ -4486,7 +4485,7 @@ class TelegramFullGUI:
         self.log("批量拉人", f"✅ 完成  成功:{self.total_success}  失败:{self.total_fail}")
 
     async def invite_user_with_verify(self, client, phone, entity, username):
-        """强拉用户进群 - 隐私群不验证，直接根据API返回结果判断"""
+        """精准捕获拉人API返回的真实错误"""
         from telethon.errors import UsernameInvalidError
 
         clean_username = username.lstrip('@')
@@ -4494,64 +4493,92 @@ class TelegramFullGUI:
         # 获取用户实体
         try:
             user_entity = await client.get_entity(clean_username)
-        except FloodWaitError:
-            self.update_account_status_by_phone(phone, '频率限制')
+        except FloodWaitError as e:
             return False, "频率限制"
         except UserDeactivatedError:
             return False, "用户已注销"
         except PhoneNumberBannedError:
-            self.update_account_status_by_phone(phone, '封禁')
-            return False, "封禁"
+            return False, "手机号被封禁"
         except (ValueError, UsernameInvalidError):
             return False, "用户不存在"
+        except TimeoutError:
+            return False, "网络超时"
+        except ConnectionError:
+            return False, "连接错误"
+        except RPCError as e:
+            if "USERNAME_NOT_OCCUPIED" in str(e):
+                return False, "用户不存在"
+            elif "FLOOD" in str(e):
+                return False, "频率限制"
+            elif "BANNED" in str(e):
+                return False, "账号被封禁"
+            else:
+                return False, "RPC错误"
         except Exception:
-            return False, "获取失败"
+            return False, "获取用户失败"
 
+        # 检查用户状态
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             return False, "用户已注销"
         if hasattr(user_entity, 'bot') and user_entity.bot:
-            return False, "机器人"
+            return False, "机器人账号"
 
-        # 执行强拉
+        # 执行拉人 - 精准捕获所有真实错误
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
-            # API调用成功 = 用户已被拉入
             return True, "成功"
         except UserPrivacyRestrictedError:
-            return False, "用户隐私"
+            return False, "用户隐私设置"
+        except UserNotMutualContactError:
+            return False, "用户只允许联系人添加"
         except UserAlreadyParticipantError:
             return True, "已在群中"
         except PeerFloodError:
-            self.update_account_status_by_phone(phone, '风控限制')
-            return False, "风控限制"
+            return False, "账号风控限制"
         except FloodWaitError as e:
-            self.update_account_status_by_phone(phone, '频率限制')
             return False, "频率限制"
         except UserBannedInChannelError:
-            self.update_account_status_by_phone(phone, '限制加群')
-            return False, "限制加群"
+            return False, "用户拒绝被添加"
         except UserChannelsTooMuchError:
-            return False, "群组已满"
+            return False, "用户群组已满"
         except ChatWriteForbiddenError:
-            self.update_account_status_by_phone(phone, '发言限制')
-            return False, "发言限制"
+            return False, "账号发言限制"
         except UserDeactivatedError:
-            self.update_account_status_by_phone(phone, '销号')
-            return False, "销号"
+            return False, "用户已注销"
         except PhoneNumberBannedError:
-            self.update_account_status_by_phone(phone, '封禁')
-            return False, "封禁"
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "banned" in error_msg:
-                self.update_account_status_by_phone(phone, '封禁')
-                return False, "封禁"
-            elif "flood" in error_msg:
-                self.update_account_status_by_phone(phone, '频率限制')
+            return False, "手机号被封禁"
+        except RPCError as e:
+            error_msg = str(e).upper()
+            if "PRIVACY" in error_msg:
+                return False, "用户隐私设置"
+            elif "FLOOD" in error_msg:
                 return False, "频率限制"
-            elif "deactivated" in error_msg:
-                self.update_account_status_by_phone(phone, '销号')
-                return False, "销号"
+            elif "BANNED" in error_msg:
+                return False, "账号被封禁"
+            elif "USER_NOT_MUTUAL_CONTACT" in error_msg:
+                return False, "用户只允许联系人添加"
+            elif "USER_BANNED_IN_CHANNEL" in error_msg:
+                return False, "用户拒绝被添加"
+            elif "USER_CHANNELS_TOO_MUCH" in error_msg:
+                return False, "用户群组已满"
+            elif "CHAT_WRITE_FORBIDDEN" in error_msg:
+                return False, "账号发言限制"
+            else:
+                return False, "拉人失败"
+        except Exception as e:
+            error_msg = str(e).upper()
+            if "PRIVACY" in error_msg:
+                return False, "用户隐私设置"
+            elif "FLOOD" in error_msg:
+                return False, "频率限制"
+            elif "BANNED" in error_msg:
+                return False, "账号被封禁"
+            elif "USER_NOT_MUTUAL_CONTACT" in error_msg:
+                return False, "用户只允许联系人添加"
+            elif "USER_BANNED_IN_CHANNEL" in error_msg:
+                return False, "用户拒绝被添加"
+            elif "USER_CHANNELS_TOO_MUCH" in error_msg:
+                return False, "用户群组已满"
             else:
                 return False, "拉人失败"
 
