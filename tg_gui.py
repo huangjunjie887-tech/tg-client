@@ -4583,12 +4583,16 @@ class TelegramFullGUI:
             else:
                 return False, "拉人失败"
 
-    def stop_invite(self):
-        if self.is_inviting:
+def stop_invite(self):
+    if self.is_inviting:
+        # ✅ 添加确认对话框，防止误触
+        if messagebox.askyesno("确认停止", "确定要停止拉人吗？"):
             self.invite_stop_flag = True
             self.log("批量拉人", "停止拉人")
         else:
-            self.log("批量拉人", "无进行中的任务")
+            self.log("批量拉人", "取消停止")
+    else:
+        self.log("批量拉人", "无进行中的任务")
 
     # ==================== 以下为原始代码（未修改） ====================
     def create_send_page(self):
