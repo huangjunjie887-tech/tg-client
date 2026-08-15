@@ -4486,16 +4486,15 @@ class TelegramFullGUI:
         self.log("批量拉人", f"✅ 完成  成功:{self.total_success}  失败:{self.total_fail}")
 
     async def invite_user_with_verify(self, client, phone, entity, username):
-        """强拉用户进群并验证是否真正加入 - 修复验证逻辑，支持隐私群"""
-        from telethon.tl.functions.channels import GetParticipantRequest
+        """强拉用户进群 - 隐私群不验证，直接根据API返回结果判断"""
         from telethon.errors import UsernameInvalidError
 
         clean_username = username.lstrip('@')
 
-        # 1. 获取用户实体 - 精确区分"用户不存在"和"网络错误"
+        # 获取用户实体
         try:
             user_entity = await client.get_entity(clean_username)
-        except FloodWaitError as e:
+        except FloodWaitError:
             self.update_account_status_by_phone(phone, '频率限制')
             return False, "频率限制"
         except UserDeactivatedError:
@@ -4503,70 +4502,21 @@ class TelegramFullGUI:
         except PhoneNumberBannedError:
             self.update_account_status_by_phone(phone, '封禁')
             return False, "封禁"
-        except (ValueError, UsernameInvalidError) as e:
+        except (ValueError, UsernameInvalidError):
             return False, "用户不存在"
-        except TimeoutError:
-            return False, "网络超时"
-        except ConnectionError:
-            return False, "连接错误"
-        except RPCError as e:
-            error_code = str(e)
-            if "400" in error_code or "USERNAME_NOT_OCCUPIED" in str(e):
-                return False, "用户不存在"
-            elif "403" in error_code or "forbidden" in str(e).lower():
-                self.update_account_status_by_phone(phone, '风控限制')
-                return False, "风控限制"
-            elif "429" in error_code or "flood" in str(e).lower():
-                self.update_account_status_by_phone(phone, '频率限制')
-                return False, "频率限制"
-            elif "banned" in str(e).lower():
-                self.update_account_status_by_phone(phone, '封禁')
-                return False, "封禁"
-            else:
-                return False, "RPC错误"
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "not found" in error_msg or "username" in error_msg:
-                return False, "用户不存在"
-            elif "timeout" in error_msg:
-                return False, "网络超时"
-            elif "connection" in error_msg:
-                return False, "连接错误"
-            else:
-                return False, "获取用户失败"
+        except Exception:
+            return False, "获取失败"
 
-        # 检查是否为机器人或已注销
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             return False, "用户已注销"
-
         if hasattr(user_entity, 'bot') and user_entity.bot:
             return False, "机器人"
 
-        # 2. 先检查用户是否已在群组中（隐私群也能用GetParticipantRequest）
-        try:
-            await client(GetParticipantRequest(
-                channel=entity,
-                participant=user_entity.id
-            ))
-            return True, "已在群中"
-        except Exception:
-            pass
-
-        # 3. 执行强拉
+        # 执行强拉
         try:
             await client(InviteToChannelRequest(entity, [user_entity.id]))
-            await asyncio.sleep(1.5)
-
-            # 4. 验证是否拉入成功（隐私群也能用GetParticipantRequest）
-            try:
-                await client(GetParticipantRequest(
-                    channel=entity,
-                    participant=user_entity.id
-                ))
-                return True, "成功"
-            except Exception:
-                return False, "验证失败"
-
+            # API调用成功 = 用户已被拉入
+            return True, "成功"
         except UserPrivacyRestrictedError:
             return False, "用户隐私"
         except UserAlreadyParticipantError:
