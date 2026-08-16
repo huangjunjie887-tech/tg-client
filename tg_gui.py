@@ -5318,7 +5318,8 @@ class TelegramFullGUI:
 
                 else:
                     self.update_account_status_by_phone(phone, '风控限制')
-                    send_stats['fail'] += 1                    return False, "风控限制"
+                send_stats['fail'] += 1
+                return False, "风控限制"
 
             except UserPrivacyRestrictedError:
                 send_stats['fail'] += 1
