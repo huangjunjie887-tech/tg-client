@@ -4499,7 +4499,7 @@ class TelegramFullGUI:
         # 获取用户实体
         try:
             user_entity = await client.get_entity(clean_username)
-        except FloodWaitError as e:
+        except FloodWaitError:
             return False, "频率限制"
         except UserDeactivatedError:
             return False, "用户已注销"
@@ -4523,16 +4523,25 @@ class TelegramFullGUI:
         except Exception:
             return False, "获取用户失败"
 
-        # 检查用户状态
         if hasattr(user_entity, 'deleted') and user_entity.deleted:
             return False, "用户已注销"
         if hasattr(user_entity, 'bot') and user_entity.bot:
             return False, "机器人账号"
 
-        # 执行拉人 - 精准捕获所有真实错误
+        # 执行拉人并检查返回结果
         try:
-            await client(InviteToChannelRequest(entity, [user_entity.id]))
-            return True, "成功"
+            result = await client(InviteToChannelRequest(entity, [user_entity.id]))
+            await asyncio.sleep(1)
+
+            # ✅ 检查 result.users 中是否包含该用户
+            if hasattr(result, 'users') and result.users:
+                for user in result.users:
+                    if hasattr(user, 'id') and user.id == user_entity.id:
+                        return True, "成功"
+
+            # 用户不在返回列表中 = 静默失败
+            return False, "拉人失败"
+
         except UserPrivacyRestrictedError:
             return False, "用户隐私设置"
         except UserNotMutualContactError:
@@ -4541,7 +4550,7 @@ class TelegramFullGUI:
             return True, "已在群中"
         except PeerFloodError:
             return False, "账号风控限制"
-        except FloodWaitError as e:
+        except FloodWaitError:
             return False, "频率限制"
         except UserBannedInChannelError:
             return False, "用户拒绝被添加"
@@ -5309,8 +5318,7 @@ class TelegramFullGUI:
 
                 else:
                     self.update_account_status_by_phone(phone, '风控限制')
-                    send_stats['fail'] += 1
-                    return False, "风控限制"
+                    send_stats['fail'] += 1                    return False, "风控限制"
 
             except UserPrivacyRestrictedError:
                 send_stats['fail'] += 1
